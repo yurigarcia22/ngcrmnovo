@@ -1,5 +1,7 @@
 import { getConversations } from "../actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function DebugPage() {
     const res = await getConversations();
 
