@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { updateDeal, updateContact, deleteDeal, sendMessage, sendMedia, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getMessages, getTeamMembers } from "../app/actions";
-import { getPipelines } from "../app/leads/actions";
-import { getFields } from "@/app/settings/fields/actions";
+import { updateDeal, updateContact, deleteDeal, sendMessage, sendMedia, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getMessages, getTeamMembers } from "@/app/actions";
+import { getPipelines } from "@/app/(protected)/leads/actions";
+import { getFields } from "@/app/(protected)/settings/fields/actions";
 import { createClient } from "@/utils/supabase/client";
 import { X, Save, Loader2, User, Phone, DollarSign, RefreshCw, ThumbsDown, Trash2, Tag as TagIcon, Plus, StickyNote, Zap, GitPullRequest } from "lucide-react";
 import ChatWindow from "./ChatWindow";
