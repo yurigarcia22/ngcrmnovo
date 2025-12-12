@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import { getDashboardData } from "./dashboard/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, DollarSign, TrendingUp, Briefcase } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { Users, DollarSign, TrendingUp } from "lucide-react";
+import { ChartWrapper } from "./dashboard/chart-wrapper";
 
 export const dynamic = "force-dynamic";
 
@@ -98,12 +98,6 @@ async function DashboardContent() {
   );
 }
 
-// Separate Client Component for Recharts to avoid hydration issues if needed, 
-// strictly speaking Recharts works in SC if just rendering SVG but often better as client component.
-// Actually, let's keep it here but I'll make a helper component.
-// Recharts needs to run on client because it uses window/DOM APIs for layout often.
-// So I will make a client component wrapper for the chart.
-
 function LeadsChart({ data }: { data: any[] }) {
   // Client-side wrapper
   return (
@@ -149,6 +143,3 @@ function DashboardSkeleton() {
     </div>
   )
 }
-
-// We need a client component for the Chart to handle Recharts usage
-import { ChartWrapper } from "./dashboard/chart-wrapper";
