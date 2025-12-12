@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { cn } from "@/utils/cn" // Assuming based on typical setup, or I will use clsx/tailwind-merge directly if utils/cn doesn't exist
+import { cn } from "@/lib/utils" // Assuming based on typical setup, or I will use clsx/tailwind-merge directly if utils/cn doesn't exist
 
 // CLSX/Tailwind Merge helper if utils/cn is missing
 import { clsx, type ClassValue } from "clsx"

@@ -1,0 +1,82 @@
+﻿
+> frontend@0.1.0 build
+> next build
+
+node.exe : [baseline-browser-mapping] The 
+data in this module is over two months 
+old.  To ensure accurate Baseline data, 
+please update: `npm i 
+baseline-browser-mapping@latest -D`
+No linha:1 caractere:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified 
+   : ([baseline-brows...ping@latest -D`:S  
+  tring) [], RemoteException
+    + FullyQualifiedErrorId : NativeComman 
+   dError
+ 
+ ÔÜá Warning: Next.js inferred your 
+workspace root, but it may not be correct.
+ We detected multiple lockfiles and 
+selected the directory of 
+C:\Users\yurip\package-lock.json as the 
+root directory.
+ To silence this warning, set 
+`turbopack.root` in your Next.js config, 
+or consider removing one of the lockfiles 
+if it's not needed.
+   See https://nextjs.org/docs/app/api-refe
+rence/config/next-config-js/turbopack#root-
+directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\yurip\Desktop\CRM 
+NG\frontend\package-lock.json
+
+   Ôû▓ Next.js 16.0.5 (Turbopack)
+   - Environments: .env.local
+
+ ÔÜá The "middleware" file convention is 
+deprecated. Please use "proxy" instead. 
+Learn more: https://nextjs.org/docs/message
+s/middleware-to-proxy
+   Creating an optimized production build ...
+[baseline-browser-mapping] The data in 
+this module is over two months old.  To 
+ensure accurate Baseline data, please 
+update: `npm i 
+baseline-browser-mapping@latest -D`
+ Ô£ô Compiled successfully in 11.2s
+   Running TypeScript ...
+Failed to compile.
+
+./components/ui/simple-ui.tsx:3:20
+Type error: Cannot find module 
+'@/utils/cn' or its corresponding type 
+declarations.
+
+[0m [90m 1 |[39m [36mimport[39m 
+[33m*[39m [36mas[39m [33mReact[39m 
+[36mfrom[39m [32m"react"[39m
+ [90m 2 |[39m [36mimport[39m { 
+cva[33m,[39m type [33mVariantProps[39m 
+} [36mfrom[39m 
+[32m"class-variance-authority"[39m
+[31m[1m>[22m[39m[90m 3 |[39m 
+[36mimport[39m { cn } [36mfrom[39m 
+[32m"@/utils/cn"[39m [90m// Assuming 
+based on typical setup, or I will use 
+clsx/tailwind-merge directly if utils/cn 
+doesn't exist[39m
+ [90m   |[39m                    
+[31m[1m^[22m[39m
+ [90m 4 |[39m
+ [90m 5 |[39m [90m// CLSX/Tailwind 
+Merge helper if utils/cn is missing[39m
+ [90m 6 |[39m [36mimport[39m { 
+clsx[33m,[39m type [33mClassValue[39m 
+} [36mfrom[39m [32m"clsx"[39m[0m
+Next.js build worker exited with code: 1 
+and signal: null
