@@ -18,7 +18,6 @@ export const metadata: Metadata = {
 };
 
 import { Toaster } from "sonner";
-import Sidebar from "@/components/Sidebar";
 
 export default function RootLayout({
   children,
@@ -28,13 +27,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased flex h-screen overflow-hidden bg-[#f0f2f5]`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen overflow-hidden bg-[#f0f2f5]`}
         suppressHydrationWarning
       >
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto h-full">
-          {children}
-        </main>
+        {children}
         <Toaster position="top-right" />
       </body>
     </html>

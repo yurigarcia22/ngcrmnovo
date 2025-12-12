@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@supabase/supabase-js";
-import { getTenantId } from "../actions";
+import { getTenantId } from "@/app/actions";
 
 export async function getDashboardData() {
     try {

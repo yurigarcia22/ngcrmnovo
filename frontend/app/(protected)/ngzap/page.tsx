@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { Zap } from "lucide-react";
-import QuickReplyManager from "../../components/QuickReplyManager";
-import TagManager from "../../components/TagManager";
+import QuickReplyManager from "@/components/QuickReplyManager";
+import TagManager from "@/components/TagManager";
 
 export const dynamic = 'force-dynamic';
 

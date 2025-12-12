@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { getConversations, getTeamMembers } from '../actions';
+import { getConversations, getTeamMembers } from '@/app/actions';
 import ChatWindow from '@/components/ChatWindow';
 import { createClient } from '@/utils/supabase/client';
 import { Search, MessageSquare, User, Tag, Calendar, ChevronRight, Filter } from 'lucide-react';

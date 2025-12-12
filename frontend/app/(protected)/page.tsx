@@ -1,8 +1,8 @@
 import { Suspense } from "react";
-import { getDashboardData } from "./dashboard/actions";
+import { getDashboardData } from "@/app/(protected)/dashboard/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, DollarSign, TrendingUp } from "lucide-react";
-import { ChartWrapper } from "./dashboard/chart-wrapper";
+import { ChartWrapper } from "@/app/(protected)/dashboard/chart-wrapper";
 
 export const dynamic = "force-dynamic";
 

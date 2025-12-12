@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
-import { markAsWon, getTeamMembers } from "../actions";
+import { markAsWon, getTeamMembers } from "@/app/actions";
 import { getPipelines, getBoardData } from "./actions";
 // Removed standalone getFields import as it is now in getBoardData
 import { GitPullRequest, Link as LinkIcon } from "lucide-react";

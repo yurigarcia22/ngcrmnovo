@@ -1,4 +1,4 @@
-import { getConversations } from "../actions";
+import { getConversations } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 

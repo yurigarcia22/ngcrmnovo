@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { CheckSquare, Square, Calendar, User, Briefcase, Loader2, Clock } from "lucide-react";
-import { toggleTask } from "../../app/actions";
-import DealModal from "../../components/DealModal";
+import { toggleTask } from "@/app/actions";
+import DealModal from "@/components/DealModal";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
