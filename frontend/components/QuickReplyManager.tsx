@@ -1,8 +1,9 @@
 "use client";
 
+
 import { useState } from "react";
-import { Trash2, Plus, Save, Tag, MessageSquare, Zap, Edit2, X, Check } from "lucide-react";
-import { createQuickReply, updateQuickReply, deleteQuickReply, renameQuickReplyCategory } from "../app/actions";
+import { createQuickReply, updateQuickReply, deleteQuickReply } from "../app/actions";
+import { Plus, Trash2, Zap, Search, Edit2, X, MessageSquare, Tag, Folder } from "lucide-react";
 
 interface QuickReply {
     id: string;
@@ -16,231 +17,283 @@ interface QuickReplyManagerProps {
 }
 
 export default function QuickReplyManager({ initialReplies }: QuickReplyManagerProps) {
-    const [editingReply, setEditingReply] = useState<QuickReply | null>(null);
-    const [editingCategory, setEditingCategory] = useState<string | null>(null);
-    const [newCategoryName, setNewCategoryName] = useState<string>("");
+    const [replies, setReplies] = useState(initialReplies);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
-    // Agrupar por categoria
+    // Form State
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [shortcut, setShortcut] = useState("");
+    const [category, setCategory] = useState("");
+    const [content, setContent] = useState("");
+    const [loading, setLoading] = useState(false);
+
+    // Get unique categories for suggestions
+    const existingCategories = Array.from(new Set(replies.map(r => r.category))).sort();
+
+    const filteredReplies = replies.filter(reply =>
+        reply.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        reply.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        reply.shortcut.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    // Group filtered replies by category
     const groupedReplies: Record<string, QuickReply[]> = {};
-    initialReplies.forEach(reply => {
+    filteredReplies.forEach(reply => {
         if (!groupedReplies[reply.category]) {
             groupedReplies[reply.category] = [];
         }
         groupedReplies[reply.category].push(reply);
     });
 
-    const categories = Object.keys(groupedReplies).sort();
+    // Sort categories alphabetically
+    const sortedCategories = Object.keys(groupedReplies).sort();
 
-    async function handleSubmit(formData: FormData) {
-        if (editingReply) {
-            await updateQuickReply(editingReply.id, formData);
-            setEditingReply(null);
-        } else {
-            await createQuickReply(formData);
+    function openCreateModal() {
+        setEditingId(null);
+        setShortcut("");
+        setCategory("");
+        setContent("");
+        setIsModalOpen(true);
+    }
+
+    function openEditModal(reply: QuickReply) {
+        setEditingId(reply.id);
+        setShortcut(reply.shortcut);
+        setCategory(reply.category);
+        setContent(reply.content);
+        setIsModalOpen(true);
+    }
+
+    async function handleSave() {
+        if (!content.trim() || !category.trim()) {
+            alert("Conteúdo e Categoria são obrigatórios.");
+            return;
+        }
+
+        setLoading(true);
+        const formData = new FormData();
+        formData.append("shortcut", shortcut);
+        formData.append("category", category);
+        formData.append("content", content);
+
+        try {
+            if (editingId) {
+                // UPDATE
+                const updatedReplies = replies.map(r =>
+                    r.id === editingId ? { ...r, shortcut, category, content } : r
+                );
+                setReplies(updatedReplies); // Optimistic
+
+                const result = await updateQuickReply(editingId, formData);
+                if (!result.success) {
+                    alert("Erro ao atualizar: " + result.error);
+                    setReplies(replies); // Rollback
+                } else {
+                    setIsModalOpen(false);
+                }
+            } else {
+                // CREATE
+                const tempReply = {
+                    id: "temp-" + Date.now(),
+                    shortcut,
+                    category,
+                    content
+                };
+                setReplies([...replies, tempReply]); // Optimistic
+
+                const result = await createQuickReply(formData);
+                if (result.success) {
+                    setIsModalOpen(false);
+                    // In real app, revalidate would fetch real data. 
+                    // For now keeping optimistic data is okay or we rely on page refresh
+                } else {
+                    alert("Erro ao criar: " + result.error);
+                    setReplies(replies); // Rollback
+                }
+            }
+        } catch (error) {
+            console.error("Erro:", error);
+            setReplies(replies);
+        } finally {
+            setLoading(false);
         }
     }
 
-    async function handleRenameCategory(oldName: string) {
-        if (newCategoryName && newCategoryName !== oldName) {
-            await renameQuickReplyCategory(oldName, newCategoryName);
+    async function handleDelete(id: string) {
+        if (!confirm("Tem certeza que deseja excluir esta resposta?")) return;
+
+        setReplies(replies.filter(r => r.id !== id));
+
+        try {
+            await deleteQuickReply(id);
+        } catch (error) {
+            console.error("Erro ao deletar:", error);
+            alert("Erro ao deletar.");
         }
-        setEditingCategory(null);
-        setNewCategoryName("");
     }
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* COLUNA ESQUERDA: Formulário */}
-            <div className="lg:col-span-1">
-                <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 sticky top-8">
-                    <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-                        {editingReply ? (
-                            <>
-                                <Edit2 size={20} className="text-yellow-500" />
-                                Editar Resposta
-                            </>
-                        ) : (
-                            <>
-                                <Plus size={20} className="text-green-500" />
-                                Nova Resposta Rápida
-                            </>
-                        )}
-                    </h2>
+        <div className="space-y-6">
 
-                    <form key={editingReply ? editingReply.id : 'new'} action={handleSubmit} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Atalho (Opcional)</label>
-                            <div className="flex items-center gap-2 bg-gray-700/50 p-3 rounded-lg border border-gray-600 focus-within:border-blue-500 transition-colors">
-                                <Zap size={18} className="text-gray-500" />
-                                <input
-                                    name="shortcut"
-                                    type="text"
-                                    defaultValue={editingReply?.shortcut || ""}
-                                    placeholder="Ex: pix"
-                                    className="bg-transparent w-full focus:outline-none text-white placeholder-gray-500"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Categoria</label>
-                            <div className="flex items-center gap-2 bg-gray-700/50 p-3 rounded-lg border border-gray-600 focus-within:border-blue-500 transition-colors">
-                                <Tag size={18} className="text-gray-500" />
-                                <input
-                                    name="category"
-                                    type="text"
-                                    list="categories-list"
-                                    defaultValue={editingReply?.category || ""}
-                                    placeholder="Ex: Financeiro"
-                                    required
-                                    className="bg-transparent w-full focus:outline-none text-white placeholder-gray-500"
-                                />
-                                <datalist id="categories-list">
-                                    {categories.map(cat => (
-                                        <option key={cat} value={cat} />
-                                    ))}
-                                </datalist>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Conteúdo da Mensagem</label>
-                            <div className="flex items-start gap-2 bg-gray-700/50 p-3 rounded-lg border border-gray-600 focus-within:border-blue-500 transition-colors">
-                                <MessageSquare size={18} className="text-gray-500 mt-1" />
-                                <textarea
-                                    name="content"
-                                    rows={4}
-                                    defaultValue={editingReply?.content || ""}
-                                    placeholder="Digite a mensagem completa..."
-                                    required
-                                    className="bg-transparent w-full focus:outline-none text-white placeholder-gray-500 resize-none"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex gap-2">
-                            {editingReply && (
-                                <button
-                                    type="button"
-                                    onClick={() => setEditingReply(null)}
-                                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-all"
-                                >
-                                    <X size={20} />
-                                    Cancelar
-                                </button>
-                            )}
-                            <button
-                                type="submit"
-                                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-blue-500/20"
-                            >
-                                <Save size={20} />
-                                {editingReply ? "Atualizar" : "Salvar"}
-                            </button>
-                        </div>
-                    </form>
+            {/* Header Controls */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="relative w-full md:w-96">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input
+                        type="text"
+                        placeholder="Pesquisar por conteúdo, categoria ou atalho..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-gray-700 placeholder:text-gray-400"
+                    />
                 </div>
+                <button
+                    onClick={openCreateModal}
+                    className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"
+                >
+                    <Plus size={18} />
+                    Criar Resposta
+                </button>
             </div>
 
-            {/* COLUNA DIREITA: Lista */}
-            <div className="lg:col-span-2 space-y-8">
-                {categories.length === 0 && (
-                    <div className="text-center py-20 text-gray-500 bg-gray-800/50 rounded-xl border border-gray-700 border-dashed">
-                        <Zap size={48} className="mx-auto mb-4 opacity-20" />
-                        <p className="text-lg">Nenhuma resposta rápida cadastrada.</p>
-                        <p className="text-sm">Use o formulário ao lado para criar a primeira.</p>
+            {/* Grouped Lists */}
+            <div className="space-y-6">
+                {filteredReplies.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
+                        <Zap size={48} className="mb-4 opacity-20" />
+                        <p>Nenhuma resposta encontrada.</p>
                     </div>
-                )}
+                ) : (
+                    sortedCategories.map(cat => (
+                        <div key={cat} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            {/* Category Header */}
+                            <div className="bg-gray-50/80 px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+                                <Folder className="text-blue-500" size={18} />
+                                <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wide">{cat}</h3>
+                                <span className="bg-blue-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                                    {groupedReplies[cat].length}
+                                </span>
+                            </div>
 
-                {categories.map(category => (
-                    <div key={category} className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                        <div className="bg-gray-700/50 px-6 py-4 border-b border-gray-700 flex items-center gap-2">
-                            <Tag size={18} className="text-blue-400" />
+                            {/* Items List */}
+                            <div className="divide-y divide-gray-100">
+                                {groupedReplies[cat].map(reply => (
+                                    <div key={reply.id} className="p-4 hover:bg-gray-50 transition-colors group flex items-start gap-4">
 
-                            {editingCategory === category ? (
-                                <div className="flex items-center gap-2 flex-1">
-                                    <input
-                                        type="text"
-                                        value={newCategoryName}
-                                        onChange={(e) => setNewCategoryName(e.target.value)}
-                                        className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:border-blue-500 flex-1"
-                                        autoFocus
-                                    />
-                                    <button
-                                        onClick={() => handleRenameCategory(category)}
-                                        className="p-1 bg-green-600 hover:bg-green-500 rounded text-white"
-                                        title="Salvar"
-                                    >
-                                        <Check size={16} />
-                                    </button>
-                                    <button
-                                        onClick={() => setEditingCategory(null)}
-                                        className="p-1 bg-gray-600 hover:bg-gray-500 rounded text-white"
-                                        title="Cancelar"
-                                    >
-                                        <X size={16} />
-                                    </button>
-                                </div>
-                            ) : (
-                                <>
-                                    <h3 className="font-bold text-lg text-white">{category}</h3>
-                                    <button
-                                        onClick={() => {
-                                            setEditingCategory(category);
-                                            setNewCategoryName(category);
-                                        }}
-                                        className="p-1 text-gray-500 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors ml-2"
-                                        title="Renomear Categoria"
-                                    >
-                                        <Edit2 size={14} />
-                                    </button>
-                                </>
-                            )}
-
-                            <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full ml-auto">
-                                {groupedReplies[category].length} itens
-                            </span>
-                        </div>
-
-                        <div className="divide-y divide-gray-700/50">
-                            {groupedReplies[category].map(reply => (
-                                <div key={reply.id} className="p-4 hover:bg-gray-700/30 transition-colors flex items-start gap-4 group">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {reply.shortcut && (
-                                                <span className="text-xs font-mono bg-yellow-500/10 text-yellow-500 px-2 py-0.5 rounded border border-yellow-500/20">
+                                        {/* Shortcut Column */}
+                                        <div className="w-24 shrink-0 pt-0.5">
+                                            {reply.shortcut ? (
+                                                <span className="inline-flex items-center px-2 py-1 rounded text-xs font-mono font-medium bg-yellow-50 text-yellow-700 border border-yellow-200">
                                                     /{reply.shortcut}
                                                 </span>
+                                            ) : (
+                                                <span className="text-gray-300 text-xs italic">Sem atalho</span>
                                             )}
                                         </div>
-                                        <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">
-                                            {reply.content}
-                                        </p>
-                                    </div>
 
-                                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
-                                            onClick={() => setEditingReply(reply)}
-                                            className="p-2 text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/20 rounded-lg transition-colors"
-                                            title="Editar"
-                                        >
-                                            <Edit2 size={18} />
-                                        </button>
-                                        <form action={deleteQuickReply.bind(null, reply.id)}>
+                                        {/* Content Column */}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed">{reply.content}</p>
+                                        </div>
+
+                                        {/* Actions Column */}
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity self-start">
                                             <button
-                                                type="submit"
-                                                className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
+                                                onClick={() => openEditModal(reply)}
+                                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                title="Editar"
+                                            >
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(reply.id)}
+                                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                                                 title="Excluir"
                                             >
-                                                <Trash2 size={18} />
+                                                <Trash2 size={16} />
                                             </button>
-                                        </form>
+                                        </div>
                                     </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+
+            {/* Create/Edit Modal */}
+            {isModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-gray-800">
+                                {editingId ? "Editar Resposta" : "Nova Resposta Rápida"}
+                            </h3>
+                            <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Atalho (Opcional)</label>
+                                <div className="relative">
+                                    <Zap className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                    <input
+                                        type="text"
+                                        value={shortcut}
+                                        onChange={(e) => setShortcut(e.target.value)}
+                                        placeholder="Ex: pix"
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800"
+                                    />
                                 </div>
-                            ))}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                                <div className="relative">
+                                    <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                    <input
+                                        type="text"
+                                        list="category-suggestions"
+                                        value={category}
+                                        onChange={(e) => setCategory(e.target.value)}
+                                        placeholder="Ex: Financeiro"
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800"
+                                    />
+                                    <datalist id="category-suggestions">
+                                        {existingCategories.map(cat => <option key={cat} value={cat} />)}
+                                    </datalist>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Conteúdo</label>
+                                <div className="relative">
+                                    <MessageSquare className="absolute left-3 top-3 text-gray-400" size={16} />
+                                    <textarea
+                                        rows={4}
+                                        value={content}
+                                        onChange={(e) => setContent(e.target.value)}
+                                        placeholder="Digite a mensagem completa..."
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 resize-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleSave}
+                                disabled={loading}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg mt-4 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? "Salvando..." : (editingId ? "Salvar Alterações" : "Criar Resposta")}
+                            </button>
                         </div>
                     </div>
-                ))}
-            </div>
+                </div>
+            )}
+
         </div>
     );
 }

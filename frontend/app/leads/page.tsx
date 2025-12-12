@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
-import { markAsWon } from "../actions";
+import { markAsWon, getTeamMembers } from "../actions";
+import { getPipelines, getBoardData } from "./actions";
+// Removed standalone getFields import as it is now in getBoardData
+import { GitPullRequest, Link as LinkIcon } from "lucide-react";
 
 import {
     MessageCircle,
@@ -15,20 +18,24 @@ import {
 import DealModal from "@/components/DealModal";
 import NewLeadModal from "@/components/NewLeadModal";
 import FilterBar from "@/components/kanban/FilterBar";
-import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-
-// Conexão com Supabase
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { DragDropContext, Draggable } from "@hello-pangea/dnd";
+import { StrictModeDroppable } from "@/components/StrictModeDroppable";
+import KanbanCard from "@/components/KanbanCard";
 
 export default function LeadsPage() {
+    // Inicializa o cliente Supabase usando o utilitário do projeto (@supabase/ssr)
+    const supabase = createClient();
+    const [pipelines, setPipelines] = useState<any[]>([]);
+    const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
+
     const [stages, setStages] = useState<any[]>([]);
     const [deals, setDeals] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedDeal, setSelectedDeal] = useState<any>(null);
     const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
+
+    // Custom Fields
+    const [fields, setFields] = useState<any[]>([]); // All fields definitions
 
     const [searchTerm, setSearchTerm] = useState("");
     const [filterStatus, setFilterStatus] = useState<'active' | 'lost'>('active');
@@ -36,54 +43,104 @@ export default function LeadsPage() {
     const [filterTag, setFilterTag] = useState('all');
     const [filterDate, setFilterDate] = useState('all');
 
+    // Owner Filter (New)
+    const [teamMembers, setTeamMembers] = useState<any[]>([]);
+    const [filterOwner, setFilterOwner] = useState('loading'); // Começa loading para não mostrar 'todos' antes de saber quem sou
+    const [currentUserId, setCurrentUserId] = useState<string>("");
+
     // Busca dados ao carregar
+    // Busca dados ao carregar (Pipelines, Tags, Team)
     useEffect(() => {
-        fetchData();
-
-        // Assina atualizações em tempo real (Realtime) para novos leads
-        const channel = supabase
-            .channel('crm-updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, () => {
-                fetchData(); // Recarrega se algo mudar no banco
-            })
-            .subscribe();
-
-        return () => { supabase.removeChannel(channel); }
+        loadInitialData();
     }, []);
 
-    async function fetchData() {
-        // 1. Busca as Etapas (Colunas)
-        const { data: stagesData } = await supabase
-            .from("stages")
-            .select("*")
-            .order("position");
+    // Atualiza board quando pipeline muda
+    useEffect(() => {
+        if (selectedPipelineId) {
+            loadBoard(selectedPipelineId);
+        }
+    }, [selectedPipelineId]);
 
-        // 2. Busca os Negócios (Cards) com dados do Contato e Tags
-        const { data: dealsData } = await supabase
-            .from("deals")
-            .select("*, contacts(id, name, phone), deal_tags(tags(id, name, color))")
-            .order("updated_at", { ascending: false });
+    // Realtime & Polling
+    useEffect(() => {
+        const channel = supabase
+            .channel('crm-updates')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, (payload) => {
+                console.log('Realtime DEAL update:', payload);
+                if (selectedPipelineId) loadBoard(selectedPipelineId);
+            })
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+                console.log('Realtime MESSAGE update:', payload);
+                if (selectedPipelineId) loadBoard(selectedPipelineId);
+            })
+            .subscribe((status) => {
+                console.log("Status da conexão Realtime (Leads):", status);
+            });
 
-        // 3. Busca todas as Tags para o filtro
-        const { data: tagsData } = await supabase
-            .from("tags")
-            .select("*")
-            .order("name");
+        const interval = setInterval(() => {
+            if (selectedPipelineId) loadBoard(selectedPipelineId);
+        }, 5000);
 
-        if (stagesData) setStages(stagesData);
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(interval);
+        }
+    }, [selectedPipelineId]);
+
+    async function loadInitialData() {
+        // 0. Identifica usuário - IMPORTANTE para o filtro default
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            setCurrentUserId(user.id);
+            if (filterOwner === 'loading') {
+                setFilterOwner(user.id);
+            }
+        }
+
+        // 1. Load Pipelines
+        const pipeRes = await getPipelines();
+        if (pipeRes.success && pipeRes.data && pipeRes.data.length > 0) {
+            setPipelines(pipeRes.data);
+
+            // If no selected pipeline, select first
+            if (!selectedPipelineId) {
+                setSelectedPipelineId(pipeRes.data[0].id);
+                // loadBoard will be triggered by useEffect [selectedPipelineId]
+            }
+        }
+
+        // 2. Busca tags e time
+        const { data: tagsData } = await supabase.from("tags").select("*").order("name");
+        const teamResult = await getTeamMembers();
+
+        if (teamResult.success) setTeamMembers(teamResult.data || []);
         if (tagsData) setTags(tagsData);
-        if (dealsData) {
-            setDeals(dealsData);
-            // Se tiver um deal selecionado (Modal aberto), atualiza ele também para refletir mudanças (ex: tags)
-            if (selectedDeal) {
-                const updatedSelectedDeal = dealsData.find((d: any) => d.id === selectedDeal.id);
-                if (updatedSelectedDeal) {
-                    setSelectedDeal(updatedSelectedDeal);
-                }
+    }
+
+    async function loadBoard(pipelineId: string) {
+        // setLoading(true); // Maybe don't full screen load on switch to be smoother?
+
+        const res = await getBoardData(pipelineId);
+        if (res.success) {
+            setStages(res.stages || []);
+            setDeals(res.deals || []);
+            if (res.fieldDefinitions) setFields(res.fieldDefinitions);
+
+            // Update selectedDeal if open
+            if (selectedDeal && res.deals) {
+                const updatedSelectedDeal = res.deals.find((d: any) => d.id === selectedDeal.id);
+                if (updatedSelectedDeal) setSelectedDeal(updatedSelectedDeal);
             }
         }
         setLoading(false);
     }
+
+    // Alias for compatibility with other calls like onSuccess
+    const fetchData = () => {
+        if (selectedPipelineId) loadBoard(selectedPipelineId);
+    };
+
+
 
     const onDragEnd = async (result: any) => {
         const { destination, source, draggableId } = result;
@@ -99,12 +156,16 @@ export default function LeadsPage() {
 
         // IDs geralmente são números no banco, mas draggableId vem como string
         const dealId = draggableId; // UUID é string, não converter para int
-        const newStageId = parseInt(destination.droppableId);
+        // CONVERSÃO CORRIGIDA: stage_id no banco é numérico (BigInt), então convertemos
+        const newStageId = Number(destination.droppableId);
+
+        console.log('Movendo Deal:', dealId, 'Para Estágio:', newStageId);
 
         // Optimistic UI: Atualiza estado local imediatamente
         const oldDeals = [...deals];
         const updatedDeals = deals.map((deal) => {
-            if (deal.id === dealId) {
+            // Comparação segura convertendo ambos para string
+            if (String(deal.id) === dealId) {
                 return { ...deal, stage_id: newStageId };
             }
             return deal;
@@ -113,18 +174,34 @@ export default function LeadsPage() {
         setDeals(updatedDeals);
 
         try {
+            const { data: session } = await supabase.auth.getSession();
+            console.log('DEBUG RLS:', {
+                user_id: session.session?.user.id,
+                deal_id: dealId,
+                new_stage: newStageId
+            });
+
             // Atualiza no Supabase (Stage)
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from("deals")
                 .update({ stage_id: newStageId })
-                .eq("id", dealId);
+                .eq("id", dealId)
+                .select();
+
+            if (error) console.error('ERRO SUPABASE PURO:', error);
+            console.log('LINHAS AFETADAS:', data?.length);
 
             if (error) throw error;
+
+            if (!data || data.length === 0) {
+                throw new Error("Você não tem permissão para mover este lead (Tenant ID incorreto).");
+            }
 
             // Lógica de GANHO (WIN)
             // Verifica se é a última etapa
             const lastStage = stages[stages.length - 1];
-            if (lastStage && newStageId === lastStage.id) {
+            // Comparação solta (==) para garantir que string "1" == number 1
+            if (lastStage && newStageId == lastStage.id) {
                 // Dispara Confetes!
                 const duration = 3 * 1000;
                 const animationEnd = Date.now() + duration;
@@ -149,14 +226,19 @@ export default function LeadsPage() {
             }
 
         } catch (error: any) {
-            console.error("Erro ao mover card:", error);
-            alert("Erro ao salvar a movimentação: " + (error.message || "Erro desconhecido"));
+            console.error("Falha ao mover card:", error);
+            alert("Erro ao mover: " + (error.message || "Erro desconhecido"));
             setDeals(oldDeals); // Rollback em caso de erro
         }
     };
 
     // Lógica de Filtro
     const filteredDeals = deals.filter(deal => {
+        // 0. OWNER FILTER (Novo)
+        if (filterOwner !== 'all' && filterOwner !== 'loading') {
+            if (deal.owner_id !== filterOwner) return false;
+        }
+
         // 1. Filtro de Status (Ativos vs Perdidos)
         if (filterStatus === 'active') {
             // Mostra tudo que NÃO é perdido (inclui 'won' e 'open')
@@ -204,17 +286,50 @@ export default function LeadsPage() {
         );
     });
 
-    if (loading) return <div className="flex h-screen items-center justify-center bg-[#f0f2f5] text-gray-600">Carregando CRM...</div>;
+    if (loading) return <div suppressHydrationWarning className="flex h-screen items-center justify-center bg-[#f5f7f8] text-gray-600">Carregando CRM...</div>;
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden">
+        <div suppressHydrationWarning className="flex flex-col h-screen overflow-hidden bg-[#f5f7f8]">
 
             {/* HEADER */}
-            <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
+            <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-4">
                     <h1 className="text-xl font-bold text-gray-800">Leads</h1>
 
+                    {/* Pipeline Selector */}
+                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-1.5 shadow-sm hover:border-gray-300 transition-colors">
+                        <GitPullRequest size={16} className="text-blue-600" />
+                        <select
+                            value={selectedPipelineId}
+                            onChange={(e) => setSelectedPipelineId(e.target.value)}
+                            className="text-sm font-semibold text-gray-700 bg-transparent focus:outline-none cursor-pointer min-w-[120px]"
+                        >
+                            {pipelines.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
                     <div className="flex items-center gap-2">
+                        {/* Owner Filter Component (Inline for now) */}
+                        <div className="flex items-center gap-2 bg-white rounded-md px-2 py-1.5 border border-gray-200 shadow-sm hover:border-gray-300 transition-colors">
+                            <User size={14} className="text-gray-500" />
+                            <select
+                                value={filterOwner}
+                                onChange={(e) => setFilterOwner(e.target.value)}
+                                className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+                            >
+                                <option value="all">Todos</option>
+                                <option disabled value="loading">Carregando user...</option>
+                                {teamMembers.map((member) => (
+                                    <option key={member.id} value={member.id}>
+                                        {/* Mostra 'Meus Leads' apenas se o membro for o usuário logado */}
+                                        {member.id === currentUserId ? 'Meus Leads' : member.full_name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
                         {/* Filter Bar Component */}
                         <FilterBar
                             searchTerm={searchTerm}
@@ -230,7 +345,7 @@ export default function LeadsPage() {
                         <select
                             value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value as 'active' | 'lost')}
-                            className="bg-gray-100 border border-gray-200 text-gray-700 text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
+                            className="bg-white border border-gray-200 text-gray-700 text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer shadow-sm"
                         >
                             <option value="active">Ativos</option>
                             <option value="lost">Perdidos</option>
@@ -254,133 +369,75 @@ export default function LeadsPage() {
             </header>
 
             {/* KANBAN BOARD */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
+            <div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar-x">
                 <DragDropContext onDragEnd={onDragEnd}>
-                    <div className="flex h-full gap-4 min-w-max">
-                        {stages.map((stage) => (
-                            <Droppable key={stage.id} droppableId={String(stage.id)}>
-                                {(provided) => (
-                                    <div
-                                        ref={provided.innerRef}
-                                        {...provided.droppableProps}
-                                        className="w-[300px] flex flex-col h-full"
-                                    >
-                                        {/* Header da Coluna */}
-                                        <div className="mb-3 pb-2 border-b border-gray-200 flex justify-between items-end px-1">
-                                            <div className="flex flex-col w-full">
-                                                {/* Barra colorida no topo */}
-                                                <div className="h-1 w-full rounded-full mb-2" style={{ backgroundColor: stage.color }}></div>
-                                                <div className="flex justify-between items-center">
-                                                    <h3 className="font-bold text-gray-500 text-xs uppercase tracking-wider">{stage.name}</h3>
-                                                    <span className="text-xs text-gray-400 font-medium">
-                                                        {filteredDeals.filter(d => String(d.stage_id) === String(stage.id)).length} leads
-                                                    </span>
+                    <div className="flex h-full gap-6 min-w-max">
+                        {stages.map((stage) => {
+                            const stageDeals = filteredDeals.filter((deal) => String(deal.stage_id) === String(stage.id));
+                            const stageValue = stageDeals.reduce((sum, deal) => sum + Number(deal.value || 0), 0);
+
+                            return (
+                                <StrictModeDroppable key={stage.id} droppableId={String(stage.id)}>
+                                    {(provided) => (
+                                        <div
+                                            ref={provided.innerRef}
+                                            {...provided.droppableProps}
+                                            className="w-[320px] flex flex-col h-full max-h-full"
+                                        >
+                                            {/* Header da Coluna */}
+                                            <div className="mb-3 px-1">
+                                                {/* Color Line (Top Border Effect) */}
+                                                <div className="h-1 w-full rounded-full mb-3 opacity-80" style={{ backgroundColor: stage.color }}></div>
+
+                                                <div className="flex justify-between items-start">
+                                                    <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider">{stage.name}</h3>
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-[10px] text-gray-400 font-medium">
+                                                            {stageDeals.length} leads
+                                                        </span>
+                                                        {stageValue > 0 && (
+                                                            <span className="text-[10px] text-gray-400 font-medium">
+                                                                R$ {stageValue.toLocaleString('pt-BR')}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
 
-                                        {/* Área dos Cards */}
-                                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-                                            {filteredDeals
-                                                .filter((deal) => String(deal.stage_id) === String(stage.id))
-                                                .map((deal, index) => (
-                                                    <Draggable key={deal.id} draggableId={String(deal.id)} index={index}>
-                                                        {(provided, snapshot) => (
-                                                            <div
-                                                                ref={provided.innerRef}
-                                                                {...provided.draggableProps}
-                                                                {...provided.dragHandleProps}
-                                                                onClick={() => setSelectedDeal(deal)}
-                                                                className={`bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:shadow-md cursor-pointer transition-all group relative overflow-hidden ${snapshot.isDragging ? "shadow-2xl ring-2 ring-[#2d76f9] rotate-2 scale-105 z-50" : ""} ${deal.status === 'lost' ? 'opacity-75 grayscale-[0.5]' : ''}`}
-                                                                style={{
-                                                                    ...provided.draggableProps.style,
-                                                                    zIndex: snapshot.isDragging ? 9999 : "auto"
-                                                                }}
-                                                            >
-                                                                {/* Conteúdo do Card */}
-                                                                <div className="flex gap-3">
-                                                                    {/* Avatar */}
-                                                                    <div className="flex-shrink-0">
-                                                                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold text-sm border border-gray-100">
-                                                                            {deal.contacts?.name?.charAt(0).toUpperCase() || <User size={16} />}
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {/* Infos */}
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <div className="flex justify-between items-start">
-                                                                            <h4 className="font-semibold text-gray-800 text-sm truncate" title={deal.contacts?.name}>
-                                                                                {deal.contacts?.name || 'Sem nome'}
-                                                                            </h4>
-                                                                            <MoreHorizontal size={14} className="text-gray-300 hover:text-gray-500" />
-                                                                        </div>
-
-                                                                        <p className="text-xs text-[#2d76f9] font-medium truncate mb-1">{deal.title}</p>
-
-                                                                        {/* TAGS (NOVO) */}
-                                                                        {deal.deal_tags && deal.deal_tags.length > 0 && (
-                                                                            <div className="flex flex-wrap gap-1 mb-2">
-                                                                                {deal.deal_tags.map((dt: any, i: number) => (
-                                                                                    <span
-                                                                                        key={i}
-                                                                                        className="text-[10px] px-1.5 py-0.5 rounded-full text-white font-medium"
-                                                                                        style={{ backgroundColor: dt.tags?.color || '#999' }}
-                                                                                    >
-                                                                                        {dt.tags?.name}
-                                                                                    </span>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-
-                                                                        {/* Bolha de Mensagem (Simulação) */}
-                                                                        <div className="bg-blue-50 p-2 rounded-md rounded-tl-none mb-2 relative">
-                                                                            <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">
-                                                                                Olá, gostaria de saber mais sobre o plano...
-                                                                            </p>
-                                                                        </div>
-
-                                                                        {/* Footer do Card */}
-                                                                        <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-50">
-                                                                            <div className="flex items-center gap-1">
-                                                                                <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center text-white text-[8px]">
-                                                                                    <MessageCircle size={8} fill="white" />
-                                                                                </div>
-                                                                                <span className="text-[10px] text-gray-400">
-                                                                                    {new Date(deal.updated_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                                                                                </span>
-                                                                            </div>
-
-                                                                            {deal.value > 0 && (
-                                                                                <span className="text-xs font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
-                                                                                    R$ {deal.value.toLocaleString('pt-BR', { notation: "compact" })}
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </Draggable>
+                                            {/* Área dos Cards (Background Container) */}
+                                            <div className="flex-1 overflow-y-auto bg-gray-100/50 rounded-xl p-2 border border-black/5 space-y-3 custom-scrollbar scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                                                {stageDeals.map((deal, index) => (
+                                                    <KanbanCard
+                                                        key={deal.id}
+                                                        deal={deal}
+                                                        index={index}
+                                                        fields={fields}
+                                                        onClick={setSelectedDeal}
+                                                    />
                                                 ))}
-                                            {provided.placeholder}
+                                                {provided.placeholder}
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                            </Droppable>
-                        ))}
+                                    )}
+                                </StrictModeDroppable>
+                            )
+                        })}
                     </div>
                 </DragDropContext>
             </div>
 
+
             {/* MODAL DE CHAT */}
-            {selectedDeal && (
-                <DealModal
-                    isOpen={!!selectedDeal}
-                    onClose={() => setSelectedDeal(null)}
-                    deal={selectedDeal}
-                    onUpdate={() => fetchData()}
-                />
-            )}
+            {
+                selectedDeal && (
+                    <DealModal
+                        isOpen={!!selectedDeal}
+                        onClose={() => setSelectedDeal(null)}
+                        deal={selectedDeal}
+                        onUpdate={() => fetchData()}
+                    />
+                )
+            }
 
             {/* MODAL NOVO LEAD */}
             <NewLeadModal
@@ -388,6 +445,6 @@ export default function LeadsPage() {
                 onClose={() => setIsNewLeadModalOpen(false)}
                 onSuccess={() => fetchData()} // Recarrega os dados ao criar
             />
-        </div>
+        </div >
     );
 }

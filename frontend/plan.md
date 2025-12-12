@@ -1,22 +1,27 @@
 # CRM Evolution - Vibecoding Plan
 
-## Contexto
-CRM funcional com Tags implementadas.
-Agora precisamos filtrar o Kanban para encontrar leads específicos rapidamente.
+## Tarefa Atual: Campos Personalizados (`/settings/fields`)
+Permitir que a empresa crie campos customizados para seus Deals.
 
-## Tarefa Atual: Filtros Avançados no Kanban
-Adicionar controles de filtragem no topo da página `/leads`.
+1.  **Backend (`app/settings/fields/actions.ts`):**
+    - `getFields()`: Listar definições ordenadas por posição.
+    - `saveField(field)`: Criar ou atualizar definição (label, type, options, show_in_card).
+    - `deleteField(id)`: Remover definição.
 
-1.  **Componente (`components/kanban/FilterBar.tsx`):**
-    - Criar uma barra contendo:
-        - O Input de Busca (Texto) que já existe.
-        - Dropdown "Etiquetas": Lista as tags do banco. Permite múltipla seleção ou única.
-        - Dropdown "Data": "Todo o período", "Hoje", "Últimos 7 dias", "Este Mês".
-    - Botão "Limpar Filtros" (só aparece se tiver filtro ativo).
+2.  **Frontend Config (`app/settings/fields/page.tsx`):**
+    - Lista de campos existentes.
+    - Modal/Formulário para adicionar novo:
+        - Nome do Campo.
+        - Tipo (Texto, Número, Data, Seleção).
+        - Se for Seleção: Input para adicionar opções (tags).
+        - Checkbox: "Mostrar no Card do Kanban?".
 
-2.  **Lógica de Filtragem (`app/leads/page.tsx`):**
-    - Elevar o estado dos filtros (search, selectedTag, dateRange).
-    - Aplicar a lógica combinada no array `deals`:
-        - `deal` deve ter o texto da busca.
-        - `deal` deve ter a tag selecionada (se houver).
-        - `deal.created_at` deve estar dentro do período.
+3.  **Frontend Uso (`components/DealModal.tsx`):**
+    - Buscar a lista de definições de campos.
+    - Renderizar dinamicamente os inputs baseados no `type`.
+    - Ao salvar o Deal, gravar os dados no JSON `custom_values`.
+
+4.  **Visualização (`components/KanbanCard.tsx`):**
+    - Ler `deal.custom_values`.
+    - Buscar definições onde `show_in_card === true`.
+    - Renderizar esses valores dentro do card (estilo Kommo: texto pequeno cinza ou tags).

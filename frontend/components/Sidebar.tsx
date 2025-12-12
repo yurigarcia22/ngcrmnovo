@@ -1,31 +1,200 @@
+"use client";
+
+import React, { useState } from "react";
 import Link from "next/link";
-import { LayoutDashboard, Users, MessageSquare, Zap, CheckSquare } from "lucide-react";
+import { usePathname } from "next/navigation"; // To highlight selected
+import {
+    LayoutDashboard,
+    Users,
+    MessageSquare,
+    CheckSquare,
+    Settings,
+    ChevronDown,
+    ChevronsRight,
+    LogOut,
+    Menu,
+    X,
+    Bell,
+    User,
+    Phone
+} from "lucide-react";
+import { logout } from "@/app/login/actions";
 
 export default function Sidebar() {
+    const [open, setOpen] = useState(true);
+    const pathname = usePathname();
+
+    const selected = (path: string) => pathname === path || pathname?.startsWith(path + "/");
+
     return (
-        <aside className="w-16 bg-[#153046] flex flex-col items-center py-6 gap-6 z-20 shadow-lg h-screen fixed left-0 top-0">
-            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-md">
-                E
+        <nav
+            className={`sticky top-0 h-screen shrink-0 border-r transition-all duration-300 ease-in-out ${open ? 'w-64' : 'w-20'
+                } border-gray-200 bg-white shadow-sm flex flex-col z-50`}
+        >
+            <TitleSection open={open} />
+
+            <div className="space-y-1 mb-8 flex-1 overflow-y-auto custom-scrollbar px-2">
+                <Option
+                    Icon={LayoutDashboard}
+                    title="Dashboard"
+                    href="/"
+                    selected={pathname === "/"}
+                    open={open}
+                />
+                <Option
+                    Icon={Users}
+                    title="Leads"
+                    href="/leads"
+                    selected={pathname.startsWith("/leads")}
+                    open={open}
+                />
+                <Option
+                    Icon={Phone}
+                    title="Cold Call"
+                    href="/cold-call"
+                    selected={pathname.startsWith("/cold-call")}
+                    open={open}
+                />
+                <Option
+                    Icon={MessageSquare}
+                    title="Conversas"
+                    href="/chat"
+                    selected={pathname.startsWith("/chat")}
+                    open={open}
+                />
+                <Option
+                    Icon={CheckSquare}
+                    title="Tarefas"
+                    href="/tasks"
+                    selected={pathname.startsWith("/tasks")}
+                    open={open}
+                />
             </div>
 
-            <nav className="flex flex-col gap-4 w-full items-center">
-                <Link href="/" className="p-3 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all" title="Dashboard">
-                    <LayoutDashboard size={24} />
-                </Link>
-                <Link href="/leads" className="p-3 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all" title="Leads">
-                    <Users size={24} />
-                </Link>
-                <Link href="/tasks" className="p-3 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all" title="Tarefas">
-                    <CheckSquare size={24} />
-                </Link>
-                <Link href="/settings" className="p-3 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all" title="Respostas Rápidas">
-                    <Zap size={24} />
-                </Link>
-            </nav>
-
-            <div className="mt-auto flex flex-col gap-4">
-                <div className="w-8 h-8 bg-gray-500 rounded-full border-2 border-gray-700"></div>
+            <div className="border-t border-gray-200 pt-4 pb-4 px-2 space-y-1 shrink-0">
+                {open && (
+                    <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Conta
+                    </div>
+                )}
+                <Option
+                    Icon={Settings}
+                    title="Configurações"
+                    href="/settings"
+                    selected={pathname.startsWith("/settings")}
+                    open={open}
+                />
+                <button
+                    onClick={() => logout()}
+                    className={`relative flex h-11 w-full items-center rounded-md transition-all duration-200 text-red-500 hover:bg-red-50 group`}
+                    title="Sair"
+                >
+                    <div className="grid h-full w-12 place-content-center shrink-0">
+                        <LogOut className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                    </div>
+                    {open && (
+                        <span className="text-sm font-medium transition-opacity duration-200 opacity-100 truncate">
+                            Sair
+                        </span>
+                    )}
+                </button>
             </div>
-        </aside>
+
+            <ToggleClose open={open} setOpen={setOpen} />
+        </nav>
     );
-}
+};
+
+const Option = ({ Icon, title, href, selected, open, notifs }: any) => {
+    return (
+        <Link
+            href={href}
+            className={`relative flex h-11 w-full items-center rounded-md transition-all duration-200 ${selected
+                ? "bg-blue-50 text-blue-700 shadow-sm border-l-2 border-blue-500"
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+        >
+            <div className="grid h-full w-12 place-content-center shrink-0">
+                <Icon className={`h-5 w-5 ${selected ? "text-blue-600" : "text-gray-500"}`} />
+            </div>
+
+            {open && (
+                <span
+                    className={`text-sm font-medium transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0'
+                        } truncate`}
+                >
+                    {title}
+                </span>
+            )}
+
+            {notifs && open && (
+                <span className="absolute right-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-xs text-white font-medium">
+                    {notifs}
+                </span>
+            )}
+        </Link>
+    );
+};
+
+const TitleSection = ({ open }: any) => {
+    return (
+        <div className="mb-6 border-b border-gray-200 pb-4 pt-4 px-2">
+            <div className="flex cursor-pointer items-center justify-between rounded-md p-2 transition-colors hover:bg-gray-50">
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <Logo />
+                    {open && (
+                        <div className={`transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0'}`}>
+                            <div className="flex items-center gap-2">
+                                <div>
+                                    <span className="block text-sm font-bold text-gray-900 whitespace-nowrap">
+                                        CRM NG
+                                    </span>
+                                    <span className="block text-xs text-blue-600 font-medium">
+                                        Pro Plan
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+                {/* {open && (
+          <ChevronDown className="h-4 w-4 text-gray-400" />
+        )} */}
+            </div>
+        </div>
+    );
+};
+
+const Logo = () => {
+    return (
+        <div className="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 shadow-md text-white font-bold text-xl">
+            NG
+        </div>
+    );
+};
+
+const ToggleClose = ({ open, setOpen }: any) => {
+    return (
+        <button
+            onClick={() => setOpen(!open)}
+            className="border-t border-gray-200 transition-colors hover:bg-gray-50 w-full"
+        >
+            <div className="flex items-center p-3">
+                <div className="grid size-10 place-content-center shrink-0">
+                    <ChevronsRight
+                        className={`h-5 w-5 transition-transform duration-300 text-gray-500 ${!open ? "rotate-0" : "rotate-180"
+                            }`}
+                    />
+                </div>
+                {open && (
+                    <span
+                        className={`text-sm font-medium text-gray-600 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0'
+                            }`}
+                    >
+                        Esconder
+                    </span>
+                )}
+            </div>
+        </button>
+    );
+};
