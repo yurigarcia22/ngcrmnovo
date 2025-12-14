@@ -2,16 +2,6 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-        return NextResponse.json(
-            { error: 'Missing Supabase Environment Variables (URL or Key)' },
-            { status: 500 }
-        )
-    }
-
     let supabaseResponse = NextResponse.next({
         request,
     })
@@ -51,7 +41,9 @@ export async function updateSession(request: NextRequest) {
         !user &&
         !request.nextUrl.pathname.startsWith('/login') &&
         !request.nextUrl.pathname.startsWith('/auth') &&
-        !request.nextUrl.pathname.startsWith('/setup')
+        !request.nextUrl.pathname.startsWith('/setup') &&
+        !request.nextUrl.pathname.startsWith('/register') &&
+        !request.nextUrl.pathname.startsWith('/api') // Optional: Protect API or leave open depending on needs. Usually better to protect inside API.
     ) {
         // no user, potentially respond by redirecting the user to the login page
         const url = request.nextUrl.clone()
