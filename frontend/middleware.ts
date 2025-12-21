@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
     // Pass-through EVERYTHING. No logic.
+    console.log('Middleware pass-through executing');
     return NextResponse.next()
 }
 
