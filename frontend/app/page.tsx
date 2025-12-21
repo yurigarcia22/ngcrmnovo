@@ -1,7 +1,10 @@
-// Version: Static Landing Page 1.0
+// Version: Debug Dynamic 1.0
+export const dynamic = 'force-dynamic';
+
 import Link from 'next/link';
 
 export default function Home() {
+  console.log("DEBUG: Home Page Rendering on Server");
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-24">
       <h1 className="text-4xl font-bold mb-4">CRM NG</h1>
