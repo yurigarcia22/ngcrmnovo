@@ -1,3 +1,4 @@
+// Version: Static Landing Page 1.0
 import Link from 'next/link';
 
 export default function Home() {
