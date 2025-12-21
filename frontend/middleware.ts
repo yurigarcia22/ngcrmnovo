@@ -1,54 +1,72 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
-    const path = request.nextUrl.pathname
+const PUBLIC_ROUTES = ["/login", "/register", "/setup", "/auth/callback"];
 
-    // 1. Ignorar rotas internas e assets
-    // (Managed by config.matcher, but extra safety check here doesn't hurt, 
-    // though usually handled by the return/matcher)
+function isPublic(pathname: string) {
+    return PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
 
-    // 2. Heurística de Cookie: "sb-" e "auth" ou token
-    // Supabase cookies usually start with "sb-"
-    const hasAuthCookie = request.cookies.getAll().some(cookie =>
-        cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')
-    )
+function isFile(pathname: string) {
+    // ignora qualquer rota que pareça arquivo: .png .css .js etc
+    return /\.[a-zA-Z0-9]+$/.test(pathname);
+}
 
-    // Rotas públicas que queremos redirecionar se já estiver logado
-    const isPublicAuthRoute = ['/login', '/register', '/setup'].some(route => path.startsWith(route))
+function isIgnored(pathname: string) {
+    return (
+        pathname.startsWith("/_next") ||
+        pathname.startsWith("/api") ||
+        pathname === "/favicon.ico" ||
+        pathname === "/robots.txt" ||
+        pathname === "/sitemap.xml" ||
+        pathname === "/manifest.json" ||
+        isFile(pathname)
+    );
+}
 
-    // Rotas protegidas (tudo exceto publicas, assets, api e auth callback)
-    const isAuthCallback = path.startsWith('/auth/callback')
-    const isApi = path.startsWith('/api')
+function hasSessionCookie(req: NextRequest) {
+    const cookies = req.cookies.getAll();
+    return cookies.some((c) => {
+        const n = (c.name || "").toLowerCase();
+        return n.startsWith("sb-") && (n.includes("auth") || n.includes("token"));
+    });
+}
 
-    // Se logado e tentando acessar login/register -> manda pro dashboard
-    if (hasAuthCookie && isPublicAuthRoute) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        return NextResponse.redirect(url)
+export function middleware(req: NextRequest) {
+    try {
+        const pathname = req.nextUrl.pathname;
+
+        if (isIgnored(pathname)) return NextResponse.next();
+
+        const loggedIn = hasSessionCookie(req);
+
+        // Se logado e tentar ir para login/register -> dashboard
+        if (loggedIn && (pathname === "/login" || pathname === "/register")) {
+            const url = req.nextUrl.clone();
+            url.pathname = "/dashboard";
+            url.searchParams.delete("redirectTo");
+            return NextResponse.redirect(url);
+        }
+
+        // Se não logado e tentar acessar rota privada -> login
+        if (!loggedIn && !isPublic(pathname)) {
+            const url = req.nextUrl.clone();
+            url.pathname = "/login";
+            url.searchParams.set("redirectTo", pathname);
+            return NextResponse.redirect(url);
+        }
+
+        return NextResponse.next();
+    } catch (e: any) {
+        console.error("EDGE_MW_ERROR", {
+            message: e?.message,
+            stack: e?.stack,
+            path: req.nextUrl?.pathname,
+        });
+        // não derruba o app por causa do middleware
+        return NextResponse.next();
     }
-
-    // Se NÃO logado e tentando acessar rota protegida (não publica, não api, não callback)
-    // Note: simplificação - assumindo que tudo que não é public/api/callback é privado
-    if (!hasAuthCookie && !isPublicAuthRoute && !isApi && !isAuthCallback) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/login'
-        // Opcional: preservar o destino
-        url.searchParams.set('redirectTo', path)
-        return NextResponse.redirect(url)
-    }
-
-    return NextResponse.next()
 }
 
 export const config = {
-    matcher: [
-        /*
-         * Match all request paths except for the ones starting with:
-         * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         * - images folders (heuristic)
-         */
-        '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-    ],
-}
+    matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
