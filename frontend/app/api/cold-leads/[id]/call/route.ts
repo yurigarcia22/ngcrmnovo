@@ -29,7 +29,7 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead) {
     const tenantId = profile.tenant_id;
 
     // 2. Normalize Phone
-    let cleanPhone = lead.telefone.replace(/\D/g, "");
+    const cleanPhone = lead.telefone.replace(/\D/g, "");
     let phoneToSave = cleanPhone;
     if (cleanPhone.length === 10 || cleanPhone.length === 11) {
         phoneToSave = "55" + cleanPhone;

@@ -234,7 +234,7 @@ export async function createLead(data: { name: string, phone: string, value: str
         const supabase = createClient(supabaseUrl, supabaseKey);
 
         // 1. Normalização Rigorosa do Telefone
-        let cleanPhone = data.phone.replace(/\D/g, "");
+        const cleanPhone = data.phone.replace(/\D/g, "");
         let phoneToSave = cleanPhone;
         if (cleanPhone.length === 10 || cleanPhone.length === 11) {
             phoneToSave = "55" + cleanPhone;

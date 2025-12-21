@@ -11,7 +11,6 @@ export default function ChatPage() {
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
     // Suppress unused warning if relevant, assuming createClient is used
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [supabase] = useState(() => createClient()); // Initialize directly
 
     // Filter State
