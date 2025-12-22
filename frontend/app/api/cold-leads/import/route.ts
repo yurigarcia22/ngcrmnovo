@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/utils/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import { getTenantId } from '@/app/actions';
 import * as XLSX from 'xlsx';
 import { ColdLeadInsert } from '@/types/cold-lead';
 
 export async function POST(request: NextRequest) {
-    const supabase = await createClient();
+    const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     try {
         const formData = await request.formData();

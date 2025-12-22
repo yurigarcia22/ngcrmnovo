@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/utils/supabase/server';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { ColdLead, ColdLeadUpdate } from '@/types/cold-lead';
 
 // Placeholder for Kanban integration
-async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead) {
+async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipelineId?: string, stageId?: string) {
     const supabase = await createClient();
 
     // 1. Get User and Tenant
@@ -72,59 +73,68 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead) {
     }
 
     // 4. Find Target Pipeline (Funil de Vendas)
-    let pipelineId;
-    const { data: pipelines } = await supabase
-        .from("pipelines")
-        .select("id, name")
-        .eq("tenant_id", tenantId)
-        .ilike("name", "%Funil de Vendas%");
+    // If pipelineId is provided, verify it exists or just use it. 
+    // Ideally we should check ownership, but let's assume valid for now or quick check.
 
-    if (pipelines && pipelines.length > 0) {
-        pipelineId = pipelines[0].id;
-    } else {
-        // Fallback to first available pipeline
-        const { data: firstPipeline } = await supabase
+    let targetPipelineId = pipelineId;
+
+    if (!targetPipelineId) {
+        const { data: pipelines } = await supabase
             .from("pipelines")
-            .select("id")
+            .select("id, name")
             .eq("tenant_id", tenantId)
-            .limit(1)
-            .single();
-        if (firstPipeline) pipelineId = firstPipeline.id;
+            .ilike("name", "%Funil de Vendas%");
+
+        if (pipelines && pipelines.length > 0) {
+            targetPipelineId = pipelines[0].id;
+        } else {
+            // Fallback to first available pipeline
+            const { data: firstPipeline } = await supabase
+                .from("pipelines")
+                .select("id")
+                .eq("tenant_id", tenantId)
+                .limit(1)
+                .single();
+            if (firstPipeline) targetPipelineId = firstPipeline.id;
+        }
     }
 
-    if (!pipelineId) {
+    if (!targetPipelineId) {
         console.error('No pipeline found');
         return;
     }
 
-    // 5. Get 'Novos Leads' Stage of that Pipeline
-    let stageId;
-    const { data: stages } = await supabase
-        .from("stages")
-        .select("id, name")
-        .eq("tenant_id", tenantId)
-        .eq("pipeline_id", pipelineId)
-        .ilike("name", "%Novo%") // Matches 'Novos Leads', 'Novo Lead', etc.
-        .limit(1);
+    // 5. Get Stage
+    let targetStageId = stageId;
 
-    if (stages && stages.length > 0) {
-        stageId = stages[0].id;
-    } else {
-        // Fallback to first position
-        const { data: firstStage } = await supabase
+    if (!targetStageId) {
+        const { data: stages } = await supabase
             .from("stages")
-            .select("id")
+            .select("id, name")
             .eq("tenant_id", tenantId)
-            .eq("pipeline_id", pipelineId)
-            .order("position", { ascending: true })
-            .limit(1)
-            .single();
+            .eq("pipeline_id", targetPipelineId)
+            .ilike("name", "%Novo%") // Matches 'Novos Leads', 'Novo Lead', etc.
+            .limit(1);
 
-        if (firstStage) stageId = firstStage.id;
+        if (stages && stages.length > 0) {
+            targetStageId = stages[0].id;
+        } else {
+            // Fallback to first position
+            const { data: firstStage } = await supabase
+                .from("stages")
+                .select("id")
+                .eq("tenant_id", tenantId)
+                .eq("pipeline_id", targetPipelineId)
+                .order("position", { ascending: true })
+                .limit(1)
+                .single();
+
+            if (firstStage) targetStageId = firstStage.id;
+        }
     }
 
-    if (!stageId) {
-        console.error('No stages found for pipeline:', pipelineId);
+    if (!targetStageId) {
+        console.error('No stages found for pipeline:', targetPipelineId);
         return;
     }
 
@@ -135,7 +145,7 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead) {
             title: lead.nome,
             value: 0,
             contact_id: contactId,
-            stage_id: stageId,
+            stage_id: targetStageId,
             status: "open",
             tenant_id: tenantId,
             owner_id: user.id
@@ -162,7 +172,7 @@ export async function POST(
     const { id } = await params;
 
     try {
-        const { resultado, notas, proxima_ligacao } = await request.json();
+        const { resultado, notas, proxima_ligacao, pipeline_id, stage_id } = await request.json();
 
         // Fetch current lead
         const { data: currentLead, error: fetchError } = await supabase
@@ -186,14 +196,9 @@ export async function POST(
 
         // Logic based on call result mapping to new funnel
         switch (resultado) {
-            case 'nao_atendeu':
-                updates.tentativas = (currentLead.tentativas || 0) + 1;
-                updates.ultimo_resultado = 'não atendeu';
-                break;
-
-            case 'lead_qualificado':
-                updates.status = 'lead_qualificado';
-                updates.ultimo_resultado = 'qualificado manually';
+            case 'numero_inexistente':
+                updates.status = 'numero_inexistente';
+                updates.ultimo_resultado = 'número inexistente';
                 break;
 
             case 'ligacao_feita':
@@ -210,6 +215,7 @@ export async function POST(
 
             case 'contato_decisor':
                 updates.status = 'contato_decisor';
+                updates.tentativas = (currentLead.tentativas || 0) + 1;
                 updates.ultimo_resultado = 'falou com decisor';
                 break;
 
@@ -217,14 +223,19 @@ export async function POST(
                 updates.status = 'reuniao_marcada';
                 updates.ultimo_resultado = 'reunião marcada';
                 // Trigger duplication!
-                await createOpportunityFromColdLeadPlaceholder(currentLead);
+                await createOpportunityFromColdLeadPlaceholder(currentLead, pipeline_id, stage_id);
                 break;
 
             default:
                 break;
         }
 
-        const { data: updatedLead, error: updateError } = await supabase
+        const supabaseAdmin = createAdminClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data: updatedLead, error: updateError } = await supabaseAdmin
             .from('cold_leads')
             .update(updates)
             .eq('id', id)

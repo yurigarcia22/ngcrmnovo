@@ -1,9 +1,10 @@
-export type ColdLeadStatus = 'novo_lead' | 'lead_qualificado' | 'ligacao_feita' | 'contato_realizado' | 'contato_decisor' | 'reuniao_marcada';
+export type ColdLeadStatus = 'novo_lead' | 'lead_qualificado' | 'ligacao_feita' | 'contato_realizado' | 'contato_decisor' | 'reuniao_marcada' | 'numero_inexistente';
 
 export interface ColdLead {
     id: string;
     created_at: string;
     updated_at: string;
+    tenant_id: string;
     nome: string;
     responsavel_id?: string | null;
     telefone: string;
@@ -20,6 +21,7 @@ export interface ColdLead {
 }
 
 export interface ColdLeadInsert {
+    tenant_id?: string;
     nome: string;
     responsavel_id?: string | null;
     telefone: string;

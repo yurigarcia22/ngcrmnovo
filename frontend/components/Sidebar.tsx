@@ -41,7 +41,7 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
 
     return (
         <nav
-            suppressHydrationWarning
+            suppressHydrationWarning={true}
             className={`sticky top-0 h-screen shrink-0 border-r ${isMounted ? "transition-all duration-300 ease-in-out" : ""} ${open ? 'w-64' : 'w-20'
                 } border-gray-200 bg-white shadow-sm flex flex-col z-50`}
         >

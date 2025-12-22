@@ -9,15 +9,32 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
 
+    // Sanitize body
+    const updates: any = { ...body };
+
+    // Handle UUID fields that might come as empty strings
+    if (updates.responsavel_id === '') {
+        updates.responsavel_id = null;
+    }
+
+    // Remove immutable fields if present (just in case)
+    delete updates.id;
+    delete updates.created_at;
+
     const { data, error } = await supabase
         .from('cold_leads')
-        .update(body)
+        .update(updates)
         .eq('id', id)
         .select()
-        .single();
+        .maybeSingle();
 
     if (error) {
+        console.error('Error updating cold lead:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!data) {
+        return NextResponse.json({ error: 'Lead not found or permission denied' }, { status: 404 });
     }
 
     return NextResponse.json(data);

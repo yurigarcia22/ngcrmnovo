@@ -183,3 +183,31 @@ export async function deleteStage(stageId: string) {
         return { success: false, error: error.message };
     }
 }
+
+export async function updateStagesOrder(items: { id: string; position: number; pipeline_id: string }[]) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Usage of Promise.all for batch updates to avoid "upsert" constraint issues (missing required fields)
+        // Since stage count is small per pipeline, this is performant enough.
+        const promises = items.map(item =>
+            supabase
+                .from("stages")
+                .update({ position: item.position })
+                .eq("id", item.id)
+                .eq("tenant_id", tenantId)
+        );
+
+        await Promise.all(promises);
+
+        revalidatePath("/settings/pipelines");
+        return { success: true };
+    } catch (error: any) {
+        console.error("Order Update Error:", error);
+        return { success: false, error: error.message };
+    }
+}

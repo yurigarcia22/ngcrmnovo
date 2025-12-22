@@ -10,6 +10,7 @@ import { AddLeadModal } from '@/components/cold-call/AddLeadModal';
 import { StatusGroup } from '@/components/cold-call/StatusGroup';
 import { NichoSelector } from '@/components/cold-call/NichoSelector';
 import { toast } from 'sonner';
+import { getMembers } from '@/app/(protected)/settings/team/actions';
 
 export default function ColdCallPage() {
     const [leads, setLeads] = useState<ColdLead[]>([]);
@@ -17,21 +18,27 @@ export default function ColdCallPage() {
     const [filters, setFilters] = useState({
         search: '',
         nicho: 'all',
+        status: 'all',
+        responsavelId: 'all',
     });
     const [selectedLead, setSelectedLead] = useState<ColdLead | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [teamMembers, setTeamMembers] = useState<any[]>([]);
+
+    // Bulk selection state
+    const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
+    const [bulkNicho, setBulkNicho] = useState('');
+    const [bulkResponsible, setBulkResponsible] = useState('');
 
     const fetchLeads = useCallback(async () => {
         setLoading(true);
         try {
             const params = new URLSearchParams();
             if (filters.search) params.append('search', filters.search);
-            // We fetch ALL status to group them on frontend, unless filtering specifically, but ClickUp view implies seeing all groups.
-            // If user filters by status, we might just show that group, but let's keep all for now to maintain the "Board/List" feel.
             if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
-
-            // Limit might need to be higher for this view or handled via "Load More" per group eventually.
+            if (filters.status !== 'all') params.append('status', filters.status);
+            if (filters.responsavelId !== 'all') params.append('responsavelId', filters.responsavelId);
             params.append('limit', '100');
 
             const res = await fetch(`/api/cold-leads?${params.toString()}`);
@@ -46,9 +53,17 @@ export default function ColdCallPage() {
         }
     }, [filters]);
 
+    const fetchMembers = useCallback(async () => {
+        const res = await getMembers();
+        if (res.success && res.profiles) {
+            setTeamMembers(res.profiles);
+        }
+    }, []);
+
     useEffect(() => {
         fetchLeads();
-    }, [fetchLeads]);
+        fetchMembers();
+    }, [fetchLeads, fetchMembers]);
 
     const handleCallClick = (lead: ColdLead) => {
         setSelectedLead(lead);
@@ -82,6 +97,74 @@ export default function ColdCallPage() {
         }
     };
 
+    const handleNextLead = () => {
+        if (!selectedLead) return;
+        const currentStatus = selectedLead.status;
+        const leadsInStatus = leads.filter(l => l.status === currentStatus);
+        const currentIndex = leadsInStatus.findIndex(l => l.id === selectedLead.id);
+
+        if (currentIndex !== -1 && currentIndex < leadsInStatus.length - 1) {
+            setSelectedLead(leadsInStatus[currentIndex + 1]);
+        }
+    };
+
+    const hasNext = () => {
+        if (!selectedLead) return false;
+        const currentStatus = selectedLead.status;
+        const leadsInStatus = leads.filter(l => l.status === currentStatus);
+        const currentIndex = leadsInStatus.findIndex(l => l.id === selectedLead.id);
+        return currentIndex !== -1 && currentIndex < leadsInStatus.length - 1;
+    };
+
+    // Bulk Actions
+    const toggleSelection = useCallback((id: string) => {
+        setSelectedLeads(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    }, []);
+
+    const handleBulkUpdate = async () => {
+        if (!selectedLeads.length) return;
+        if (!bulkNicho && !bulkResponsible) {
+            toast.error("Selecione um nicho ou responsável para aplicar.");
+            return;
+        }
+
+        const updates: any = {};
+        if (bulkNicho) updates.nicho = bulkNicho;
+        if (bulkResponsible) updates.responsavel_id = bulkResponsible;
+
+        const toastId = toast.loading('Aplicando alterações em massa...');
+
+        try {
+            const res = await fetch('/api/cold-leads/bulk', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ids: selectedLeads,
+                    updates
+                })
+            });
+
+            if (!res.ok) throw new Error('Falha ao atualizar em massa');
+
+            const data = await res.json();
+            toast.success(`${data.count || selectedLeads.length} leads atualizados!`, { id: toastId });
+
+            // Clear selection and inputs
+            setSelectedLeads([]);
+            setBulkNicho('');
+            setBulkResponsible('');
+
+            // Refresh
+            fetchLeads();
+
+        } catch (error) {
+            console.error(error);
+            toast.error('Erro ao processar atualização em massa', { id: toastId });
+        }
+    };
+
     // Group leads
     const groupedLeads: Record<ColdLeadStatus, ColdLead[]> = {
         'novo_lead': [],
@@ -89,7 +172,8 @@ export default function ColdCallPage() {
         'ligacao_feita': [],
         'contato_realizado': [],
         'contato_decisor': [],
-        'reuniao_marcada': []
+        'reuniao_marcada': [],
+        'numero_inexistente': []
     };
 
     leads.forEach(lead => {
@@ -98,17 +182,62 @@ export default function ColdCallPage() {
         }
     });
 
-    const statusConfig: { status: ColdLeadStatus; color: string }[] = [
-        { status: 'novo_lead', color: 'bg-slate-500' },
-        { status: 'lead_qualificado', color: 'bg-blue-400' },
-        { status: 'ligacao_feita', color: 'bg-blue-600' },
-        { status: 'contato_realizado', color: 'bg-indigo-500' },
-        { status: 'contato_decisor', color: 'bg-purple-600' },
-        { status: 'reuniao_marcada', color: 'bg-green-600' },
+    const statusConfig: { status: ColdLeadStatus; color: string; label: string }[] = [
+        { status: 'novo_lead', color: 'bg-slate-500', label: 'Novo Lead' },
+        { status: 'lead_qualificado', color: 'bg-blue-400', label: 'Lead Qualificado' },
+        { status: 'ligacao_feita', color: 'bg-blue-600', label: 'Ligação Feita' },
+        { status: 'contato_realizado', color: 'bg-indigo-500', label: 'Contato Realizado' },
+        { status: 'contato_decisor', color: 'bg-purple-600', label: 'Contato Decisor' },
+        { status: 'reuniao_marcada', color: 'bg-green-600', label: 'Reunião Marcada' },
+        { status: 'numero_inexistente', color: 'bg-red-500', label: 'Número Inexistente' },
     ];
 
+    // --- Optimized Navigation Logic ---
+    const handleActionComplete = useCallback((updatedLeadId: string, newStatus?: ColdLeadStatus) => {
+        setLeads(currentLeads => {
+            const currentLeadIndex = currentLeads.findIndex(l => l.id === updatedLeadId);
+            if (currentLeadIndex === -1) return currentLeads;
+            const currentLead = currentLeads[currentLeadIndex];
+            const oldStatus = currentLead.status;
+
+            const leadsInSameStatus = currentLeads.filter(l => l.status === oldStatus);
+            const indexInGroup = leadsInSameStatus.findIndex(l => l.id === updatedLeadId);
+
+            let nextLead = null;
+            if (indexInGroup !== -1 && indexInGroup < leadsInSameStatus.length - 1) {
+                nextLead = leadsInSameStatus[indexInGroup + 1];
+            } else if (indexInGroup > 0) {
+            }
+
+            if (newStatus && newStatus !== oldStatus) {
+                if (indexInGroup !== -1 && indexInGroup + 1 < leadsInSameStatus.length) {
+                    nextLead = leadsInSameStatus[indexInGroup + 1];
+                }
+            } else {
+                if (indexInGroup !== -1 && indexInGroup + 1 < leadsInSameStatus.length) {
+                    nextLead = leadsInSameStatus[indexInGroup + 1];
+                }
+            }
+
+            const updatedLeads = [...currentLeads];
+            if (newStatus) {
+                updatedLeads[currentLeadIndex] = { ...currentLead, status: newStatus };
+            }
+
+            if (nextLead) {
+                setSelectedLead(nextLead);
+            } else {
+                setIsModalOpen(false);
+                setSelectedLead(null);
+                toast('Fim da lista para esta etapa!');
+            }
+
+            return updatedLeads;
+        });
+    }, []);
+
     return (
-        <div className="p-6 space-y-6 bg-white min-h-screen">
+        <div className="p-6 space-y-6 bg-white min-h-screen relative pb-24">
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Prospecção Ativa</h1>
@@ -137,40 +266,137 @@ export default function ColdCallPage() {
                                 className="bg-white"
                             />
                         </div>
-                        <div className="w-64">
+                        <div className="w-56">
                             <NichoSelector
                                 value={filters.nicho === 'all' ? '' : filters.nicho}
                                 onChange={(val) => setFilters({ ...filters, nicho: val || 'all' })}
                                 placeholder="Filtrar por Nicho..."
                             />
                         </div>
+                        <div className="w-56">
+                            <select
+                                className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                                value={filters.status}
+                                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                            >
+                                <option value="all">Todas as Etapas</option>
+                                {statusConfig.map(s => (
+                                    <option key={s.status} value={s.status}>{s.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="w-56">
+                            <select
+                                className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                                value={filters.responsavelId}
+                                onChange={(e) => setFilters({ ...filters, responsavelId: e.target.value })}
+                            >
+                                <option value="all">Todos Responsáveis</option>
+                                {teamMembers.map(m => (
+                                    <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {(filters.status !== 'all' || filters.nicho !== 'all' || filters.responsavelId !== 'all' || filters.search) && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'all' })}
+                                className="text-slate-500 hover:text-slate-900"
+                            >
+                                Limpar
+                            </Button>
+                        )}
+
+                        {selectedLeads.length > 0 && (
+                            <div className="ml-auto text-sm font-medium text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full flex items-center gap-2">
+                                <span className="bg-slate-800 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">{selectedLeads.length}</span>
+                                selecionados
+                                <button className="ml-2 text-slate-400 hover:text-slate-600 text-xs underline" onClick={() => setSelectedLeads([])}>Limpar</button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="space-y-1">
                         {loading ? (
                             <div className="text-center py-10 text-muted-foreground">Carregando leads...</div>
                         ) : (
-                            statusConfig.map((config) => (
-                                <StatusGroup
-                                    key={config.status}
-                                    status={config.status}
-                                    colorClass={config.color}
-                                    leads={groupedLeads[config.status]}
-                                    onCallClick={handleCallClick}
-                                    onStatusChange={handleStatusChange}
-                                />
-                            ))
+                            statusConfig
+                                .filter(config => filters.status === 'all' || config.status === filters.status)
+                                .map((config) => (
+                                    <StatusGroup
+                                        key={config.status}
+                                        status={config.status}
+                                        colorClass={config.color}
+                                        leads={groupedLeads[config.status]}
+                                        onCallClick={handleCallClick}
+                                        onStatusChange={handleStatusChange}
+                                        selectedLeads={selectedLeads}
+                                        onToggleSelection={toggleSelection}
+                                    />
+                                ))
+                        )}
+                        {leads.length === 0 && !loading && (
+                            <div className="text-center py-10 text-muted-foreground flex flex-col items-center gap-2">
+                                <p>Nenhum lead encontrado com estes filtros.</p>
+                            </div>
                         )}
                     </div>
-
                 </CardContent>
             </Card>
+
+            {/* Floating Bulk Action Bar */}
+            {selectedLeads.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-xl shadow-2xl z-40 flex items-center gap-4 animate-in slide-in-from-bottom-5 w-[90%] max-w-4xl border border-slate-700">
+                    <div className="font-semibold whitespace-nowrap border-r border-slate-700 pr-4 mr-2">
+                        {selectedLeads.length} leads
+                    </div>
+
+                    <div className="flex items-center gap-3 flex-1 overflow-x-auto">
+                        <div className="flex items-center gap-2">
+                            <Input
+                                placeholder="Novo Nicho..."
+                                className="bg-slate-800 border-slate-700 text-white w-40 h-10 placeholder:text-slate-500 focus:ring-slate-500"
+                                value={bulkNicho}
+                                onChange={(e) => setBulkNicho(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <select
+                                className="bg-slate-800 border-slate-700 text-white h-10 rounded-md text-sm px-3 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                value={bulkResponsible}
+                                onChange={(e) => setBulkResponsible(e.target.value)}
+                            >
+                                <option value="">Alterar Responsável...</option>
+                                {teamMembers.map(m => (
+                                    <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pl-4 border-l border-slate-700">
+                        <Button onClick={() => setSelectedLeads([])} variant="ghost" className="text-slate-400 hover:text-white hover:bg-slate-800">
+                            Cancelar
+                        </Button>
+                        <Button onClick={handleBulkUpdate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-900/50">
+                            Aplicar Alterações
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {selectedLead && (
                 <ColdLeadModal
                     lead={selectedLead}
                     isOpen={isModalOpen}
                     onClose={handleModalClose}
+                    teamMembers={teamMembers}
+                    onNext={handleNextLead}
+                    hasNext={hasNext()}
+                    onActionComplete={handleActionComplete}
                 />
             )}
 
