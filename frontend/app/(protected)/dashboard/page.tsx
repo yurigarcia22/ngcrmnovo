@@ -1,145 +1,162 @@
 import { Suspense } from "react";
 import { getDashboardData } from "@/app/(protected)/dashboard/actions";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, DollarSign, TrendingUp } from "lucide-react";
-import { ChartWrapper } from "@/app/(protected)/dashboard/chart-wrapper";
+import { getTeamMembers } from "@/app/actions";
+import { DashboardHeader, DashboardFilterBar } from "./components/header";
+import { StatCard, MessagesCard } from "./components/cards";
+import { SourcesRadialChart } from "./components/radial-chart";
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
+
+export default async function DashboardPage(props: {
+  searchParams: SearchParams
+}) {
+  const searchParams = await props.searchParams;
+  const period = searchParams.period as string || "today";
+  const userId = searchParams.userId as string || "all";
+
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      <div className="flex items-center justify-between space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+    <div className="min-h-screen bg-gradient-to-br from-[#0284c7] via-[#0369a1] to-[#0c4a6e] p-8 font-sans">
+
+      {/* 1. Header & Filters */}
+      <DashboardHeader />
+
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-white mb-6">GRUPO NG</h1>
+        <Suspense fallback={<div className="h-12 bg-white/10 rounded-full w-full max-w-2xl mx-auto animate-pulse" />}>
+          <FilterWrapper period={period} userId={userId} />
+        </Suspense>
       </div>
+
       <Suspense fallback={<DashboardSkeleton />}>
-        <DashboardContent />
+        <DashboardContent period={period} userId={userId} />
       </Suspense>
     </div>
   );
 }
 
-async function DashboardContent() {
-  const data = await getDashboardData();
+async function FilterWrapper({ period, userId }: { period: string, userId: string }) {
+  const { data: users } = await getTeamMembers();
+  return (
+    <DashboardFilterBar
+      currentPeriod={period}
+      currentUserId={userId}
+      users={users || []}
+    />
+  )
+}
 
-  const formattedValue = new Intl.NumberFormat("pt-BR", {
+async function DashboardContent({ period, userId }: { period: string, userId: string }) {
+  const data = await getDashboardData({ period, userId });
+
+  const formattedPipeline = new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(data.totalOpenValue);
 
-  return (
-    <div className="space-y-4">
-      {/* 1. Top Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Leads Hoje</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.totalLeadsToday}</div>
-            <p className="text-xs text-muted-foreground">
-              Novos leads criados hoje
-            </p>
-          </CardContent>
-        </Card>
+  const formattedWonValue = new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(data.wonValue);
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Vendas no Mês</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.wonDealsMonth}</div>
-            <p className="text-xs text-muted-foreground">
-              Deals ganhos neste mês
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Valor em Pipeline</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formattedValue}</div>
-            <p className="text-xs text-muted-foreground">
-              Soma de leads abertos
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 2. Middle Chart & Bottom Table Layout */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-
-        {/* Chart Section - Takes up 4 columns on large screens */}
-        <Card className="col-span-4">
-          <CardHeader>
-            <CardTitle>Leads por Estágio</CardTitle>
-          </CardHeader>
-          <CardContent className="pl-2">
-            <LeadsChart data={data.leadsByStage} />
-          </CardContent>
-        </Card>
-
-        {/* Table Section - Takes up 3 columns on large screens */}
-        <Card className="col-span-3">
-          <CardHeader>
-            <CardTitle>Últimos Leads</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RecentLeadsTable leads={data.lastLeads} />
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function LeadsChart({ data }: { data: any[] }) {
-  // Client-side wrapper
-  return (
-    <div className="h-[300px] w-full">
-      <ChartWrapper data={data} />
-    </div>
-  )
-}
-
-function RecentLeadsTable({ leads }: { leads: any[] }) {
-  if (!leads || leads.length === 0) {
-    return <div className="text-sm text-muted-foreground">Nenhum lead recente.</div>;
+  const getSubtext = () => {
+    if (period === 'today') return 'hoje';
+    if (period === 'yesterday') return 'ontem';
+    if (period === 'week') return 'esta semana';
+    if (period === 'month') return 'este mês';
+    return 'período selecionado';
   }
+  const subtext = getSubtext();
+
   return (
-    <div className="space-y-4">
-      {leads.map((lead) => (
-        <div key={lead.id} className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0">
-          <div className="space-y-1">
-            <p className="text-sm font-medium leading-none truncate max-w-[150px]">{lead.title}</p>
-            <p className="text-xs text-muted-foreground">{new Date(lead.created_at).toLocaleDateString()}</p>
-          </div>
-          <div className="font-medium">
-            {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(lead.value)}
-          </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+      {/* Row 1 */}
+      {/* Mensagens Recebidas (Large, spans 2 cols on LG) */}
+      <div className="lg:col-span-2 md:col-span-2">
+        <MessagesCard />
+      </div>
+
+      {/* Conversas Atuais */}
+      <StatCard title="CONVERSAS ATUAIS" value="0">
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="w-16 h-1 bg-gray-700 mt-4 rounded-full"></div>
+          <p className="text-xs text-gray-400 mt-4">{subtext}</p>
         </div>
-      ))}
+      </StatCard>
+
+      {/* Chats Sem Respostas (Using mock data for visual match) */}
+      <StatCard title="CHATS SEM RESPOSTAS" value="0">
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="w-16 h-1 bg-gray-700 mt-4 rounded-full"></div>
+          <p className="text-xs text-gray-400 mt-4">{subtext}</p>
+        </div>
+      </StatCard>
+
+      {/* Row 2 */}
+
+      {/* Leads Ganhos */}
+      <StatCard title="LEADS GANHOS" value={data.wonDeals}>
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#a855f7]">{data.wonDeals}</div>
+          <p className="text-sm font-bold text-white mt-1">{formattedWonValue}</p>
+          <div className="w-full h-px bg-gray-700 my-4"></div>
+          <p className="text-xs text-gray-400">{subtext}</p>
+        </div>
+      </StatCard>
+
+      {/* Leads Ativos (Pipeline) */}
+      <StatCard title="LEADS ATIVOS" value={data.totalLeads}>
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#ec4899]">{data.totalLeads}</div>
+          <p className="text-sm font-bold text-white mt-1">{formattedPipeline}</p>
+          <div className="w-full h-px bg-gray-700 my-4"></div>
+          <p className="text-xs text-gray-400">{subtext}</p>
+        </div>
+      </StatCard>
+
+      {/* Tarefas */}
+      <StatCard title="TAREFAS" value="0">
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="w-full h-px bg-gray-700 my-4"></div>
+        </div>
+      </StatCard>
+
+      {/* Fontes de Lead (Visual Pie/Radial) */}
+      <div className="lg:col-span-2 md:col-span-2 min-h-[300px]">
+        <SourcesRadialChart />
+      </div>
+
+      {/* Tempo de Resposta */}
+      <StatCard title="TEMPO DE RESPOSTA" value="0">
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#10b981]">0</div>
+          <p className="text-xs text-gray-400 mt-1">{subtext}</p>
+        </div>
+      </StatCard>
+
+      {/* Mais Tempo Esperando */}
+      <StatCard title="MAIS TEMPO ESPERANDO" value="0">
+        <div className="mt-4">
+          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="w-full h-px bg-gray-700 my-4"></div>
+        </div>
+      </StatCard>
+
     </div>
   );
 }
 
 function DashboardSkeleton() {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-32 rounded-xl bg-muted/50 animate-pulse" />
-        ))}
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <div className="col-span-4 h-[400px] rounded-xl bg-muted/50 animate-pulse" />
-        <div className="col-span-3 h-[400px] rounded-xl bg-muted/50 animate-pulse" />
-      </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-pulse">
+      <div className="lg:col-span-2 h-64 bg-white/10 rounded-xl"></div>
+      <div className="h-64 bg-white/10 rounded-xl"></div>
+      <div className="h-64 bg-white/10 rounded-xl"></div>
     </div>
   )
 }

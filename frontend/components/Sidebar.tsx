@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation"; // To highlight selected
 import {
@@ -20,15 +20,29 @@ import {
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 
-export default function Sidebar() {
-    const [open, setOpen] = useState(true);
+export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean }) {
+    console.log("Sidebar initialOpen:", initialOpen);
+    const [open, setOpen] = useState(initialOpen);
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
+    // Update cookie when state changes
+    useEffect(() => {
+        if (isMounted) {
+            document.cookie = `sidebar_state=${open}; path=/; max-age=31536000; SameSite=Lax`;
+        }
+    }, [open, isMounted]);
     const pathname = usePathname();
 
     const selected = (path: string) => pathname === path || pathname?.startsWith(path + "/");
 
     return (
         <nav
-            className={`sticky top-0 h-screen shrink-0 border-r transition-all duration-300 ease-in-out ${open ? 'w-64' : 'w-20'
+            suppressHydrationWarning
+            className={`sticky top-0 h-screen shrink-0 border-r ${isMounted ? "transition-all duration-300 ease-in-out" : ""} ${open ? 'w-64' : 'w-20'
                 } border-gray-200 bg-white shadow-sm flex flex-col z-50`}
         >
             <TitleSection open={open} />

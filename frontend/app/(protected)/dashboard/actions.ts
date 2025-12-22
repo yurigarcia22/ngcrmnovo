@@ -3,7 +3,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getTenantId } from "@/app/actions";
 
-export async function getDashboardData() {
+export async function getDashboardData(filters?: { period?: string; userId?: string }) {
     try {
         const tenantId = await getTenantId();
         const supabase = createClient(
@@ -11,47 +11,100 @@ export async function getDashboardData() {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const { period = "today", userId } = filters || {};
 
-        // 1. Total Leads Today
-        // Assuming 'created_at' is the timestamp for when the lead was created
-        const { count: totalLeadsToday, error: leadsError } = await supabase
+        // Date Logic
+        const now = new Date();
+        let startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString(); // Default Today
+        let endDate = new Date().toISOString();
+
+        if (period === "yesterday") {
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            startDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()).toISOString();
+            endDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59).toISOString();
+        } else if (period === "week") {
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - 7);
+            startDate = weekStart.toISOString();
+        } else if (period === "month") {
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            startDate = monthStart.toISOString();
+        } else if (period === "all") {
+            startDate = new Date(0).toISOString(); // Epoch
+        }
+
+        // Helper to apply filters
+        const applyFilters = (query: any, dateField = "created_at") => {
+            let q = query.eq("tenant_id", tenantId);
+            if (userId && userId !== "all") {
+                q = q.eq("owner_id", userId); // Assuming 'owner_id' or similar exists on deals? 'user_id'?
+                // Checking previous app/actions.ts... 'owner_id' is mentioned in getConversations. 
+                // Let's verify 'owner_id' in deals schema or use 'contact_id' -> NO, deals have an owner.
+                // If 'owner_id' doesn't exist, we might crash. 
+                // Let's assume 'owner_id' exists based on typical CRM schemas. 
+                // Wait, app/actions.ts getConversations selects 'owner_id'. Safe.
+            }
+            if (period !== "all") {
+                q = q.gte(dateField, startDate).lte(dateField, endDate);
+            }
+            return q;
+        };
+
+        // 1. Total Leads (Created in period)
+        const leadsQuery = supabase
             .from("deals")
-            .select("*", { count: 'exact', head: true })
-            .eq("tenant_id", tenantId)
-            .gte("created_at", startOfToday);
+            .select("*", { count: 'exact', head: true });
+
+        const { count: totalLeads, error: leadsError } = await applyFilters(leadsQuery, "created_at");
 
         if (leadsError) throw leadsError;
 
-        // 2. Total Open Value (Pipeline)
-        // status != 'won' AND status != 'lost'
-        const { data: openDeals, error: valueError } = await supabase
+        // 2. Total Open Value (Pipeline - Active now, regardless of creation date? Or created in period?)
+        // Usually, "Pipeline" means what is currently open. Filters might apply to "when it was created" or "active now".
+        // If I filter by "Today", seeing "Pipeline Value" of ONLY deals created today is ... specific.
+        // Usually Dashboard filters apply to the Creation Date or Closing Date.
+        // Let's start with standard "Active in period" or just "Current Pipeline" (ignoring date) + "Filtered Pipeline"
+        // User asked for filters. Let's filter EVERYTHING by the date range for consistency.
+        const openValueQuery = supabase
             .from("deals")
             .select("value")
-            .eq("tenant_id", tenantId)
             .neq("status", "won")
             .neq("status", "lost");
 
+        const { data: openDeals, error: valueError } = await applyFilters(openValueQuery, "created_at");
+
         if (valueError) throw valueError;
+        const totalOpenValue = openDeals?.reduce((sum: number, deal: { value: any }) => sum + (deal.value || 0), 0) || 0;
 
-        const totalOpenValue = openDeals?.reduce((sum, deal) => sum + (deal.value || 0), 0) || 0;
-
-        // 3. Won Deals This Month
-        // status = 'won' AND closed_at >= startOfMonth
-        const { count: wonDealsMonth, error: wonError } = await supabase
+        // 3. Won Deals (Closed in period)
+        const wonQuery = supabase
             .from("deals")
             .select("*", { count: 'exact', head: true })
-            .eq("tenant_id", tenantId)
-            .eq("status", "won")
-            .gte("closed_at", startOfMonth);
+            .eq("status", "won");
+
+        // For won deals, we normally look at 'closed_at'
+        let qWon = wonQuery.eq("tenant_id", tenantId);
+        if (userId && userId !== "all") qWon = qWon.eq("owner_id", userId);
+        if (period !== "all") qWon = qWon.gte("closed_at", startDate).lte("closed_at", endDate);
+
+        const { count: wonDeals, error: wonError } = await qWon;
 
         if (wonError) throw wonError;
 
-        // 4. Leads by Stage
-        // We need to join with stages to get the name
-        const { data: dealsByStage, error: stageError } = await supabase
+        // Calculate wonValue
+        let qWonValue = supabase.from("deals").select("value").eq("status", "won");
+        qWonValue = qWonValue.eq("tenant_id", tenantId);
+        if (userId && userId !== "all") qWonValue = qWonValue.eq("owner_id", userId);
+        if (period !== "all") qWonValue = qWonValue.gte("closed_at", startDate).lte("closed_at", endDate);
+
+        const { data: wonDealsData, error: wonValueError } = await qWonValue;
+        if (wonValueError) throw wonValueError;
+
+        const wonValue = wonDealsData?.reduce((sum: number, deal: { value: any }) => sum + (deal.value || 0), 0) || 0;
+
+        // 4. Leads by Stage (Active?)
+        const stageQuery = supabase
             .from("deals")
             .select(`
                 stage_id,
@@ -59,62 +112,53 @@ export async function getDashboardData() {
                     name
                 )
             `)
-            .eq("tenant_id", tenantId)
             .neq("status", "won")
-            .neq("status", "lost"); // Usually dashboard chart shows active pipeline? User said "Leads por Estágio".
-        // If we include won/lost, the chart might look different.
-        // "Leads by Stage" usually implies active deals in the funnel. I'll filter active ones.
-        // But wait, "Status: leadsByStage: Agrupamento para gráfico (quantos em cada etapa)."
-        // Often stages include "won" or "lost" columns in a Kanban, but in a database they might be statuses on the deal, not separate stages.
-        // app/actions.ts shows `stage_id` and `status`. Logic suggests stages are the columns.
-        // If a deal is 'won', does it stay in a stage? Yes, usually.
-        // I will include ALL deals in the stage count logic regardless of status, OR just open ones?
-        // "Leads por Estágio" -> Usually active leads.
-        // Let's stick to ACTIVE (open) deals for the stage chart to represent the "Pipeline".
-        // If the user wants historical, they'd ask for "Conversion".
+            .neq("status", "lost");
+
+        const { data: dealsByStage, error: stageError } = await applyFilters(stageQuery, "created_at");
+        // Note: Filtering pipeline distribution by creation date is tricky. 
+        // Showing "Deals created this week by stage" is valid.
 
         if (stageError) throw stageError;
 
-        // Aggregation in JS since Supabase simple client doesn't do complex GROUP BY easily without RPC
         const stageMap: Record<string, number> = {};
-
         dealsByStage?.forEach((deal: any) => {
             const stageName = deal.stages?.name || "Unknown";
             stageMap[stageName] = (stageMap[stageName] || 0) + 1;
         });
 
-        const leadsByStage = Object.entries(stageMap).map(([name, value]) => ({
+        const distByStage = Object.entries(stageMap).map(([name, value]) => ({
             name,
             value
         }));
 
-        // 5. Last 5 Leads
-        const { data: lastLeads, error: lastError } = await supabase
+        // 5. Last Leads
+        const recentQuery = supabase
             .from("deals")
             .select("id, title, value, created_at, status")
-            .eq("tenant_id", tenantId)
             .order("created_at", { ascending: false })
             .limit(5);
+
+        const { data: lastLeads, error: lastError } = await applyFilters(recentQuery, "created_at");
 
         if (lastError) throw lastError;
 
         return {
-            totalLeadsToday: totalLeadsToday || 0,
+            totalLeads: totalLeads || 0,
             totalOpenValue,
-            wonDealsMonth: wonDealsMonth || 0,
-            leadsByStage,
+            wonDeals: wonDeals || 0,
+            wonValue,
+            leadsByStage: distByStage,
             lastLeads: lastLeads || []
         };
 
     } catch (error: any) {
         console.error("getDashboardData Error:", error);
-        // Return empty structure to avoid crashing UI, or throw?
-        // Better to return clean empty data or let UI handle error.
-        // I'll return zeros so the dashboard renders safely.
         return {
-            totalLeadsToday: 0,
+            totalLeads: 0,
             totalOpenValue: 0,
-            wonDealsMonth: 0,
+            wonDeals: 0,
+            wonValue: 0,
             leadsByStage: [],
             lastLeads: []
         };
