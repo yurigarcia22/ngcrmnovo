@@ -195,6 +195,20 @@ export async function POST(
         }
 
         // Logic based on call result mapping to new funnel
+        // Helper to determine if we should update status based on hierarchy
+        // Hierarchy: novo_lead < ligacao_feita < contato_realizado < contato_decisor < reuniao_marcada
+        const statusHierarchy: Record<string, number> = {
+            'novo_lead': 0,
+            'numero_inexistente': 0, // Special case
+            'lead_qualificado': 1, // Treating as early stage
+            'ligacao_feita': 2,
+            'contato_realizado': 3,
+            'contato_decisor': 4,
+            'reuniao_marcada': 5
+        };
+
+        const currentRank = statusHierarchy[currentLead.status] || 0;
+
         switch (resultado) {
             case 'numero_inexistente':
                 updates.status = 'numero_inexistente';
@@ -202,25 +216,33 @@ export async function POST(
                 break;
 
             case 'ligacao_feita':
-                updates.status = 'ligacao_feita';
+                // Only update status if it's an advancement or neutral, don't regress from higher stages
+                if (currentRank < 2) {
+                    updates.status = 'ligacao_feita';
+                }
                 updates.tentativas = (currentLead.tentativas || 0) + 1;
                 updates.ultimo_resultado = 'ligação feita';
                 break;
 
             case 'contato_realizado':
-                updates.status = 'contato_realizado';
+                if (currentRank < 3) {
+                    updates.status = 'contato_realizado';
+                }
                 updates.tentativas = (currentLead.tentativas || 0) + 1;
                 updates.ultimo_resultado = 'contato realizado';
                 break;
 
             case 'contato_decisor':
-                updates.status = 'contato_decisor';
+                if (currentRank < 4) {
+                    updates.status = 'contato_decisor';
+                }
                 updates.tentativas = (currentLead.tentativas || 0) + 1;
                 updates.ultimo_resultado = 'falou com decisor';
                 break;
 
             case 'reuniao_marcada':
-                updates.status = 'reuniao_marcada';
+                updates.status = 'reuniao_marcada'; // Always set to this success state
+                updates.tentativas = (currentLead.tentativas || 0) + 1;
                 updates.ultimo_resultado = 'reunião marcada';
                 // Trigger duplication!
                 await createOpportunityFromColdLeadPlaceholder(currentLead, pipeline_id, stage_id);

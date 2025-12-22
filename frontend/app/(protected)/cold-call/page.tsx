@@ -25,6 +25,7 @@ export default function ColdCallPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
 
     // Bulk selection state
     const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
@@ -165,6 +166,25 @@ export default function ColdCallPage() {
         }
     };
 
+    const handleDeleteLead = useCallback(async (leadId: string) => {
+        if (!confirm('Excluir este lead permanentemente?')) return;
+
+        // Optimistic update
+        setLeads(prev => prev.filter(l => l.id !== leadId));
+
+        try {
+            const res = await fetch(`/api/cold-leads/${leadId}`, {
+                method: 'DELETE'
+            });
+
+            if (!res.ok) throw new Error('Falha ao excluir lead');
+            toast.success('Lead excluído');
+        } catch (error) {
+            toast.error('Erro ao excluir lead');
+            fetchLeads(); // Revert
+        }
+    }, [fetchLeads]);
+
     // Group leads
     const groupedLeads: Record<ColdLeadStatus, ColdLead[]> = {
         'novo_lead': [],
@@ -193,40 +213,38 @@ export default function ColdCallPage() {
     ];
 
     // --- Optimized Navigation Logic ---
-    const handleActionComplete = useCallback((updatedLeadId: string, newStatus?: ColdLeadStatus) => {
+    const handleActionComplete = useCallback((updatedLead: ColdLead) => {
         setLeads(currentLeads => {
-            const currentLeadIndex = currentLeads.findIndex(l => l.id === updatedLeadId);
+            const currentLeadIndex = currentLeads.findIndex(l => l.id === updatedLead.id);
             if (currentLeadIndex === -1) return currentLeads;
-            const currentLead = currentLeads[currentLeadIndex];
-            const oldStatus = currentLead.status;
 
+            const oldStatus = currentLeads[currentLeadIndex].status;
+            const newStatus = updatedLead.status;
+            const updatedLeadId = updatedLead.id;
+
+            // Find next lead logic based on OLD status grouping (usually we stay in same group or move)
+            // If status changed, we still want to move to next lead in the OLD status list usually?
+            // User flow: I am calling "João" in "Novo Lead". I mark/move him to "Qualificado".
+            // I want to see the NEXT "Novo Lead", not follow João.
+            // So we look for neighbors in the oldStatus group.
+
+            // Filter leads that matched the OLD status (before this update)
+            // Note: currentLeads still has the old status for this lead.
             const leadsInSameStatus = currentLeads.filter(l => l.status === oldStatus);
             const indexInGroup = leadsInSameStatus.findIndex(l => l.id === updatedLeadId);
 
             let nextLead = null;
             if (indexInGroup !== -1 && indexInGroup < leadsInSameStatus.length - 1) {
                 nextLead = leadsInSameStatus[indexInGroup + 1];
-            } else if (indexInGroup > 0) {
-            }
-
-            if (newStatus && newStatus !== oldStatus) {
-                if (indexInGroup !== -1 && indexInGroup + 1 < leadsInSameStatus.length) {
-                    nextLead = leadsInSameStatus[indexInGroup + 1];
-                }
-            } else {
-                if (indexInGroup !== -1 && indexInGroup + 1 < leadsInSameStatus.length) {
-                    nextLead = leadsInSameStatus[indexInGroup + 1];
-                }
             }
 
             const updatedLeads = [...currentLeads];
-            if (newStatus) {
-                updatedLeads[currentLeadIndex] = { ...currentLead, status: newStatus };
-            }
+            updatedLeads[currentLeadIndex] = updatedLead;
 
             if (nextLead) {
                 setSelectedLead(nextLead);
             } else {
+                // If no next lead in this group, maybe close or just clear selection
                 setIsModalOpen(false);
                 setSelectedLead(null);
                 toast('Fim da lista para esta etapa!');
@@ -258,13 +276,23 @@ export default function ColdCallPage() {
             <Card className="border-none shadow-none bg-transparent">
                 <CardContent className="p-0">
                     <div className="flex gap-4 items-center mb-6">
-                        <div className="relative w-64">
+                        <div className="relative w-64 flex gap-2">
                             <Input
                                 placeholder="Buscar..."
                                 value={filters.search}
                                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                                 className="bg-white"
                             />
+                            <Button
+                                variant={isSelectionMode ? "default" : "outline"}
+                                className={isSelectionMode ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-white text-slate-600 border-slate-200"}
+                                onClick={() => {
+                                    if (isSelectionMode) setSelectedLeads([]);
+                                    setIsSelectionMode(!isSelectionMode);
+                                }}
+                            >
+                                {isSelectionMode ? "Cancelar" : "Selecionar"}
+                            </Button>
                         </div>
                         <div className="w-56">
                             <NichoSelector
@@ -333,7 +361,9 @@ export default function ColdCallPage() {
                                         onCallClick={handleCallClick}
                                         onStatusChange={handleStatusChange}
                                         selectedLeads={selectedLeads}
-                                        onToggleSelection={toggleSelection}
+                                        onToggleSelection={isSelectionMode ? toggleSelection : undefined}
+                                        isSelectionMode={isSelectionMode}
+                                        onDeleteClick={handleDeleteLead}
                                     />
                                 ))
                         )}

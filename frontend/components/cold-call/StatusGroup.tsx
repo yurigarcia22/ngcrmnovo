@@ -11,7 +11,8 @@ import {
     Globe,
     Instagram,
     MoreHorizontal,
-    ChevronDownCircle
+    ChevronDownCircle,
+    Trash2
 } from 'lucide-react';
 
 interface StatusGroupProps {
@@ -22,9 +23,11 @@ interface StatusGroupProps {
     onStatusChange: (leadId: string, newStatus: ColdLeadStatus) => void;
     selectedLeads?: string[];
     onToggleSelection?: (id: string) => void;
+    isSelectionMode?: boolean;
+    onDeleteClick?: (id: string) => void;
 }
 
-export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusChange, selectedLeads = [], onToggleSelection }: StatusGroupProps) {
+export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusChange, selectedLeads = [], onToggleSelection, isSelectionMode = false, onDeleteClick }: StatusGroupProps) {
     const [isExpanded, setIsExpanded] = useState(true);
 
     const statusLabels: Record<ColdLeadStatus, string> = {
@@ -48,6 +51,7 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
 
     const toggleSelectAllGroup = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!onToggleSelection) return;
         // If all selected, deselect all. Otherwise, select all.
         const allSelected = leads.every(l => selectedLeads.includes(l.id));
         leads.forEach(l => {
@@ -70,7 +74,7 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
                     <button className="text-slate-400 hover:text-slate-600 mr-1" onClick={() => setIsExpanded(!isExpanded)}>
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </button>
-                    {onToggleSelection && (
+                    {isSelectionMode && onToggleSelection && (
                         <input
                             type="checkbox"
                             className="mr-2 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
@@ -91,7 +95,7 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
                 <div className="flex-1 border-b border-dashed border-slate-200 mx-4 opacity-0 group-hover:opacity-100 transition-opacity"></div>
 
                 <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 text-slate-400 text-xs">
-                    + Adicionar Tarefa
+                    + Adicionar Lead
                 </Button>
             </div>
 
@@ -106,8 +110,7 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
                                 className={`group flex items-center gap-4 py-2 px-4 bg-white border rounded-md hover:shadow-sm transition-all ${isSelected ? 'border-blue-400 bg-blue-50/30' : 'border-slate-100 hover:border-blue-100'}`}
                             >
                                 { /* Selection Checkbox */}
-                                { /* Selection Checkbox */}
-                                {onToggleSelection && (
+                                {isSelectionMode && onToggleSelection && (
                                     <div className="shrink-0 mr-2">
                                         <input
                                             type="checkbox"
@@ -170,15 +173,32 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
                                 </div>
 
                                 {/* Action */}
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 w-7 p-0 rounded-full md:w-auto md:h-8 md:px-3 md:rounded-md bg-transparent border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
-                                    onClick={() => onCallClick(lead)}
-                                >
-                                    <Phone className="h-3 w-3 md:mr-2" />
-                                    <span className="hidden md:inline">Ligar</span>
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 w-7 p-0 rounded-full md:w-auto md:h-8 md:px-3 md:rounded-md bg-transparent border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                                        onClick={() => onCallClick(lead)}
+                                    >
+                                        <Phone className="h-3 w-3 md:mr-2" />
+                                        <span className="hidden md:inline">Ligar</span>
+                                    </Button>
+
+                                    {onDeleteClick && (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-7 w-7 p-0 rounded-full md:h-8 md:w-8 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDeleteClick(lead.id);
+                                            }}
+                                            title="Excluir Lead"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                </div>
 
                             </div>
                         );

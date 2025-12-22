@@ -39,3 +39,23 @@ export async function PATCH(
 
     return NextResponse.json(data);
 }
+
+export async function DELETE(
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const supabase = await createClient();
+    const { id } = await params;
+
+    const { error } = await supabase
+        .from('cold_leads')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        console.error('Error deleting cold lead:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+}
