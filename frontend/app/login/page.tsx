@@ -27,7 +27,7 @@ export default function LoginPage() {
             <div className="w-full max-w-md bg-[#153046] rounded-2xl shadow-xl border border-gray-700 p-8">
                 <div className="text-center mb-8">
                     <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-lg mx-auto mb-4">
-                        E
+                        <Lock className="h-8 w-8 text-white" />
                     </div>
                     <h1 className="text-2xl font-bold text-white">Bem-vindo de volta</h1>
                     <p className="text-gray-400 mt-2">Entre com suas credenciais para acessar o CRM</p>
