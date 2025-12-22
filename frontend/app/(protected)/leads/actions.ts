@@ -81,6 +81,9 @@ export async function getBoardData(pipelineId?: string) {
                     contacts (name, phone),
                     deal_tags (
                         tags (id, name, color)
+                    ),
+                    deal_items (
+                        products (name)
                     )
                 `)
                 .eq("tenant_id", tenantId)

@@ -1,5 +1,5 @@
 import { Draggable } from "@hello-pangea/dnd";
-import { User, Link as LinkIcon, MessageCircle, Calendar } from "lucide-react";
+import { User, Link as LinkIcon, MessageCircle, Calendar, Package } from "lucide-react";
 
 interface KanbanCardProps {
     deal: any; // Using any for now to match page.tsx
@@ -42,6 +42,21 @@ export default function KanbanCard({ deal, index, fields, onClick }: KanbanCardP
                             <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
                                 <User size={12} className="text-gray-400" />
                                 <span className="truncate">{deal.contacts.name}</span>
+                            </div>
+                        )}
+
+                        {/* Products as Tags */}
+                        {deal.deal_items && deal.deal_items.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-1">
+                                {deal.deal_items.map((item: any, i: number) => (
+                                    <span
+                                        key={i}
+                                        className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded text-blue-700 bg-blue-50 font-medium border border-blue-100"
+                                    >
+                                        <Package size={8} />
+                                        {item.products?.name || "Produto"}
+                                    </span>
+                                ))}
                             </div>
                         )}
 

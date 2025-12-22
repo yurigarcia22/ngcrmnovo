@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { getTenantId } from '@/app/actions';
 import { ColdLeadInsert } from '@/types/cold-lead';
 
 export async function GET(request: NextRequest) {
@@ -55,7 +56,10 @@ export async function POST(request: NextRequest) {
         );
     }
 
+    const tenantId = await getTenantId();
+
     const newLead: ColdLeadInsert = {
+        tenant_id: tenantId,
         nome: body.nome,
         telefone: body.telefone,
         nicho: body.nicho,

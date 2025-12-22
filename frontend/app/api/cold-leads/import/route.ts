@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { getTenantId } from '@/app/actions';
 import * as XLSX from 'xlsx';
 import { ColdLeadInsert } from '@/types/cold-lead';
 
@@ -28,6 +29,8 @@ export async function POST(request: NextRequest) {
         const validLeads: ColdLeadInsert[] = [];
         const errors: string[] = [];
 
+        const tenantId = await getTenantId();
+
         // Expected columns: Nome, Telefone, Nicho, Site, Instagram, Google, Notas
         rawData.forEach((row, index) => {
             const lineNum = index + 2; // +1 header, +1 1-based index
@@ -42,6 +45,7 @@ export async function POST(request: NextRequest) {
             }
 
             validLeads.push({
+                tenant_id: tenantId,
                 nome: String(nome).trim(),
                 telefone: String(telefone).trim(),
                 nicho: String(nicho).trim(),

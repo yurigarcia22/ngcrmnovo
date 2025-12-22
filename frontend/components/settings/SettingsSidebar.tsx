@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { User, Building2, Users, Tag, AlertOctagon, MessageSquare, Smartphone, Zap, GitPullRequest, LayoutList } from "lucide-react";
+import { User, Building2, Users, Tag, AlertOctagon, MessageSquare, Smartphone, Zap, GitPullRequest, LayoutList, Package } from "lucide-react";
 
 const menuItems = [
     { name: "Meu Perfil", href: "/settings/profile", icon: User },
     { name: "Empresa", href: "/settings/company", icon: Building2 },
     { name: "Minha Equipe", href: "/settings/team", icon: Users },
     { name: "Funis de Vendas", href: "/settings/pipelines", icon: GitPullRequest },
+    { name: "Produtos", href: "/settings/products", icon: Package },
     { name: "Etiquetas", href: "/settings/tags", icon: Tag },
     { name: "Motivos de Perda", href: "/settings/loss-reasons", icon: AlertOctagon },
     { name: "Respostas Rápidas", href: "/settings/quick-replies", icon: Zap },

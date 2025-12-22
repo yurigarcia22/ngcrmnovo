@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { updateDeal, updateContact, deleteDeal, sendMessage, sendMedia, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getMessages, getTeamMembers } from "@/app/actions";
+import { updateDeal, updateContact, deleteDeal, sendMessage, sendMedia, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getMessages, getTeamMembers, getDealItems, upsertDealItems } from "@/app/actions";
+import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { getFields } from "@/app/(protected)/settings/fields/actions";
 import { createClient } from "@/utils/supabase/client";
-import { X, Save, Loader2, User, Phone, DollarSign, RefreshCw, ThumbsDown, Trash2, Tag as TagIcon, Plus, StickyNote, Zap, GitPullRequest } from "lucide-react";
+import { X, Save, Loader2, User, Phone, DollarSign, RefreshCw, ThumbsDown, Trash2, Tag as TagIcon, Plus, StickyNote, Zap, GitPullRequest, Check } from "lucide-react";
 import ChatWindow from "./ChatWindow";
 
 export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
@@ -114,6 +115,78 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     const [fields, setFields] = useState<any[]>([]);
     const [customValues, setCustomValues] = useState<Record<string, any>>(deal.custom_values || {});
 
+    // PRODUCTS / ITEMS LOGIC
+    const [items, setItems] = useState<any[]>([]);
+    const [products, setProducts] = useState<any[]>([]);
+    const [loadingProducts, setLoadingProducts] = useState(false);
+    const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+    const [isAddingItem, setIsAddingItem] = useState(false);
+
+    useEffect(() => {
+        async function loadItemsAndProducts() {
+            setLoadingProducts(true);
+            const [itemsRes, productsRes] = await Promise.all([
+                getDealItems(deal.id),
+                getProducts() // Fetch all products for dropdown
+            ]);
+
+            if (itemsRes.success) setItems(itemsRes.data || []);
+            if (productsRes.success) setProducts(productsRes.data || []);
+            setLoadingProducts(false);
+        }
+        loadItemsAndProducts();
+    }, [deal.id]);
+
+    // OMITTED: Auto-calculate useEffect to allow manual override
+
+    function updateValueFromItems() {
+        const total = items.reduce((acc, item) => acc + (item.quantity * item.unit_price), 0);
+        setValue(total);
+        setHasChanges(true); // Ensure save button enables
+    }
+
+    function handleAddItem() {
+        setIsAddingItem(true);
+    }
+
+    function handleProductAdd(prodId: string) {
+        if (!prodId) return;
+        const prod = products.find(p => p.id === prodId);
+        const newItem = {
+            product_id: prodId,
+            quantity: 1,
+            unit_price: prod ? prod.price : 0,
+            tempId: Date.now()
+        };
+        setItems([...items, newItem]);
+        setIsAddingItem(false);
+        setHasChanges(true);
+    }
+
+    function handleRemoveItem(index: number) {
+        const newItems = [...items];
+        newItems.splice(index, 1);
+        setItems(newItems);
+        setHasChanges(true); // Should trigger save button availability because items changed
+    }
+
+    function handleItemChange(index: number, field: string, val: any) {
+        const newItems = [...items];
+        newItems[index] = { ...newItems[index], [field]: val };
+
+        // If product changed, update price automatically
+        if (field === 'product_id') {
+            const prod = products.find(p => p.id === val);
+            if (prod) {
+                newItems[index].unit_price = prod.price;
+            }
+        }
+
+        setItems(newItems);
+        setHasChanges(true);
+    }
+
+
     useEffect(() => {
         getFields().then(res => {
             if (res.success) setFields(res.data || []);
@@ -148,6 +221,9 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
             if (Object.keys(updates).length > 0) {
                 await updateDeal(deal.id, updates);
             }
+
+            // Save Items
+            await upsertDealItems(deal.id, items);
 
             alert("Salvo com sucesso!");
             if (onUpdate) {
@@ -375,6 +451,139 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                                     placeholder="0,00"
                                 />
                             </div>
+                        </div>
+
+                        {/* ITEMS SECTION */}
+                        <div className="bg-gray-50/50 p-4 rounded-lg border border-gray-100">
+                            <div className="flex justify-between items-center mb-3">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Itens / Produtos (Opcional)</label>
+                                <button
+                                    onClick={handleAddItem}
+                                    className="text-blue-600 hover:text-blue-700 text-[10px] font-bold uppercase tracking-wide hover:underline transition-all flex items-center gap-1"
+                                >
+                                    <Plus size={12} /> Adicionar
+                                </button>
+                            </div>
+
+                            <div className="space-y-2 mb-4">
+                                {/* Tag Cloud Display */}
+                                <div className="flex flex-wrap gap-2">
+                                    {items.length === 0 && !isAddingItem && (
+                                        <div className="text-gray-400 text-xs italic w-full text-center py-2">
+                                            Nenhum item adicionado.
+                                        </div>
+                                    )}
+
+                                    {items.map((item, idx) => {
+                                        const product = products.find(p => p.id === item.product_id);
+                                        const prodName = product ? product.name : "Produto desconhecido";
+                                        const isEditing = editingItemIndex === idx;
+
+                                        if (isEditing) {
+                                            return (
+                                                <div key={item.id || item.tempId || idx} className="flex gap-1 items-center bg-white border border-blue-200 p-1 rounded-md shadow-sm animate-in zoom-in-95 w-full sm:w-auto">
+                                                    <div className="text-xs font-bold text-gray-700 px-2 max-w-[120px] truncate" title={prodName}>
+                                                        {prodName}
+                                                    </div>
+                                                    <input
+                                                        type="number"
+                                                        value={item.quantity}
+                                                        onChange={e => handleItemChange(idx, 'quantity', Number(e.target.value))}
+                                                        placeholder="Qtd"
+                                                        className="w-12 bg-gray-50 border border-gray-200 rounded px-1 py-0.5 text-xs text-center focus:border-blue-500 outline-none"
+                                                        min="1"
+                                                        autoFocus
+                                                    />
+                                                    <div className="relative w-20">
+                                                        <span className="absolute left-1 top-0.5 text-gray-400 text-[10px]">R$</span>
+                                                        <input
+                                                            type="number"
+                                                            value={item.unit_price}
+                                                            onChange={e => handleItemChange(idx, 'unit_price', Number(e.target.value))}
+                                                            className="w-full bg-gray-50 border border-gray-200 rounded px-1 pl-4 py-0.5 text-xs text-right focus:border-blue-500 outline-none"
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setEditingItemIndex(null)}
+                                                        className="p-1 text-green-600 hover:bg-green-50 rounded"
+                                                        title="Confirmar"
+                                                    >
+                                                        <Check size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRemoveItem(idx)}
+                                                        className="p-1 text-red-400 hover:bg-red-50 rounded"
+                                                        title="Remover"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            )
+                                        }
+
+                                        return (
+                                            <div
+                                                key={item.id || item.tempId || idx}
+                                                onClick={() => setEditingItemIndex(idx)}
+                                                className="group flex items-center gap-2 bg-white border border-gray-200 hover:border-blue-300 hover:shadow-sm rounded-full px-3 py-1 cursor-pointer transition-all active:scale-95"
+                                                title="Clique para editar"
+                                            >
+                                                <span className="text-xs font-medium text-gray-700 max-w-[150px] truncate">
+                                                    {prodName}
+                                                </span>
+                                                {item.quantity > 1 && (
+                                                    <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-1.5 rounded-full">
+                                                        x{item.quantity}
+                                                    </span>
+                                                )}
+                                                <div className="h-3 w-px bg-gray-300 mx-0.5" />
+                                                <span className="text-[10px] text-gray-500 font-medium">
+                                                    R$ {item.unit_price?.toLocaleString('pt-BR')}
+                                                </span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRemoveItem(idx);
+                                                    }}
+                                                    className="ml-1 text-gray-400 hover:text-red-500 p-0.5 rounded-full hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* ADD MODE SELECT */}
+                                    {isAddingItem && (
+                                        <div className="animate-in fade-in slide-in-from-left-2 duration-200 min-w-[200px]">
+                                            <select
+                                                autoFocus
+                                                className="w-full bg-white text-gray-800 text-xs p-1.5 rounded border border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 outline-none shadow-sm"
+                                                onChange={(e) => {
+                                                    if (e.target.value) handleProductAdd(e.target.value);
+                                                }}
+                                                onBlur={() => setIsAddingItem(false)}
+                                                defaultValue=""
+                                            >
+                                                <option value="" disabled>Selecione um produto...</option>
+                                                {products.map(p => (
+                                                    <option key={p.id} value={p.id}>{p.name} - R$ {p.price}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Optional: Button to sync value if user wants */}
+                            {items.length > 0 && (
+                                <button
+                                    onClick={updateValueFromItems}
+                                    className="text-xs text-blue-600 hover:underline w-full text-center"
+                                >
+                                    Atualizar Valor Total com base nos itens (R$ {items.reduce((acc, item) => acc + (item.quantity * item.unit_price), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
+                                </button>
+                            )}
                         </div>
 
                         {/* Contact Info (Clean) */}

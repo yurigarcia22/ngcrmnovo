@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getMembers, inviteMember, revokeInvite } from "./actions";
+import { getMembers, inviteMember, revokeInvite, removeMember, updateMemberRole } from "./actions";
 import { User, Plus, Mail, Shield, Clock, CheckCircle, Trash2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
@@ -67,6 +67,26 @@ export default function TeamPage() {
         }
     }
 
+    async function handleRemoveMember(userId: string) {
+        if (!confirm("TEM CERTEZA? Essa ação removerá o acesso deste usuário permanentemente.")) return;
+
+        const res = await removeMember(userId);
+        if (res.success) {
+            fetchData();
+        } else {
+            alert("Erro ao remover membro: " + res.error);
+        }
+    }
+
+    async function handleRoleUpdate(userId: string, newRole: 'admin' | 'vendedor') {
+        const res = await updateMemberRole(userId, newRole);
+        if (res.success) {
+            fetchData();
+        } else {
+            alert("Erro ao atualizar função: " + res.error);
+        }
+    }
+
     return (
         <div className="flex-1 text-gray-800">
             <div className="max-w-4xl mx-auto">
@@ -117,9 +137,26 @@ export default function TeamPage() {
                                             <div className="text-sm text-gray-500">{member.email}</div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                                        <Shield size={16} />
-                                        <span>Membro</span>
+                                    <div className="flex items-center gap-4">
+                                        <select
+                                            className="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1 outline-none focus:ring-2 focus:ring-blue-100"
+                                            value={member.role || 'vendedor'}
+                                            onChange={(e) => handleRoleUpdate(member.id, e.target.value as 'admin' | 'vendedor')}
+                                            disabled={currentUser?.id === member.id}
+                                        >
+                                            <option value="vendedor">Vendedor</option>
+                                            <option value="admin">Admin</option>
+                                        </select>
+
+                                        {currentUser?.id !== member.id && (
+                                            <button
+                                                onClick={() => handleRemoveMember(member.id)}
+                                                className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                                                title="Remover membro"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -168,42 +205,44 @@ export default function TeamPage() {
             </div>
 
             {/* Modal de Convite */}
-            {isInviteModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-                    <div className="bg-white p-6 rounded-xl w-full max-w-md border border-gray-200 shadow-2xl">
-                        <h2 className="text-xl font-bold mb-4 text-gray-800">Convidar Membro</h2>
-                        <form onSubmit={handleInvite}>
-                            <div className="mb-4">
-                                <label className="block text-sm text-gray-600 mb-1">E-mail do Vendedor</label>
-                                <input
-                                    type="email"
-                                    value={inviteEmail}
-                                    onChange={(e) => setInviteEmail(e.target.value)}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                                    placeholder="exemplo@email.com"
-                                    required
-                                />
-                            </div>
-                            <div className="flex justify-end gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsInviteModalOpen(false)}
-                                    className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={inviteLoading}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                                >
-                                    {inviteLoading ? "Enviando..." : "Enviar Convite"}
-                                </button>
-                            </div>
-                        </form>
+            {
+                isInviteModalOpen && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+                        <div className="bg-white p-6 rounded-xl w-full max-w-md border border-gray-200 shadow-2xl">
+                            <h2 className="text-xl font-bold mb-4 text-gray-800">Convidar Membro</h2>
+                            <form onSubmit={handleInvite}>
+                                <div className="mb-4">
+                                    <label className="block text-sm text-gray-600 mb-1">E-mail do Vendedor</label>
+                                    <input
+                                        type="email"
+                                        value={inviteEmail}
+                                        onChange={(e) => setInviteEmail(e.target.value)}
+                                        className="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                        placeholder="exemplo@email.com"
+                                        required
+                                    />
+                                </div>
+                                <div className="flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsInviteModalOpen(false)}
+                                        className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={inviteLoading}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                                    >
+                                        {inviteLoading ? "Enviando..." : "Enviar Convite"}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }

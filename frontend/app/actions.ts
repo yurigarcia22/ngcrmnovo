@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
 
 // --- HELPER: Get Tenant ID ---
 export async function getTenantId() {
@@ -947,3 +948,49 @@ export async function getConversations(search?: string, ownerId?: string) {
         return { success: false, error: error.message };
     }
 }
+
+export async function getDealItems(dealId: string) {
+    try {
+        const supabase = await createSupabaseServerClient();
+        const { data, error } = await supabase
+            .from("deal_items")
+            .select(`
+                *,
+                products ( name )
+            `)
+            .eq("deal_id", dealId);
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function upsertDealItems(dealId: string, items: any[]) {
+    try {
+        const supabase = await createSupabaseServerClient();
+
+        // 1. Delete all existing items for this deal (simple replacement strategy)
+        // Ideally we would sync properly, but for this MVP, clear and insert is safer for consistency
+        await supabase.from("deal_items").delete().eq("deal_id", dealId);
+
+        if (items.length > 0) {
+            const itemsToInsert = items.map(item => ({
+                deal_id: dealId,
+                product_id: item.product_id,
+                quantity: item.quantity,
+                unit_price: item.unit_price
+            }));
+
+            const { error } = await supabase.from("deal_items").insert(itemsToInsert);
+            if (error) throw error;
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("upsertDealItems Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
