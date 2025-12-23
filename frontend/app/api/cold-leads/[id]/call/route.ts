@@ -5,7 +5,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { ColdLead, ColdLeadUpdate } from '@/types/cold-lead';
 
 // Placeholder for Kanban integration
-async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipelineId?: string, stageId?: string) {
+async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipelineId?: string, stageId?: string, meetingDate?: string) {
     const supabase = await createClient();
 
     // 1. Get User and Tenant
@@ -139,7 +139,7 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipeline
     }
 
     // 6. Create Deal
-    const { error: dealError } = await supabase
+    const { data: newDeal, error: dealError } = await supabase
         .from("deals")
         .insert({
             title: lead.nome,
@@ -149,12 +149,29 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipeline
             status: "open",
             tenant_id: tenantId,
             owner_id: user.id
-        });
+        })
+        .select("id")
+        .single();
 
     if (dealError) {
         console.error('Error creating deal:', dealError);
     } else {
         console.log('Opportunity created successfully for lead:', lead.id);
+
+        // 7. Create Task if meeting date provided
+        if (meetingDate && newDeal) {
+            const { error: taskError } = await supabase
+                .from("tasks")
+                .insert({
+                    deal_id: newDeal.id,
+                    description: "Reunião de Apresentação (Origem: Cold Call)",
+                    due_date: meetingDate,
+                    is_completed: false,
+                    tenant_id: tenantId
+                });
+            if (taskError) console.error('Error creating meeting task:', taskError);
+        }
+
         // Clean cache for leads page
         try {
             // We need to dinamically import or use the imported path if available.
@@ -241,11 +258,19 @@ export async function POST(
                 break;
 
             case 'reuniao_marcada':
+                console.log("Processing reuniao_marcada for lead:", id);
                 updates.status = 'reuniao_marcada'; // Always set to this success state
                 updates.tentativas = (currentLead.tentativas || 0) + 1;
                 updates.ultimo_resultado = 'reunião marcada';
+
                 // Trigger duplication!
-                await createOpportunityFromColdLeadPlaceholder(currentLead, pipeline_id, stage_id);
+                try {
+                    await createOpportunityFromColdLeadPlaceholder(currentLead, pipeline_id, stage_id, proxima_ligacao);
+                    console.log("Duplication triggered successfully");
+                } catch (dupError) {
+                    console.error("Duplication failed but continuing:", dupError);
+                    // Do not block status update
+                }
                 break;
 
             default:
@@ -256,6 +281,8 @@ export async function POST(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
+
+        console.log("Updating cold lead status to:", updates.status);
 
         const { data: updatedLead, error: updateError } = await supabaseAdmin
             .from('cold_leads')
@@ -268,8 +295,11 @@ export async function POST(
         revalidatePath('/leads');
 
         if (updateError) {
+            console.error("Update cold_lead failed:", updateError);
             return NextResponse.json({ error: updateError.message }, { status: 500 });
         }
+
+        console.log("Cold lead updated successfully:", updatedLead?.id);
 
         return NextResponse.json(updatedLead);
 

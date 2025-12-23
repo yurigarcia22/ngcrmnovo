@@ -497,6 +497,32 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                     </select>
                                 </div>
                             </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Data da Reunião</label>
+                                <div className="relative">
+                                    <div className="absolute left-3 top-2.5 text-slate-400"><Clock size={16} /></div>
+                                    <Input
+                                        type="datetime-local"
+                                        value={meetingDate}
+                                        onChange={e => setMeetingDate(e.target.value)}
+                                        className="w-full bg-white border border-slate-200 rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-100 transition-all text-slate-700 h-auto"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Google Calendar Link Button */}
+                            {meetingDate && (
+                                <a
+                                    href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=Reunião com ${lead.nome}&details=Discussão sobre proposta comercial - Tel: ${lead.telefone}&dates=${new Date(meetingDate).toISOString().replace(/-|:|\.\d\d\d/g, "")}/${new Date(new Date(meetingDate).getTime() + 3600000).toISOString().replace(/-|:|\.\d\d\d/g, "")}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center justify-center gap-2 p-2.5 rounded-lg border border-emerald-100 bg-white text-emerald-600 hover:bg-emerald-50 text-xs font-bold transition-colors w-full"
+                                >
+                                    <Calendar size={14} />
+                                    Abrir no Google Agenda
+                                </a>
+                            )}
                         </div>
 
                         {/* Info Box */}

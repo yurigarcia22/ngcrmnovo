@@ -15,7 +15,7 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
     const [notes, setNotes] = useState<any[]>([]);
     const [loadingNotes, setLoadingNotes] = useState(false);
 
-    // Hoisted State
+    // Dynamic Data
     const [items, setItems] = useState<any[]>([]);
     const [products, setProducts] = useState<any[]>([]);
     const [fields, setFields] = useState<any[]>([]);
@@ -31,16 +31,8 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
         async function loadAllData() {
             setIsLoading(true);
             try {
-                // Parallel Fetching
-                const [
-                    tagsRes,
-                    teamRes,
-                    pipeRes,
-                    notesRes,
-                    itemsRes,
-                    productsRes,
-                    fieldsRes
-                ] = await Promise.all([
+                // Parallel Fetching - using allSettled to prevent total failure
+                const results = await Promise.allSettled([
                     supabase.from("tags").select("*").order("name"),
                     getTeamMembers(),
                     getPipelines(),
@@ -50,17 +42,50 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
                     getFields()
                 ]);
 
-                if (tagsRes.data) setAvailableTags(tagsRes.data);
-                if (teamRes.success && teamRes.data) setTeamMembers(teamRes.data);
-                if (pipeRes.success && pipeRes.data) setPipelines(pipeRes.data);
-                if (notesRes.success && notesRes.data) setNotes(notesRes.data);
+                // 0: Tags
+                if (results[0].status === 'fulfilled' && results[0].value.data) {
+                    setAvailableTags(results[0].value.data);
+                }
 
-                if (itemsRes.success) setItems(itemsRes.data || []);
-                if (productsRes.success) setProducts(productsRes.data || []);
-                if (fieldsRes.success) setFields(fieldsRes.data || []);
+                // 1: Team
+                if (results[1].status === 'fulfilled' && results[1].value.success) {
+                    setTeamMembers(results[1].value.data || []);
+                }
+
+                // 2: Pipelines
+                if (results[2].status === 'fulfilled' && results[2].value.success) {
+                    setPipelines(results[2].value.data || []);
+                }
+
+                // 3: Notes
+                if (results[3].status === 'fulfilled' && results[3].value.success) {
+                    setNotes(results[3].value.data || []);
+                }
+
+                // 4: Items
+                if (results[4].status === 'fulfilled' && results[4].value.success) {
+                    setItems(results[4].value.data || []);
+                }
+
+                // 5: Products
+                if (results[5].status === 'fulfilled' && results[5].value.success) {
+                    setProducts(results[5].value.data || []);
+                }
+
+                // 6: Fields
+                if (results[6].status === 'fulfilled' && results[6].value.success) {
+                    setFields(results[6].value.data || []);
+                }
+
+                // Log any errors (optional, helps debugging)
+                results.forEach((res, index) => {
+                    if (res.status === 'rejected') {
+                        console.error(`Failed to load data at index ${index}:`, res.reason);
+                    }
+                });
 
             } catch (error) {
-                console.error("Error loading deal data:", error);
+                console.error("Critical Error loading deal data:", error);
             } finally {
                 setIsLoading(false);
             }
@@ -283,6 +308,11 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     // const [products, setProducts] = useState<any[]>([]); // RECEIVED PROP
     const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
     const [isAddingItem, setIsAddingItem] = useState(false);
+
+    // Sync items when loaded from parent
+    useEffect(() => {
+        if (initialItems) setItems(initialItems);
+    }, [initialItems]);
 
     // REMOVED INTERNAL FETCH EFFECTS
     // useEffect(() => { ... loadItemsAndProducts ... }, [deal.id]);

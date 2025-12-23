@@ -14,7 +14,7 @@ export async function getPipelines() {
 
         const { data, error } = await supabase
             .from("pipelines")
-            .select("id, name")
+            .select("*, stages(id, name, position)")
             .eq("tenant_id", tenantId)
             .order("created_at", { ascending: true });
 

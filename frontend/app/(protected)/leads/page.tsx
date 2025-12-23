@@ -15,7 +15,6 @@ import {
     Bell,
     MoreHorizontal
 } from "lucide-react";
-import DealModal from "@/components/DealModal";
 import NewLeadModal from "@/components/NewLeadModal";
 import FilterBar from "@/components/kanban/FilterBar";
 import { DragDropContext, Draggable } from "@hello-pangea/dnd";
@@ -31,7 +30,6 @@ export default function LeadsPage() {
     const [stages, setStages] = useState<any[]>([]);
     const [deals, setDeals] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedDeal, setSelectedDeal] = useState<any>(null);
     const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
 
     // Custom Fields
@@ -47,6 +45,8 @@ export default function LeadsPage() {
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
     const [filterOwner, setFilterOwner] = useState('loading'); // Começa loading para não mostrar 'todos' antes de saber quem sou
     const [currentUserId, setCurrentUserId] = useState<string>("");
+
+
 
     // Busca dados ao carregar
     // Busca dados ao carregar (Pipelines, Tags, Team)
@@ -109,12 +109,14 @@ export default function LeadsPage() {
             }
         }
 
-        // 2. Busca tags e time
-        const { data: tagsData } = await supabase.from("tags").select("*").order("name");
-        const teamResult = await getTeamMembers();
+        // 2. Busca tags e time e produtos
+        const [tagsResult, teamResult] = await Promise.all([
+            supabase.from("tags").select("*").order("name"),
+            getTeamMembers()
+        ]);
 
         if (teamResult.success) setTeamMembers(teamResult.data || []);
-        if (tagsData) setTags(tagsData);
+        if (tagsResult.data) setTags(tagsResult.data);
     }
 
     async function loadBoard(pipelineId: string) {
@@ -126,11 +128,7 @@ export default function LeadsPage() {
             setDeals(res.deals || []);
             if (res.fieldDefinitions) setFields(res.fieldDefinitions);
 
-            // Update selectedDeal if open
-            if (selectedDeal && res.deals) {
-                const updatedSelectedDeal = res.deals.find((d: any) => d.id === selectedDeal.id);
-                if (updatedSelectedDeal) setSelectedDeal(updatedSelectedDeal);
-            }
+
         }
         setLoading(false);
     }
@@ -412,7 +410,7 @@ export default function LeadsPage() {
                                                         deal={deal}
                                                         index={index}
                                                         fields={fields}
-                                                        onClick={setSelectedDeal}
+                                                        onClick={() => { }} // Navigation handled internally
                                                     />
                                                 ))}
                                                 {provided.placeholder}
@@ -426,18 +424,6 @@ export default function LeadsPage() {
                 </DragDropContext>
             </div>
 
-
-            {/* MODAL DE CHAT */}
-            {
-                selectedDeal && (
-                    <DealModal
-                        isOpen={!!selectedDeal}
-                        onClose={() => setSelectedDeal(null)}
-                        deal={selectedDeal}
-                        onUpdate={() => fetchData()}
-                    />
-                )
-            }
 
             {/* MODAL NOVO LEAD */}
             <NewLeadModal

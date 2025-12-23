@@ -1,14 +1,17 @@
 import { Draggable } from "@hello-pangea/dnd";
 import { User, Link as LinkIcon, MessageCircle, Calendar, Package } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface KanbanCardProps {
     deal: any; // Using any for now to match page.tsx
     index: number;
     fields: any[];
-    onClick: (deal: any) => void;
+    onClick?: (deal: any) => void;
 }
 
 export default function KanbanCard({ deal, index, fields, onClick }: KanbanCardProps) {
+    const router = useRouter();
+
     return (
         <Draggable draggableId={String(deal.id)} index={index}>
             {(provided, snapshot) => (
@@ -16,9 +19,9 @@ export default function KanbanCard({ deal, index, fields, onClick }: KanbanCardP
                     ref={provided.innerRef}
                     {...provided.draggableProps}
                     {...provided.dragHandleProps}
-                    onClick={() => onClick(deal)}
+                    onClick={() => router.push(`/deals/${deal.id}`)}
                     style={{ ...provided.draggableProps.style }}
-                    className={`bg-white border border-gray-200 rounded-lg shadow-sm p-3 mb-2 cursor-grab hover:shadow-md transition-all relative group ${snapshot.isDragging ? "shadow-2xl ring-2 ring-[#2d76f9] rotate-2 scale-105 z-50" : ""
+                    className={`bg-white border border-gray-200 rounded-lg shadow-sm p-3 mb-2 cursor-pointer hover:shadow-md transition-all relative group ${snapshot.isDragging ? "shadow-2xl ring-2 ring-[#2d76f9] rotate-2 scale-105 z-50" : ""
                         } ${deal.status === 'lost' ? 'opacity-75 grayscale-[0.5]' : ''}`}
                 >
                     {/* Header: Title and Value */}

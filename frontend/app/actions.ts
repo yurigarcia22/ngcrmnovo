@@ -332,6 +332,7 @@ export async function updateDeal(dealId: string, data: any) {
             .eq("id", dealId);
 
         if (error) throw error;
+
         return { success: true };
     } catch (error: any) {
         console.error("updateDeal Error:", error);
@@ -354,6 +355,50 @@ export async function updateContact(contactId: string, data: any) {
         return { success: true };
     } catch (error: any) {
         console.error("updateContact Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteContact(contactId: string, deleteDealsOption: boolean) {
+    try {
+        const tenantId = await getTenantId();
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        // 1. Handle Deals
+        if (deleteDealsOption) {
+            // Delete associated deals and their messages
+            const { data: deals } = await supabase.from('deals').select('id').eq('contact_id', contactId).eq('tenant_id', tenantId);
+            if (deals && deals.length > 0) {
+                const dealIds = deals.map(d => d.id);
+                await supabase.from('messages').delete().in('deal_id', dealIds);
+                await supabase.from('goals').delete().in('deal_id', dealIds); // If goals exist
+                await supabase.from('notes').delete().in('deal_id', dealIds);
+                await supabase.from('tasks').delete().in('deal_id', dealIds);
+                await supabase.from('deals').delete().in('id', dealIds);
+            }
+        } else {
+            // Check if deals exist, if so, we might need to unlink them
+            // Assuming contact_id is nullable. If not, this might fail.
+            // But usually in CRM delete contact means delete everything related.
+            // If user unchecks "Delete Deal", maybe they want to keep the conversation/deal?
+            // But conversation IS the deal often.
+            // I'll try to set contact_id to NULL.
+            await supabase.from('deals').update({ contact_id: null }).eq('contact_id', contactId).eq('tenant_id', tenantId);
+        }
+
+        // 2. Delete Contact
+        const { error } = await supabase
+            .from("contacts")
+            .delete()
+            .eq("id", contactId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("deleteContact Error:", error);
         return { success: false, error: error.message };
     }
 }
@@ -877,6 +922,66 @@ export async function getDeals() {
     }
 }
 
+// Helper to log system events
+export async function logSystemActivity(dealId: string, content: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // We use 'notes' for now, but in a real app this should be 'audit_logs'
+        // We prepend [SYSTEM] to distinguish
+        const { error } = await supabase.from("notes").insert({
+            tenant_id: tenantId,
+            deal_id: dealId,
+            content: `[SYSTEM] ${content}`,
+            // created_by: 'system' // If supported
+        });
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("logSystemActivity Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getDealById(id: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data, error } = await supabase
+            .from("deals")
+            .select(`
+                *, 
+                contacts (id, name, phone, email), 
+                deal_tags (tags (id, name, color)),
+                deal_items (
+                    id, 
+                    quantity, 
+                    unit_price, 
+                    product_id, 
+                    products(name, price)
+                )
+            `)
+            .eq("id", id)
+            .eq("tenant_id", tenantId)
+            .single();
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("getDealById Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function getMessages(dealId: string) {
     try {
         const tenantId = await getTenantId();
@@ -938,6 +1043,8 @@ export async function getConversations(search?: string, ownerId?: string) {
                 title,
                 value,
                 updated_at,
+                created_at,
+                stage_id,
                 owner_id,
                 contacts!inner (
                     id,
@@ -1062,3 +1169,211 @@ export async function checkDealHasMessages(dealId: string) {
         return { success: false, error: error.message };
     }
 }
+
+
+// --- HELPER: Create Contact/Company ---
+export async function createContactForDeal(dealId: string, contactData: { name: string, phone: string, email: string }) {
+    try {
+        const tenantId = await getTenantId();
+        // Use Admin Client to ensure we can create contacts even with RLS, though server client should work
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // 1. Create Contact
+        const { data: newContact, error: createError } = await supabase
+            .from("contacts")
+            .insert({
+                tenant_id: tenantId,
+                name: contactData.name,
+                phone: contactData.phone,
+                email: contactData.email
+            })
+            .select()
+            .single();
+
+        if (createError) throw createError;
+
+        // 2. Link to Deal
+        const { error: updateError } = await supabase
+            .from("deals")
+            .update({ contact_id: newContact.id })
+            .eq("id", dealId);
+
+        if (updateError) throw updateError;
+
+        return { success: true, data: newContact };
+    } catch (error: any) {
+        console.error("createContactForDeal Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function createCompanyForDeal(dealId: string, companyName: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // 1. Create Company
+        const { data: newCompany, error: createError } = await supabase
+            .from("companies")
+            .insert({
+                tenant_id: tenantId,
+                name: companyName
+            })
+            .select()
+            .single();
+
+        if (createError) throw createError;
+
+        // 2. Link to Deal
+        const { error: updateError } = await supabase
+            .from("deals")
+            .update({ company_id: newCompany.id })
+            .eq("id", dealId);
+
+        if (updateError) throw updateError;
+
+        return { success: true, data: newCompany };
+    } catch (error: any) {
+        console.error("createCompanyForDeal Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- HELPER: Get Whatsapp Instances ---
+export async function getWhatsappInstances() {
+    try {
+        const tenantId = await getTenantId();
+        const adminClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data, error } = await adminClient
+            .from("whatsapp_instances")
+            .select("id, instance_name, custom_name, status, phone_number")
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("getWhatsappInstances Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- HELPER: Promote to Lead (Create Deal) ---
+export async function promoteToLead(dealId: string, title?: string, value?: number, meetingDate?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // 1. Get First Pipeline & Stage
+        const { data: pipelines } = await supabase
+            .from("pipelines")
+            .select("id, stages(id, position)")
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .single();
+
+        let stageId = null;
+        if (pipelines?.stages && pipelines.stages.length > 0) {
+            stageId = pipelines.stages.sort((a: any, b: any) => a.position - b.position)[0].id;
+        }
+
+        // 2. Update Deal
+        const updates: any = {
+            title: title || "Novo Lead",
+            updated_at: new Date().toISOString()
+        };
+        if (value) updates.value = value;
+        if (stageId) updates.stage_id = stageId;
+
+        const { error } = await supabase
+            .from("deals")
+            .update(updates)
+            .eq("id", dealId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+
+        // 3. Log Activity
+        await supabase.from("messages").insert({
+            tenant_id: tenantId,
+            deal_id: dealId,
+            content: "[SYSTEM] Conversa promovida a Lead",
+            type: "system",
+            direction: "system",
+            status: "sent"
+        });
+
+        // 4. Create Meeting Task if date provided
+        if (meetingDate) {
+            await createTask(dealId, "Reunião de Apresentação", meetingDate);
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("promoteToLead Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- HELPER: Check Ongoing Deals ---
+export async function checkOngoingDeals(phone: string, excludeDealId?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Find contact by phone first
+        const { data: contacts } = await supabase
+            .from("contacts")
+            .select("id")
+            .eq("phone", phone)
+            .eq("tenant_id", tenantId);
+
+        if (!contacts || contacts.length === 0) return { success: true, deals: [] };
+
+        const contactIds = contacts.map(c => c.id);
+
+        let query = supabase
+            .from("deals")
+            .select("id, title, value, stage_id, created_at, stages(name)")
+            .in("contact_id", contactIds)
+            .eq("tenant_id", tenantId)
+            // Filter out deals that are "lost" or "won" if we only care about OPEN ones? (Optional)
+            // For now, list all except the current one
+            .neq("id", excludeDealId);
+
+        const { data: deals, error } = await query;
+
+        if (error) throw error;
+
+        // Filter those that have a stage (status not null implies it's a lead/deal)
+        // because "conversations" might be deals without stage? 
+        // Actually earlier my promoteToLead adds stage_id. 
+        // If stage_id is null, it's just a conversation. We mainly care about real deals.
+        const realDeals = deals?.filter(d => d.stage_id !== null) || [];
+
+        return { success: true, deals: realDeals };
+
+    } catch (error: any) {
+        console.error("checkOngoingDeals Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+
+
