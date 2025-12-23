@@ -498,6 +498,51 @@ export async function addNote(dealId: string, content: string) {
     }
 }
 
+export async function getNotes(dealId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data, error } = await supabase
+            .from("notes")
+            .select("id, content, created_at")
+            .eq("deal_id", dealId)
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("getNotes Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteNote(noteId: string) {
+    try {
+        const tenantId = await getTenantId(); // Ensure tenant security
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("notes")
+            .delete()
+            .eq("id", noteId)
+            .eq("tenant_id", tenantId); // Security check
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("deleteNote Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function createTask(dealId: string, description: string, dueDate: string) {
     try {
         const tenantId = await getTenantId();
@@ -994,3 +1039,26 @@ export async function upsertDealItems(dealId: string, items: any[]) {
     }
 }
 
+
+export async function checkDealHasMessages(dealId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { count, error } = await supabase
+            .from("messages")
+            .select("id", { count: 'exact', head: true })
+            .eq("deal_id", dealId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+
+        return { success: true, hasMessages: (count || 0) > 0 };
+    } catch (error: any) {
+        console.error("checkDealHasMessages Error:", error);
+        return { success: false, error: error.message };
+    }
+}

@@ -4,12 +4,16 @@ import { getConversations, getTeamMembers } from '@/app/actions';
 import ChatWindow from '@/components/ChatWindow';
 import { createClient } from '@/utils/supabase/client';
 import { Search, MessageSquare, User, Tag, Calendar, ChevronRight, Filter } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 
 export default function ChatPage() {
     const [conversations, setConversations] = useState<any[]>([]);
     const [selectedDeal, setSelectedDeal] = useState<any>(null);
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
+    const searchParams = useSearchParams();
+    const urlDealId = searchParams.get('dealId');
+
     // Suppress unused warning if relevant, assuming createClient is used
     const [supabase] = useState(() => createClient()); // Initialize directly
 
@@ -34,6 +38,14 @@ export default function ChatPage() {
         }, 300);
         return () => clearTimeout(timer);
     }, [search, filterOwner]);
+
+    // Handle URL Deep Link
+    useEffect(() => {
+        if (urlDealId && conversations.length > 0 && !selectedDeal) {
+            const found = conversations.find(c => c.id === urlDealId);
+            if (found) setSelectedDeal(found);
+        }
+    }, [urlDealId, conversations, selectedDeal]);
 
     // Realtime Subscription
     useEffect(() => {
