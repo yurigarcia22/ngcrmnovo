@@ -301,6 +301,20 @@ export async function POST(
 
         console.log("Cold lead updated successfully:", updatedLead?.id);
 
+        // Log activity in cold_lead_notes for dashboard metrics
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                await supabaseAdmin.from('cold_lead_notes').insert({
+                    cold_lead_id: id,
+                    content: `Interação Registrada: ${resultado}`,
+                    created_by: user.id
+                });
+            }
+        } catch (logError) {
+            console.error("Failed to log activity:", logError);
+        }
+
         return NextResponse.json(updatedLead);
 
     } catch (error) {

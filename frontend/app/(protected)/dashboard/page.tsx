@@ -79,18 +79,18 @@ async function DashboardContent({ period, userId }: { period: string, userId: st
       </div>
 
       {/* Conversas Atuais */}
-      <StatCard title="CONVERSAS ATUAIS" value="0">
+      <StatCard title="CONVERSAS ATUAIS" value={data.conversationsCount}>
         <div className="mt-4">
-          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="text-5xl font-bold text-[#6366f1]">{data.conversationsCount}</div>
           <div className="w-16 h-1 bg-gray-700 mt-4 rounded-full"></div>
           <p className="text-xs text-gray-400 mt-4">{subtext}</p>
         </div>
       </StatCard>
 
-      {/* Chats Sem Respostas (Using mock data for visual match) */}
-      <StatCard title="CHATS SEM RESPOSTAS" value="0">
+      {/* Chats Sem Respostas */}
+      <StatCard title="CHATS SEM RESPOSTAS" value={data.unansweredChatsCount}>
         <div className="mt-4">
-          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="text-5xl font-bold text-[#6366f1]">{data.unansweredChatsCount}</div>
           <div className="w-16 h-1 bg-gray-700 mt-4 rounded-full"></div>
           <p className="text-xs text-gray-400 mt-4">{subtext}</p>
         </div>
@@ -119,10 +119,11 @@ async function DashboardContent({ period, userId }: { period: string, userId: st
       </StatCard>
 
       {/* Tarefas */}
-      <StatCard title="TAREFAS" value="0">
+      <StatCard title="TAREFAS PENDENTES" value={data.tasksCount}>
         <div className="mt-4">
-          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="text-5xl font-bold text-[#6366f1]">{data.tasksCount}</div>
           <div className="w-full h-px bg-gray-700 my-4"></div>
+          <p className="text-xs text-gray-400">Total pendente</p>
         </div>
       </StatCard>
 
@@ -132,20 +133,71 @@ async function DashboardContent({ period, userId }: { period: string, userId: st
       </div>
 
       {/* Tempo de Resposta */}
-      <StatCard title="TEMPO DE RESPOSTA" value="0">
+      <StatCard title="TEMPO DE RESPOSTA" value="--">
         <div className="mt-4">
-          <div className="text-5xl font-bold text-[#10b981]">0</div>
-          <p className="text-xs text-gray-400 mt-1">{subtext}</p>
+          <div className="text-5xl font-bold text-[#10b981]">--</div>
+          <p className="text-xs text-gray-400 mt-1">N/A</p>
         </div>
       </StatCard>
 
       {/* Mais Tempo Esperando */}
-      <StatCard title="MAIS TEMPO ESPERANDO" value="0">
+      <StatCard title="MAIS TEMPO ESPERANDO" value={data.longestWaitTime}>
         <div className="mt-4">
-          <div className="text-5xl font-bold text-[#6366f1]">0</div>
+          <div className="text-3xl font-bold text-[#6366f1]">{data.longestWaitTime}</div>
           <div className="w-full h-px bg-gray-700 my-4"></div>
+          <p className="text-xs text-yellow-500">Atenção requerida</p>
         </div>
       </StatCard>
+
+      {/* --- COLD CALL SECTION --- */}
+      <div className="lg:col-span-4 md:col-span-2 mt-8 mb-4 border-t border-white/10 pt-4">
+        <h2 className="text-xl font-bold text-white mb-4">Métricas Cold Call</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {/* Total Cold Leads */}
+          <div className="bg-[#1e1b4b] rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase">LEADS TOTAIS</h3>
+            </div>
+            <div className="mt-4">
+              <div className="text-4xl font-bold text-blue-400">{data.coldMetrics?.total || 0}</div>
+              <p className="text-xs text-gray-400 mt-2">{subtext}</p>
+            </div>
+          </div>
+
+          {/* Ligações Feitas */}
+          <div className="bg-[#1e1b4b] rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase">LIGAÇÕES FEITAS</h3>
+            </div>
+            <div className="mt-4">
+              <div className="text-4xl font-bold text-yellow-400">{data.coldMetrics?.calls || 0}</div>
+              <p className="text-xs text-gray-400 mt-2">Tentativas Totais</p>
+            </div>
+          </div>
+
+          {/* Conexões */}
+          <div className="bg-[#1e1b4b] rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase">CONEXÕES</h3>
+            </div>
+            <div className="mt-4">
+              <div className="text-4xl font-bold text-orange-400">{data.coldMetrics?.connections || 0}</div>
+              <p className="text-xs text-gray-400 mt-2">Atendidas</p>
+            </div>
+          </div>
+
+          {/* Reuniões */}
+          <div className="bg-[#1e1b4b] rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase">REUNIÕES</h3>
+            </div>
+            <div className="mt-4">
+              <div className="text-4xl font-bold text-green-400">{data.coldMetrics?.meetings || 0}</div>
+              <p className="text-xs text-gray-400 mt-2">Agendadas</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
     </div>
   );

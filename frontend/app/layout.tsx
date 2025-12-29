@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "CRM NG",
   description: "Advanced CRM System",
+  icons: {
+    icon: "/logo-icon.png", // Attempting to use the blue square again, but ensuring cache bust if needed? No, let's try favicon.png if logo-icon failed.
+    shortcut: "/logo-icon.png",
+    apple: "/logo-icon.png",
+  }
 };
 
 import { Toaster } from "sonner";

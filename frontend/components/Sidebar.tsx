@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation"; // To highlight selected
 import {
     LayoutDashboard,
@@ -181,8 +182,13 @@ const TitleSection = ({ open }: any) => {
 
 const Logo = () => {
     return (
-        <div className="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 shadow-md text-white font-bold text-xl">
-            NG
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg">
+            <Image
+                src="/logo-sidebar.png"
+                alt="NG Logo"
+                fill
+                className="object-cover"
+            />
         </div>
     );
 };
