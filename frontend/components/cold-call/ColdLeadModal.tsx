@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useState, useEffect, useRef } from "react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
-import { ColdLead, ColdLeadStatus } from "@/types/cold-lead";
+import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
-import { Phone, CheckCircle, XCircle, User, Calendar, X, Clock, Target, Trash2, Pencil, Save, Link, Instagram, MapPin, Globe, MessageCircle, GitPullRequest, Check } from "lucide-react";
+import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send } from "lucide-react";
+import { addColdLeadNote, getColdLeadNotes } from "@/app/actions";
 
 interface ColdLeadModalProps {
     lead: ColdLead;
@@ -17,7 +18,8 @@ interface ColdLeadModalProps {
 }
 
 export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasNext, onActionComplete }: ColdLeadModalProps) {
-    const [notes, setNotes] = useState(lead.notas || "");
+    const [currentNote, setCurrentNote] = useState("");
+    const [notesHistory, setNotesHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [isMeetingMode, setIsMeetingMode] = useState(false);
     const [meetingDate, setMeetingDate] = useState("");
@@ -40,9 +42,11 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         google_meu_negocio_url: lead.google_meu_negocio_url || ""
     });
 
+    const notesEndRef = useRef<HTMLDivElement>(null);
+
     useEffect(() => {
         if (isOpen) {
-            setNotes(lead.notas || "");
+            setCurrentNote("");
             setIsMeetingMode(false);
             setMeetingDate("");
             setIsEditing(false);
@@ -56,8 +60,24 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                 google_meu_negocio_url: lead.google_meu_negocio_url || ""
             });
             fetchPipelines();
+            fetchNotes();
         }
     }, [isOpen, lead]);
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [notesHistory]);
+
+    const scrollToBottom = () => {
+        notesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    async function fetchNotes() {
+        const res = await getColdLeadNotes(lead.id);
+        if (res.success) {
+            setNotesHistory(res.data || []);
+        }
+    }
 
     async function fetchPipelines() {
         try {
@@ -95,7 +115,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         try {
             const payload: any = {
                 resultado: result,
-                notas: notes,
+                notas: currentNote, // Optional: send current typed note if exists
             };
 
             if (result === 'reuniao_marcada') {
@@ -182,6 +202,52 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         }
     }
 
+    const handleSendNote = async () => {
+        if (!currentNote.trim()) return;
+        const noteToSend = currentNote;
+        setCurrentNote(""); // Optimistic clear
+
+        // Add to list optimistically? Or wait? Wait is safer for ID. 
+        // Let's rely on re-fetch or just push optimistic
+        const tempNote = { id: "temp", content: noteToSend, created_at: new Date().toISOString(), profiles: { full_name: "Você" } };
+        setNotesHistory(prev => [...prev, tempNote]);
+
+        const res = await addColdLeadNote(lead.id, noteToSend);
+        if (res.success) {
+            fetchNotes(); // Sync real data
+        } else {
+            toast.error("Erro ao salvar nota");
+            setNotesHistory(prev => prev.filter(n => n.id !== "temp"));
+            setCurrentNote(noteToSend); // Restore
+        }
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendNote();
+        }
+    }
+
+    // Date Shortcuts
+    const setDateShortcut = (daysToAdd: number) => {
+        const date = new Date();
+        date.setDate(date.getDate() + daysToAdd);
+        // Set to a reasonable time, e.g., next hour or same time?
+        // Let's set to current hour + 1
+        date.setHours(date.getHours() + 1, 0, 0, 0);
+
+        // Format for datetime-local: YYYY-MM-DDTHH:mm
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+
+        const dateString = `${year}-${month}-${day}T${hours}:${minutes}`;
+        setMeetingDate(dateString);
+    }
+
     // Helper to open links
     const openLink = (url: string) => {
         if (!url) return;
@@ -190,24 +256,13 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         window.open(target, '_blank');
     };
 
-    // Date formatting helper
-    const formatDate = (dateString: string | null | undefined) => {
-        if (!dateString) return '-';
-        return new Intl.DateTimeFormat('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        }).format(new Date(dateString));
-    };
-
     return (
         <>
             <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-                <DialogContent className="max-w-5xl h-[fit-content] min-h-[600px] p-0 overflow-hidden flex flex-col bg-white gap-0 border-none rounded-lg shadow-2xl">
+                <DialogContent className="max-w-5xl h-[90vh] p-0 overflow-hidden flex flex-col bg-white gap-0 border-none rounded-lg shadow-2xl">
 
                     {/* DARK HEADER */}
-                    <div className="bg-[#0f172a] text-white px-6 py-5 flex justify-between items-start">
+                    <div className="bg-[#0f172a] text-white px-6 py-5 flex justify-between items-start shrink-0">
                         <div className="space-y-1">
                             <div className="flex items-center gap-3">
                                 {isEditing ? (
@@ -248,7 +303,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                     <div className="flex-1 overflow-hidden grid grid-cols-12 h-full">
 
                         {/* LEFT SIDEBAR - INFO */}
-                        <div className="col-span-4 bg-white p-6 border-r border-slate-100 flex flex-col gap-8 h-full">
+                        <div className="col-span-4 bg-white p-6 border-r border-slate-100 flex flex-col gap-8 h-full overflow-y-auto">
 
                             {/* Responsible */}
                             <div className="space-y-2">
@@ -296,7 +351,6 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                         onClick={() => { navigator.clipboard.writeText(lead.telefone); toast.success("Copiado!"); }}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-all"
                                     >
-                                        {/* Copy Icon placeholder */}
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
                                     </button>
                                 </div>
@@ -368,81 +422,110 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                         </div>
 
                         {/* RIGHT CONTENT - ACTIONS */}
-                        <div className="col-span-8 p-8 flex flex-col bg-white h-full overflow-y-auto">
+                        <div className="col-span-8 p-0 flex flex-col bg-slate-50 h-full overflow-hidden">
 
-                            {/* Notes */}
-                            <div className="mb-6">
-                                <label className="text-sm font-bold text-slate-800 mb-2 block">Notas da Ligação</label>
-                                <Textarea
-                                    className="w-full h-40 resize-none border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg p-4 text-slate-700 text-sm"
-                                    placeholder="Digite aqui anotações importantes sobre a conversa..."
-                                    value={notes}
-                                    onChange={e => setNotes(e.target.value)}
-                                />
-                                <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
-                                    <span className="w-1 h-1 bg-slate-400 rounded-full"></span>
-                                    O histórico anterior não é exibido aqui.
-                                </p>
-                            </div>
-
-                            {/* Date Picker Section */}
-                            <div className="mb-8">
-                                <label className="text-sm font-bold text-slate-800 mb-2 block">Agendar Follow-up</label>
-                                <Input
-                                    type="datetime-local"
-                                    value={meetingDate}
-                                    onChange={e => setMeetingDate(e.target.value)}
-                                    className="w-full border-slate-200 h-10 bg-white"
-                                />
-                            </div>
-
-                            {/* Call Result Buttons */}
-                            <div className="mt-auto">
+                            {/* 1. RESULTADO DA LIGAÇÃO (Agora no Topo) */}
+                            <div className="bg-white p-6 border-b border-slate-100 shadow-sm shrink-0">
                                 <label className="text-sm font-bold text-slate-800 mb-3 block">Resultado da Ligação</label>
                                 <div className="grid grid-cols-6 gap-3">
                                     <Button
                                         variant="outline"
                                         onClick={() => handleResult('numero_inexistente')}
-                                        className="col-span-2 h-12 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50"
+                                        className="col-span-2 h-10 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 text-xs"
                                         disabled={loading}
                                     >
-                                        <XCircle size={16} className="mr-2 text-red-500" /> Número Inexistente
+                                        <XCircle size={14} className="mr-2 text-red-500" /> Número Inexistente
                                     </Button>
 
                                     <Button
                                         variant="outline"
                                         onClick={() => handleResult('ligacao_feita')}
-                                        className="col-span-2 h-12 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50"
+                                        className="col-span-2 h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
                                         disabled={loading}
                                     >
-                                        <Phone size={16} className="mr-2 text-pink-500" /> Ligação Feita
+                                        <Phone size={14} className="mr-2 text-pink-500" /> Ligação Feita
                                     </Button>
 
                                     <Button
                                         variant="outline"
                                         onClick={() => handleResult('contato_realizado')}
-                                        className="col-span-2 h-12 border-slate-200 text-slate-700 hover:border-purple-300 hover:text-purple-600 hover:bg-purple-50"
+                                        className="col-span-2 h-10 border-slate-200 text-slate-700 hover:border-purple-300 hover:text-purple-600 hover:bg-purple-50 text-xs"
                                         disabled={loading}
                                     >
-                                        <MessageCircle size={16} className="mr-2 text-purple-500" /> Contato Realizado
+                                        <MessageCircle size={14} className="mr-2 text-purple-500" /> Contato Realizado
                                     </Button>
 
                                     <Button
                                         variant="outline"
                                         onClick={() => handleResult('contato_decisor')}
-                                        className="col-span-3 h-12 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50"
+                                        className="col-span-3 h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs"
                                         disabled={loading}
                                     >
-                                        <Target size={18} className="mr-2 text-indigo-600" /> Contato com Decisor
+                                        <Target size={14} className="mr-2 text-indigo-600" /> Contato com Decisor
                                     </Button>
 
                                     <Button
                                         onClick={() => setIsMeetingMode(true)}
-                                        className="col-span-3 h-12 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                                        className="col-span-3 h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
                                         disabled={loading}
                                     >
-                                        <Calendar size={18} className="mr-2" /> Reunião Marcada
+                                        <Calendar size={14} className="mr-2" /> Reunião Marcada
                                     </Button>
+                                </div>
+                            </div>
+
+                            {/* 2. AGENDAR FOLLOW UP (Meio) */}
+                            <div className="p-6 shrink-0 bg-white border-b border-slate-100">
+                                <label className="text-sm font-bold text-slate-800 mb-2 block">Agendar Follow-up</label>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => setDateShortcut(0)} className="text-xs text-slate-600">Hoje</Button>
+                                    <Button variant="outline" size="sm" onClick={() => setDateShortcut(1)} className="text-xs text-slate-600">Amanhã</Button>
+                                    <Input
+                                        type="datetime-local"
+                                        value={meetingDate}
+                                        onChange={e => setMeetingDate(e.target.value)}
+                                        className="flex-1 text-xs h-9"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 3. NOTES (Bottom - Chat Style) */}
+                            <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
+                                <div className="p-4 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
+                                    <div className="text-center text-xs text-slate-400 py-2">Início do histórico</div>
+                                    {notesHistory.map((note) => (
+                                        <div key={note.id} className="flex flex-col gap-1 items-start max-w-[90%]">
+                                            <div className="bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-slate-100 text-sm text-slate-700">
+                                                {note.content}
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 pl-1">
+                                                {note.profiles?.full_name || "Usuário"} • {new Date(note.created_at).toLocaleString('pt-BR')}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div ref={notesEndRef} />
+                                </div>
+
+                                <div className="p-4 bg-white border-t border-slate-200">
+                                    <div className="relative">
+                                        <Textarea
+                                            className="w-full resize-none border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg pr-12 pl-4 py-3 text-sm min-h-[50px] max-h-[100px]"
+                                            placeholder="Digite uma observação e pressione Enter..."
+                                            value={currentNote}
+                                            onChange={e => setCurrentNote(e.target.value)}
+                                            onKeyDown={handleKeyDown}
+                                        />
+                                        <button
+                                            onClick={handleSendNote}
+                                            className="absolute right-3 bottom-3 text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+                                            disabled={!currentNote.trim()}
+                                        >
+                                            <Send size={16} />
+                                        </button>
+                                    </div>
+                                    <div className="flex justify-between items-center mt-2">
+                                        <p className="text-[10px] text-slate-400">Pressione Enter para enviar</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>

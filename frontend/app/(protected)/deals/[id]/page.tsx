@@ -3,6 +3,7 @@ import { getDealById, getTeamMembers, getNotes, getDealItems, getMessages } from
 import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { getFields } from "@/app/(protected)/settings/fields/actions"; // Check path if errors occur
+import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
 
 import DealInfoSidebar from "@/components/deal/DealInfoSidebar";
 import DealTimeline from "@/components/deal/DealTimeline";
@@ -23,7 +24,8 @@ export default async function DealPage({ params }: { params: { id: string } }) {
         productsRes,
         fieldsRes,
         tagsRes,
-        messagesRes
+        messagesRes,
+        lossReasonsRes
     ] = await Promise.all([
         getDealById(id),
         getTeamMembers(),
@@ -33,7 +35,8 @@ export default async function DealPage({ params }: { params: { id: string } }) {
         getProducts(),
         getFields(),
         import("@/utils/supabase/server").then(mod => mod.createClient().then(client => client.from("tags").select("*").order("name"))),
-        getMessages(id)
+        getMessages(id),
+        getLossReasons()
     ]);
 
     if (!dealRes.success || !dealRes.data) {
@@ -41,9 +44,10 @@ export default async function DealPage({ params }: { params: { id: string } }) {
     }
 
     const deal = dealRes.data;
-    const teamMembers = teamRes.success ? teamRes.data : [];
-    const pipelines = pipeRes.success ? pipeRes.data : [];
-    const notes = notesRes.success ? notesRes.data : [];
+    const teamMembers = teamRes.success && teamRes.data ? teamRes.data : [];
+    const pipelines = pipeRes.success && pipeRes.data ? pipeRes.data : [];
+    const notes = notesRes.success && notesRes.data ? notesRes.data : [];
+    const lossReasons = lossReasonsRes.success && lossReasonsRes.data ? lossReasonsRes.data : [];
 
     // Pass these if needed for editing logic later
     // const items = itemsRes.success ? itemsRes.data : [];
@@ -68,6 +72,7 @@ export default async function DealPage({ params }: { params: { id: string } }) {
                         availableTags={tagsRes.data || []}
                         products={productsRes.success ? productsRes.data : []}
                         dealItems={itemsRes.success ? itemsRes.data : []}
+                        lossReasons={lossReasons}
                     />
                 </div>
 

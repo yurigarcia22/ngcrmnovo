@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
+import * as XLSX from 'xlsx';
 
 // --- HELPER: Get Tenant ID ---
 export async function getTenantId() {
@@ -767,20 +768,26 @@ export async function markAsWon(dealId: string) {
     return { success: true };
 }
 
-export async function markAsLost(dealId: string, reason: string, details: string) {
+export async function markAsLost(dealId: string, reason: string, details: string, lossReasonId?: string) {
     const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    const updateData: any = {
+        status: 'lost',
+        closed_at: new Date().toISOString(),
+        lost_reason: reason,
+        lost_details: details
+    };
+
+    if (lossReasonId) {
+        updateData.lost_reason_id = lossReasonId;
+    }
+
     const { error } = await supabase
         .from('deals')
-        .update({
-            status: 'lost',
-            closed_at: new Date().toISOString(),
-            lost_reason: reason,
-            lost_details: details
-        })
+        .update(updateData)
         .eq('id', dealId);
 
     if (error) return { success: false, error: error.message };
@@ -1377,3 +1384,280 @@ export async function checkOngoingDeals(phone: string, excludeDealId?: string) {
 
 
 
+
+export async function addColdLeadNote(coldLeadId: string, content: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Get current user ID (need session for created_by)
+        // If we use service role we don't get auth.getUser() automatically linked to request unless we pass token
+        // But here we are in a server action. 
+        // Ideally we should use createServerClient to get the user.
+        const cookieStore = await cookies();
+        const supabaseAuth = createServerClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            {
+                cookies: {
+                    getAll() { return cookieStore.getAll() },
+                    setAll(cookiesToSet) { try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } catch { } },
+                },
+            }
+        );
+        const { data: { user } } = await supabaseAuth.auth.getUser();
+
+        const { error } = await supabase
+            .from("cold_lead_notes")
+            .insert({
+                cold_lead_id: coldLeadId,
+                content: content,
+                created_by: user?.id
+            });
+
+        await supabase.from("cold_leads").update({ updated_at: new Date().toISOString() }).eq('id', coldLeadId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("addColdLeadNote Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getColdLeadNotes(coldLeadId: string) {
+    try {
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data, error } = await supabase
+            .from("cold_lead_notes")
+            .select(`
+                id,
+                content,
+                created_at,
+                created_by,
+                profiles ( full_name )
+            `)
+            .eq("cold_lead_id", coldLeadId)
+            .order("created_at", { ascending: true });
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("getColdLeadNotes Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function importLeadsFromExcel(formData: FormData) {
+    try {
+        const file = formData.get('file') as File;
+        if (!file) throw new Error("Nenhum arquivo enviado");
+
+        const arrayBuffer = await file.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+
+        console.log(`Importando ${rows.length} linhas...`);
+
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const tenantId = await getTenantId(); // Re-use helper logic if possible or just rely on profile lookup below context. 
+
+        // Pre-fetch common data to avoid N+1 queries where possible, 
+        const { data: stages } = await supabase.from('stages').select('id, name, pipeline_id').eq('tenant_id', tenantId);
+        const { data: members } = await supabase.from('profiles').select('id, full_name, email').eq('tenant_id', tenantId);
+        const { data: allTags } = await supabase.from('tags').select('id, name').eq('tenant_id', tenantId);
+        const { data: allProducts } = await supabase.from('products').select('id, name, price').eq('tenant_id', tenantId);
+
+        let successCount = 0;
+        let errors: any[] = [];
+
+        for (const [index, row] of rows.entries()) {
+            try {
+                // ROW MAPPING
+                const leadName = row['Nome do lead'] || row['Nome'] || "Lead Sem Nome"; // Contact Name mainly
+                const stageName = row['Etapa do funil'] || row['Etapa'];
+                const ownerName = row['Responsavel'];
+                const valueRaw = row['Valor da venda'] || row['Valor'];
+                const tagsRaw = row['Etiquetas'];
+                const phone = row['Telefone'] ? String(row['Telefone']) : "";
+                const email = row['E-mail'];
+                const site = row['Site'];
+                const productName = row['Produto'];
+
+                // 1. Find/Create Contact
+                let contactId = null;
+                if (phone || email) {
+                    let query = supabase.from('contacts').select('id').eq('tenant_id', tenantId);
+                    if (email) query = query.eq('email', email);
+                    else if (phone) query = query.eq('phone', phone);
+
+                    const { data: existingContact } = await query.maybeSingle();
+
+                    if (existingContact) {
+                        contactId = existingContact.id;
+                    } else {
+                        // Create
+                        const { data: newContact, error: contactError } = await supabase.from('contacts').insert({
+                            tenant_id: tenantId,
+                            name: leadName,
+                            phone: phone,
+                            email: email,
+                            user_id: await getTenantId()
+                        }).select().single();
+                        if (contactError) throw new Error("Erro ao criar contato: " + contactError.message);
+                        contactId = newContact.id;
+                    }
+                }
+
+                // 2. Find/Create Company
+                let companyId = null;
+                if (site) {
+                    // Check if company exists by name/website
+                    let compQuery = supabase.from('companies').select('id').eq('tenant_id', tenantId).or(`name.eq."${site}",website.eq."${site}"`);
+                    const { data: existingComp } = await compQuery.maybeSingle();
+
+                    if (existingComp) {
+                        companyId = existingComp.id;
+                    } else {
+                        const { data: newCompany, error: companyError } = await supabase.from('companies').insert({
+                            tenant_id: tenantId,
+                            name: site,
+                            website: site
+                        }).select().single();
+                        if (newCompany) companyId = newCompany.id;
+                    }
+                }
+
+                // 3. Resolve Owner
+                let ownerId = null;
+                if (ownerName && members) {
+                    const match = members.find((m: any) => m.full_name?.toLowerCase() === ownerName.toLowerCase() || m.email?.toLowerCase() === ownerName.toLowerCase());
+                    if (match) ownerId = match.id;
+                }
+                if (!ownerId) ownerId = await getTenantId(); // Fallback to current user
+
+                // 4. Resolve Stage
+                let stageId = null;
+                let pipelineId = null;
+                if (stageName && stages) {
+                    const match = stages.find((s: any) => s.name?.toLowerCase() === stageName.toLowerCase());
+                    if (match) {
+                        stageId = match.id;
+                        pipelineId = match.pipeline_id;
+                    }
+                }
+                // Fallback stage? First stage of first pipeline
+                if (!stageId && stages && stages.length > 0) {
+                    // Check if pipelineId is needed or just stage. Deals link to stage.
+                    // Try to find first stage of 'Sales Pipeline' or just first one?
+                    // Let's default to first one found.
+                    stageId = stages[0].id;
+                    pipelineId = stages[0].pipeline_id;
+                }
+
+                // 5. Resolve Value
+                let dealValue = 0;
+                if (valueRaw) {
+                    // Handle "R$ 1.500,00" -> 1500.00
+                    if (typeof valueRaw === 'number') dealValue = valueRaw;
+                    else {
+                        dealValue = parseFloat(String(valueRaw).replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
+                    }
+                }
+
+                // 6. Create Deal
+                const { data: newDeal, error: dealError } = await supabase.from('deals').insert({
+                    tenant_id: tenantId,
+                    title: leadName,
+                    owner_id: ownerId,
+                    stage_id: stageId,
+                    value: dealValue,
+                    status: 'open',
+                    contact_id: contactId,
+                    company_id: companyId,
+                    created_at: new Date().toISOString()
+                }).select().single();
+
+                if (dealError) throw new Error("Erro ao criar negócio: " + dealError.message);
+
+                // 7. Handle Tags
+                if (tagsRaw) {
+                    const tagNames = String(tagsRaw).split(',').map((t: string) => t.trim());
+                    for (const tagName of tagNames) {
+                        if (!tagName) continue;
+                        let tagId = allTags?.find((t: any) => t.name.toLowerCase() === tagName.toLowerCase())?.id;
+                        if (!tagId) {
+                            // Create Tag
+                            const { data: newTag } = await supabase.from('tags').insert({
+                                tenant_id: tenantId,
+                                name: tagName,
+                                color: '#cccccc'
+                            }).select().single();
+                            if (newTag) tagId = newTag.id;
+                        }
+
+                        if (tagId) {
+                            await supabase.from('deal_tags').insert({
+                                deal_id: newDeal.id,
+                                tag_id: tagId
+                            });
+                        }
+                    }
+                }
+
+                // 8. Handle Product
+                if (productName) {
+                    let productId = allProducts?.find((p: any) => p.name.toLowerCase() === productName.toLowerCase())?.id;
+                    let unitPrice = 0;
+
+                    if (!productId) {
+                        // Create Product
+                        const { data: newProduct } = await supabase.from('products').insert({
+                            tenant_id: tenantId,
+                            name: productName,
+                            price: 0
+                        }).select().single();
+                        if (newProduct) productId = newProduct.id;
+                    } else {
+                        unitPrice = allProducts?.find((p: any) => p.id === productId)?.price || 0;
+                    }
+
+                    if (productId) {
+                        await supabase.from('deal_items').insert({
+                            deal_id: newDeal.id,
+                            product_id: productId,
+                            quantity: 1,
+                            unit_price: unitPrice
+                        });
+                    }
+                }
+
+                successCount++;
+
+            } catch (rowError: any) {
+                console.error(`Erro na linha ${index + 2}:`, rowError); // +2 because 1-based and header row
+                errors.push({ row: index + 2, error: rowError.message });
+            }
+        }
+
+        revalidatePath('/');
+        return { success: true, count: successCount, errors };
+
+    } catch (error: any) {
+        console.error("importLeadsFromExcel Error:", error);
+        return { success: false, error: error.message };
+    }
+}

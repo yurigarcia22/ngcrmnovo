@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { getFields } from "@/app/(protected)/settings/fields/actions";
+import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
 import { createClient } from "@/utils/supabase/client";
 import { X, Save, Loader2, User, Phone, DollarSign, ThumbsDown, Trash2, Plus, GitPullRequest, Check, MessageCircle, StickyNote, Clock } from "lucide-react";
 
@@ -19,6 +20,7 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
     const [items, setItems] = useState<any[]>([]);
     const [products, setProducts] = useState<any[]>([]);
     const [fields, setFields] = useState<any[]>([]);
+    const [lossReasons, setLossReasons] = useState<any[]>([]);
 
     // Master Loading State
     const [isLoading, setIsLoading] = useState(true);
@@ -39,7 +41,8 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
                     getNotes(deal.id),
                     getDealItems(deal.id),
                     getProducts(),
-                    getFields()
+                    getFields(),
+                    getLossReasons()
                 ]);
 
                 // 0: Tags
@@ -75,6 +78,11 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
                 // 6: Fields
                 if (results[6].status === 'fulfilled' && results[6].value.success) {
                     setFields(results[6].value.data || []);
+                }
+
+                // 7: Loss Reasons
+                if (results[7].status === 'fulfilled' && results[7].value.success) {
+                    setLossReasons(results[7].value.data || []);
                 }
 
                 // Log any errors (optional, helps debugging)
@@ -158,6 +166,7 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
                                 initialItems={items}
                                 products={products}
                                 fields={fields}
+                                lossReasons={lossReasons}
                             />
 
                         </div>
@@ -253,7 +262,7 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
     )
 }
 
-function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelines, initialItems, products, fields }: { deal: any, onClose: () => void, onUpdate?: () => void, availableTags: any[], teamMembers: any[], pipelines: any[], initialItems: any[], products: any[], fields: any[] }) {
+function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelines, initialItems, products, fields, lossReasons }: { deal: any, onClose: () => void, onUpdate?: () => void, availableTags: any[], teamMembers: any[], pipelines: any[], initialItems: any[], products: any[], fields: any[], lossReasons: any[] }) {
     const router = useRouter();
     const [name, setName] = useState(deal.contacts?.name || "");
     const [phone, setPhone] = useState(deal.contacts?.phone || "");
@@ -295,7 +304,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     }
 
     const [isLossMode, setIsLossMode] = useState(false);
-    const [lossReason, setLossReason] = useState("Preço Alto");
+    const [selectedLossReasonId, setSelectedLossReasonId] = useState<string>("");
     const [lossDetails, setLossDetails] = useState("");
 
     const [isAddingTag, setIsAddingTag] = useState(false);
@@ -427,10 +436,17 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     }
 
     async function handleMarkAsLost() {
+        if (!selectedLossReasonId) {
+            alert("Por favor, selecione um motivo de perda.");
+            return;
+        }
         if (!confirm("Confirmar que este negócio foi PERDIDO?")) return;
         setLoading(true);
         try {
-            await markAsLost(deal.id, lossReason, lossDetails);
+            // Find name for legacy support
+            const reasonName = lossReasons.find(r => r.id === selectedLossReasonId)?.name || "Desconhecido";
+
+            await markAsLost(deal.id, reasonName, lossDetails, selectedLossReasonId);
             onClose();
             if (onUpdate) {
                 await new Promise(resolve => setTimeout(resolve, 500));
@@ -510,13 +526,19 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                 <div className="space-y-4">
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">Motivo</label>
-                        <select value={lossReason} onChange={e => setLossReason(e.target.value)} className="w-full mt-1 p-2 border rounded-md">
-                            <option>Preço Alto</option>
-                            <option>Concorrência</option>
-                            <option>Sem Interesse</option>
-                            <option>Contato Inválido</option>
-                            <option>Outro</option>
+                        <select
+                            value={selectedLossReasonId}
+                            onChange={e => setSelectedLossReasonId(e.target.value)}
+                            className="w-full mt-1 p-2 border rounded-md"
+                        >
+                            <option value="">Selecione um motivo...</option>
+                            {lossReasons && lossReasons.map(r => (
+                                <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
                         </select>
+                        {(!lossReasons || lossReasons.length === 0) && (
+                            <p className="text-xs text-red-500 mt-1">Nenhum motivo configurado. Vá em Configurações.</p>
+                        )}
                     </div>
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">Detalhes</label>

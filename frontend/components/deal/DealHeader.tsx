@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowLeft, MoreHorizontal, ChevronRight, Check } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, ChevronRight, Check, Pencil, Trash2, Save, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { updateDeal, logSystemActivity } from "@/app/actions";
+import { updateDeal, logSystemActivity, deleteDeal } from "@/app/actions";
 import { useRouter } from "next/navigation";
 
 export default function DealHeader({ deal, pipelines }: any) {
@@ -13,6 +13,10 @@ export default function DealHeader({ deal, pipelines }: any) {
 
     const [isStageOpen, setIsStageOpen] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    // Edit Title State
+    const [isEditing, setIsEditing] = useState(false);
+    const [title, setTitle] = useState(deal.title);
 
     async function handleStageChange(pipelineId: string, stageId: number, stageName: string) {
         if (stageId === deal.stage_id) { setIsStageOpen(false); return; }
@@ -29,14 +33,58 @@ export default function DealHeader({ deal, pipelines }: any) {
         setLoading(false);
     }
 
+    async function handleSaveTitle() {
+        if (title === deal.title) { setIsEditing(false); return; }
+        setLoading(true);
+        const res = await updateDeal(deal.id, { title });
+        if (res.success) {
+            await logSystemActivity(deal.id, `Renomeou o negócio para "${title}"`);
+            setIsEditing(false);
+            router.refresh();
+        } else {
+            alert("Erro ao salvar título.");
+        }
+        setLoading(false);
+    }
+
+    async function handleDelete() {
+        if (!confirm("Tem certeza que deseja excluir este negócio?")) return;
+        setLoading(true);
+        const res = await deleteDeal(deal.id);
+        if (res.success) {
+            router.push("/leads"); // Redirect directly
+        } else {
+            alert("Erro ao excluir negócio.");
+            setLoading(false);
+        }
+    }
+
     return (
         <header className="h-14 bg-[#2b3d51] text-white flex items-center justify-between px-4 shrink-0 shadow-md z-20">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-1">
                 <Link href="/leads" className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
                     <ArrowLeft size={20} />
                 </Link>
-                <div>
-                    <h1 className="text-sm font-bold leading-tight">{deal.title}</h1>
+                <div className="flex-1">
+                    {isEditing ? (
+                        <div className="flex items-center gap-2">
+                            <input
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                className="text-sm font-bold text-gray-900 px-2 py-1 rounded w-64 focus:outline-none"
+                                autoFocus
+                            />
+                            <button onClick={handleSaveTitle} disabled={loading} className="p-1 hover:bg-green-500/20 rounded text-green-400">
+                                <Save size={16} />
+                            </button>
+                            <button onClick={() => { setIsEditing(false); setTitle(deal.title); }} disabled={loading} className="p-1 hover:bg-red-500/20 rounded text-red-400">
+                                <X size={16} />
+                            </button>
+                        </div>
+                    ) : (
+                        <h1 className="text-sm font-bold leading-tight">{deal.title}</h1>
+                    )}
+
                     <div className="flex items-center gap-2 text-[10px] text-gray-300">
                         <span>#{deal.id.slice(0, 8)}</span>
 
@@ -77,9 +125,19 @@ export default function DealHeader({ deal, pipelines }: any) {
             </div>
 
             <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-white/10 rounded-md text-sm font-bold opacity-80 hover:opacity-100">Estatísticas</button>
-                <button className="p-2 hover:bg-white/10 rounded-md opacity-80 hover:opacity-100">
-                    <MoreHorizontal size={20} />
+                <button
+                    onClick={() => setIsEditing(true)}
+                    className="p-2 hover:bg-white/10 rounded-md opacity-80 hover:opacity-100 text-white"
+                    title="Editar Título"
+                >
+                    <Pencil size={18} />
+                </button>
+                <button
+                    onClick={handleDelete}
+                    className="p-2 hover:bg-white/10 rounded-md opacity-80 hover:opacity-100 text-red-300 hover:text-red-400"
+                    title="Excluir Lead"
+                >
+                    <Trash2 size={18} />
                 </button>
             </div>
         </header>
