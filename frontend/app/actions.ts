@@ -618,6 +618,28 @@ export async function createTask(dealId: string | null, description: string, due
     }
 }
 
+export async function updateTask(taskId: string, description: string, dueDate: string) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { error } = await supabase
+            .from("tasks")
+            .update({
+                description: description,
+                due_date: dueDate
+            })
+            .eq("id", taskId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("updateTask Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function toggleTask(taskId: string, isCompleted: boolean) {
     try {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;

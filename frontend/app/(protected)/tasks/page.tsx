@@ -2,10 +2,13 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { CheckSquare, Square, Calendar, User, Briefcase, Loader2, Clock } from "lucide-react";
-import { toggleTask } from "@/app/actions";
+import { toggleTask, updateTask } from "@/app/actions";
 import DealModal from "@/components/DealModal";
 import { ColdLeadModal } from "@/components/cold-call/ColdLeadModal";
-import { Phone } from "lucide-react";
+import { Phone, Pencil, X } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Button, Input, Textarea } from "@/components/ui/simple-ui";
+import { toast } from "sonner";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +22,9 @@ export default function TasksPage() {
     const [selectedColdLead, setSelectedColdLead] = useState<any>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
+
+    // Edit Task State
+    const [taskToEdit, setTaskToEdit] = useState<any>(null);
 
     useEffect(() => {
         fetchTasks();
@@ -140,7 +146,7 @@ export default function TasksPage() {
                                 <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px]">{overdueTasks.length}</span>
                             </div>
                             {overdueTasks.map(task => (
-                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} variant="overdue" />
+                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} onEdit={setTaskToEdit} variant="overdue" />
                             ))}
                             {overdueTasks.length === 0 && <p className="text-gray-400 text-xs italic text-center py-4 bg-gray-50 rounded-lg dashed-border">Nenhuma tarefa atrasada.</p>}
                         </div>
@@ -152,7 +158,7 @@ export default function TasksPage() {
                                 <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-[10px]">{todayTasks.length}</span>
                             </div>
                             {todayTasks.map(task => (
-                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} variant="today" />
+                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} onEdit={setTaskToEdit} variant="today" />
                             ))}
                             {todayTasks.length === 0 && <p className="text-gray-400 text-xs italic text-center py-4 bg-gray-50 rounded-lg dashed-border">Nada agendado para o resto do dia.</p>}
                         </div>
@@ -164,7 +170,7 @@ export default function TasksPage() {
                                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{upcomingTasks.length}</span>
                             </div>
                             {upcomingTasks.map(task => (
-                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} variant="upcoming" />
+                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} onEdit={setTaskToEdit} variant="upcoming" />
                             ))}
                             {upcomingTasks.length === 0 && <p className="text-gray-400 text-xs italic text-center py-4 bg-gray-50 rounded-lg dashed-border">Sem tarefas futuras.</p>}
                         </div>
@@ -195,11 +201,96 @@ export default function TasksPage() {
                     }}
                 />
             )}
+
+            {taskToEdit && (
+                <EditTaskModal
+                    task={taskToEdit}
+                    isOpen={!!taskToEdit}
+                    onClose={() => setTaskToEdit(null)}
+                    onUpdate={() => {
+                        fetchTasks();
+                        setTaskToEdit(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
 
-function TaskCard({ task, onToggle, onOpenDeal, onOpenColdLead, variant }: any) {
+function EditTaskModal({ task, isOpen, onClose, onUpdate }: any) {
+    const [desc, setDesc] = useState(task.description);
+    const [date, setDate] = useState("");
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (task) {
+            setDesc(task.description);
+            // Formatar data para o input datetime-local
+            // A data do banco vem em UTC (ISO). Precisamos converter para o formato local exigido pelo input
+            // Ex: 2024-01-01T12:00:00.000Z -> 2024-01-01T09:00 (se GMT-3)
+
+            const d = new Date(task.due_date);
+            // Hack para pegar o string local no formato certo
+            // d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); 
+            // const localIso = d.toISOString().slice(0, 16);
+
+            // Melhor abordagem manual para garantir:
+            const pad = (n: number) => n < 10 ? '0' + n : n;
+            const localIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+            setDate(localIso);
+        }
+    }, [task]);
+
+    const handleSave = async () => {
+        if (!desc || !date) return;
+        setLoading(true);
+        try {
+            // Converter de volta para UTC ISO antes de salvar
+            const dateObj = new Date(date);
+            const isoDate = dateObj.toISOString();
+
+            const res = await updateTask(task.id, desc, isoDate);
+            if (res.success) {
+                toast.success("Tarefa atualizada!");
+                onUpdate();
+            } else {
+                toast.error("Erro ao atualizar");
+            }
+        } catch (e) {
+            toast.error("Erro ao salvar");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    return (
+        <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
+            <DialogContent className="max-w-md bg-white p-6 rounded-xl">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg">Editar Tarefa</h3>
+                    <button onClick={onClose}><X size={20} className="text-gray-400 hover:text-gray-600" /></button>
+                </div>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase">Descrição</label>
+                        <Input value={desc} onChange={e => setDesc(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase">Data e Hora</label>
+                        <Input type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+                        <Button onClick={handleSave} disabled={loading}>Salvar Alterações</Button>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+function TaskCard({ task, onToggle, onOpenDeal, onOpenColdLead, onEdit, variant }: any) {
     const cardStyle =
         variant === 'overdue' ? 'border-l-4 border-l-red-500' :
             variant === 'today' ? 'border-l-4 border-l-yellow-500' :
@@ -212,13 +303,22 @@ function TaskCard({ task, onToggle, onOpenDeal, onOpenColdLead, variant }: any) 
     return (
         <div className={`bg-white p-4 rounded-xl border border-gray-100 ${cardStyle} transition-all shadow-sm hover:shadow-md group relative`}>
             <div className="flex items-start gap-3">
-                <button
-                    onClick={() => onToggle(task.id)}
-                    className="mt-1 text-gray-300 hover:text-green-500 transition-colors"
-                    title="Concluir Tarefa"
-                >
-                    <Square size={20} />
-                </button>
+                <div className="flex flex-col gap-1 mt-1">
+                    <button
+                        onClick={() => onToggle(task.id)}
+                        className="text-gray-300 hover:text-green-500 transition-colors"
+                        title="Concluir Tarefa"
+                    >
+                        <Square size={20} />
+                    </button>
+                    <button
+                        onClick={() => onEdit(task)}
+                        className="text-gray-300 hover:text-blue-500 transition-colors"
+                        title="Editar Tarefa"
+                    >
+                        <Pencil size={18} />
+                    </button>
+                </div>
 
                 <div className="flex-1">
                     <p className="text-gray-800 font-medium mb-2 text-sm leading-relaxed">{task.description}</p>
