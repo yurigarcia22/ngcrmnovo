@@ -252,7 +252,11 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         if (!meetingDate) return;
         setLoading(true);
         try {
-            const res = await createTask(null, `Follow-up: ${lead.nome}`, meetingDate, lead.id);
+            // Convert local input time to UTC ISO string property
+            const dateObj = new Date(meetingDate);
+            const isoDate = dateObj.toISOString();
+
+            const res = await createTask(null, `Follow-up: ${lead.nome}`, isoDate, lead.id);
             if (res.success) {
                 toast.success("Tarefa agendada!");
                 // Adiciona nota no histórico
