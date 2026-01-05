@@ -589,22 +589,26 @@ export async function deleteNote(noteId: string) {
     }
 }
 
-export async function createTask(dealId: string, description: string, dueDate: string) {
+export async function createTask(dealId: string | null, description: string, dueDate: string, coldLeadId?: string) {
     try {
         const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        const payload: any = {
+            description: description,
+            due_date: dueDate,
+            is_completed: false,
+            tenant_id: tenantId
+        };
+
+        if (dealId) payload.deal_id = dealId;
+        if (coldLeadId) payload.cold_lead_id = coldLeadId;
+
         const { error } = await supabase
             .from("tasks")
-            .insert({
-                deal_id: dealId,
-                description: description,
-                due_date: dueDate,
-                is_completed: false,
-                tenant_id: tenantId
-            });
+            .insert(payload);
 
         if (error) throw error;
         return { success: true };

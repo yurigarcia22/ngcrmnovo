@@ -5,7 +5,7 @@ import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
 import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send } from "lucide-react";
-import { addColdLeadNote, getColdLeadNotes } from "@/app/actions";
+import { addColdLeadNote, getColdLeadNotes, createTask } from "@/app/actions";
 
 interface ColdLeadModalProps {
     lead: ColdLead;
@@ -248,6 +248,27 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         setMeetingDate(dateString);
     }
 
+    const handleScheduleTask = async () => {
+        if (!meetingDate) return;
+        setLoading(true);
+        try {
+            const res = await createTask(null, `Follow-up: ${lead.nome}`, meetingDate, lead.id);
+            if (res.success) {
+                toast.success("Tarefa agendada!");
+                // Adiciona nota no histórico
+                await addColdLeadNote(lead.id, `📅 Agendou follow-up para ${new Date(meetingDate).toLocaleString('pt-BR')}`);
+                setMeetingDate("");
+                fetchNotes(); // Atualiza notas
+            } else {
+                toast.error("Erro ao agendar tarefa");
+            }
+        } catch (error) {
+            toast.error("Erro ao processar agendamento");
+        } finally {
+            setLoading(false);
+        }
+    }
+
     // Helper to open links
     const openLink = (url: string) => {
         if (!url) return;
@@ -486,6 +507,14 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                         onChange={e => setMeetingDate(e.target.value)}
                                         className="flex-1 text-xs h-9"
                                     />
+                                    <Button
+                                        size="sm"
+                                        onClick={handleScheduleTask}
+                                        disabled={loading || !meetingDate}
+                                        className="bg-slate-800 text-white hover:bg-slate-700 h-9"
+                                    >
+                                        Agendar
+                                    </Button>
                                 </div>
                             </div>
 

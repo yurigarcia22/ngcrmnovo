@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import { CheckSquare, Square, Calendar, User, Briefcase, Loader2, Clock } from "lucide-react";
 import { toggleTask } from "@/app/actions";
 import DealModal from "@/components/DealModal";
+import { ColdLeadModal } from "@/components/cold-call/ColdLeadModal";
+import { Phone } from "lucide-react";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,11 +16,19 @@ export default function TasksPage() {
     const [tasks, setTasks] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedDeal, setSelectedDeal] = useState<any>(null);
+    const [selectedColdLead, setSelectedColdLead] = useState<any>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [teamMembers, setTeamMembers] = useState<any[]>([]);
 
     useEffect(() => {
         fetchTasks();
+        fetchTeam();
     }, []);
+
+    async function fetchTeam() {
+        const { data } = await supabase.from('profiles').select('*').eq('is_active', true);
+        if (data) setTeamMembers(data);
+    }
 
     async function fetchTasks() {
         setLoading(true);
@@ -35,6 +45,18 @@ export default function TasksPage() {
                         name,
                         phone
                     )
+                ),
+                cold_leads (
+                    id,
+                    nome,
+                    telefone,
+                    nicho,
+                    responsavel_id,
+                    site_url,
+                    instagram_url,
+                    google_meu_negocio_url,
+                    tentativas,
+                    ultimo_resultado
                 )
             `)
             .eq("is_completed", false)
@@ -118,7 +140,7 @@ export default function TasksPage() {
                                 <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px]">{overdueTasks.length}</span>
                             </div>
                             {overdueTasks.map(task => (
-                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} variant="overdue" />
+                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} variant="overdue" />
                             ))}
                             {overdueTasks.length === 0 && <p className="text-gray-400 text-xs italic text-center py-4 bg-gray-50 rounded-lg dashed-border">Nenhuma tarefa atrasada.</p>}
                         </div>
@@ -130,7 +152,7 @@ export default function TasksPage() {
                                 <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-[10px]">{todayTasks.length}</span>
                             </div>
                             {todayTasks.map(task => (
-                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} variant="today" />
+                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} variant="today" />
                             ))}
                             {todayTasks.length === 0 && <p className="text-gray-400 text-xs italic text-center py-4 bg-gray-50 rounded-lg dashed-border">Nada agendado para o resto do dia.</p>}
                         </div>
@@ -142,7 +164,7 @@ export default function TasksPage() {
                                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{upcomingTasks.length}</span>
                             </div>
                             {upcomingTasks.map(task => (
-                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} variant="upcoming" />
+                                <TaskCard key={task.id} task={task} onToggle={handleToggle} onOpenDeal={openDeal} onOpenColdLead={setSelectedColdLead} variant="upcoming" />
                             ))}
                             {upcomingTasks.length === 0 && <p className="text-gray-400 text-xs italic text-center py-4 bg-gray-50 rounded-lg dashed-border">Sem tarefas futuras.</p>}
                         </div>
@@ -160,11 +182,24 @@ export default function TasksPage() {
                     onUpdate={() => { fetchTasks(); setIsModalOpen(false); }}
                 />
             )}
+
+            {selectedColdLead && (
+                <ColdLeadModal
+                    isOpen={!!selectedColdLead}
+                    lead={selectedColdLead}
+                    onClose={() => setSelectedColdLead(null)}
+                    teamMembers={teamMembers}
+                    onActionComplete={(updated) => {
+                        // Update local task list if needed or just re-fetch
+                        fetchTasks();
+                    }}
+                />
+            )}
         </div>
     );
 }
 
-function TaskCard({ task, onToggle, onOpenDeal, variant }: any) {
+function TaskCard({ task, onToggle, onOpenDeal, onOpenColdLead, variant }: any) {
     const cardStyle =
         variant === 'overdue' ? 'border-l-4 border-l-red-500' :
             variant === 'today' ? 'border-l-4 border-l-yellow-500' :
@@ -209,6 +244,23 @@ function TaskCard({ task, onToggle, onOpenDeal, variant }: any) {
                                         {task.deals.contacts?.name || "Sem contato"}
                                     </span>
                                     <span className="truncate text-gray-400 text-[10px]">{task.deals.title}</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {task.cold_leads && (
+                            <div
+                                onClick={() => onOpenColdLead(task.cold_leads)}
+                                className="flex items-center gap-2 cursor-pointer hover:bg-pink-50 transition-colors mt-1 bg-gray-50 p-2 rounded-lg border border-gray-100"
+                            >
+                                <div className="w-5 h-5 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 shrink-0">
+                                    <Phone size={10} />
+                                </div>
+                                <div className="flex flex-col overflow-hidden">
+                                    <span className="font-bold text-gray-700 truncate text-[11px] group-hover:text-pink-600">
+                                        {task.cold_leads.nome || "Sem nome"}
+                                    </span>
+                                    <span className="truncate text-gray-400 text-[10px]">Cold Call • {task.cold_leads.telefone}</span>
                                 </div>
                             </div>
                         )}
