@@ -172,11 +172,67 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipeline
             if (taskError) console.error('Error creating meeting task:', taskError);
         }
 
+        // 8. Replicate Cold Lead History (Notes) to Deal Notes
+        try {
+            // Use Admin client to bypass RLS issues during replication
+            const supabaseAdmin = createAdminClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.SUPABASE_SERVICE_ROLE_KEY!
+            );
+
+            const { data: leadNotes } = await supabaseAdmin
+                .from("cold_lead_notes")
+                .select("*")
+                .eq("cold_lead_id", lead.id)
+                .order("created_at", { ascending: true });
+
+            if (leadNotes && leadNotes.length > 0) {
+                // Fetch creator names
+                const userIds = Array.from(new Set(leadNotes.map(n => n.created_by).filter(Boolean)));
+                let userMap: Record<string, string> = {};
+
+                if (userIds.length > 0) {
+                    const { data: profiles } = await supabaseAdmin
+                        .from('profiles')
+                        .select('id, full_name')
+                        .in('id', userIds);
+
+                    if (profiles) {
+                        profiles.forEach(p => {
+                            userMap[p.id] = p.full_name || 'Usuário';
+                        });
+                    }
+                }
+
+                const notesToInsert = leadNotes.map(note => {
+                    const authorName = note.created_by ? (userMap[note.created_by] || 'Usuário Desconhecido') : 'Sistema';
+                    return {
+                        deal_id: newDeal.id,
+                        content: `[Histórico Cold Call]: ${note.content} (por ${authorName})`,
+                        tenant_id: tenantId,
+                        created_at: note.created_at
+                    };
+                });
+
+                const { error: notesError } = await supabaseAdmin
+                    .from("notes")
+                    .insert(notesToInsert);
+
+                if (notesError) {
+                    console.error('Error replicating notes (DB):', notesError);
+                } else {
+                    console.log(`Successfully replicated ${notesToInsert.length} notes.`);
+                }
+            } else {
+                console.log("No cold lead notes to replicate.");
+            }
+        } catch (e) {
+            console.error('Failed to replicate notes (Exception):', e);
+        }
+
         // Clean cache for leads page
         try {
-            // We need to dinamically import or use the imported path if available.
-            // But since this is a route handler, we can just use revalidatePath if imported.
-            // I'll assume I need to add the import at the top of the file as well.
+            revalidatePath('/leads');
         } catch (e) { console.error('Reval error', e) }
     }
 }

@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { updateDeal, updateContact, deleteDeal, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getTeamMembers, getDealItems, upsertDealItems, addNote, getNotes, deleteNote, checkDealHasMessages } from "@/app/actions";
+import { updateDeal, updateContact, deleteDeal, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getTeamMembers, getDealItems, upsertDealItems, addNote, getNotes, deleteNote, updateNote, checkDealHasMessages } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { getFields } from "@/app/(protected)/settings/fields/actions";
 import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
 import { createClient } from "@/utils/supabase/client";
-import { X, Save, Loader2, User, Phone, DollarSign, ThumbsDown, Trash2, Plus, GitPullRequest, Check, MessageCircle, StickyNote, Clock } from "lucide-react";
+import { X, Save, Loader2, User, Phone, DollarSign, ThumbsDown, Trash2, Plus, GitPullRequest, Check, MessageCircle, StickyNote, Clock, Pencil } from "lucide-react";
 
 export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
@@ -192,6 +192,8 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
 function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: string, notes: any[], onNotesUpdate: () => void, loading: boolean }) {
     const [newNote, setNewNote] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+    const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+    const [editContent, setEditContent] = useState("");
 
     async function handleAddNote() {
         if (!newNote.trim()) return;
@@ -210,6 +212,32 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
         if (!confirm("Excluir esta nota?")) return;
         const res = await deleteNote(id);
         if (res.success) onNotesUpdate();
+    }
+
+    function startEditing(note: any) {
+        setEditingNoteId(note.id);
+        setEditContent(note.content);
+    }
+
+    function cancelEditing() {
+        setEditingNoteId(null);
+        setEditContent("");
+    }
+
+    async function handleUpdateNote(id: any) {
+        if (!editContent.trim()) return;
+        setIsSaving(true);
+        // Note ID comes as number from DB often, verify type if needed, but actions usually handle strings too if casted
+        // Checking types_db: id is number. updateNote expects number.
+        const res = await updateNote(id, editContent);
+        if (res.success) {
+            setEditingNoteId(null);
+            setEditContent("");
+            onNotesUpdate();
+        } else {
+            alert("Erro ao atualizar nota.");
+        }
+        setIsSaving(false);
     }
 
     return (
@@ -250,11 +278,32 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
                             <span className="text-[10px] font-bold text-gray-400 uppercase">
                                 {new Date(note.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </span>
-                            <button onClick={() => handleDeleteNote(note.id)} className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
-                                <X size={12} />
-                            </button>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                <button onClick={() => startEditing(note)} className="text-gray-300 hover:text-blue-500" title="Editar">
+                                    <Pencil size={12} />
+                                </button>
+                                <button onClick={() => handleDeleteNote(note.id)} className="text-gray-300 hover:text-red-400" title="Excluir">
+                                    <Trash2 size={12} />
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+
+                        {editingNoteId === note.id ? (
+                            <div className="mt-2">
+                                <textarea
+                                    value={editContent}
+                                    onChange={(e) => setEditContent(e.target.value)}
+                                    className="w-full bg-white border border-yellow-300 rounded p-2 text-sm focus:outline-none resize-none"
+                                    rows={3}
+                                />
+                                <div className="flex justify-end gap-2 mt-2">
+                                    <button onClick={cancelEditing} className="text-xs text-gray-500 hover:text-gray-700">Cancelar</button>
+                                    <button onClick={() => handleUpdateNote(note.id)} className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded font-bold hover:bg-yellow-500">Salvar</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                        )}
                     </div>
                 ))}
             </div>

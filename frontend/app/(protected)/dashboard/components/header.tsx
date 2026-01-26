@@ -22,6 +22,15 @@ export function DashboardHeader() {
     );
 }
 
+
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { UserCheck } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 
@@ -85,14 +94,14 @@ export function DashboardFilterBar({
     return (
         <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
             {/* Date Toggles */}
-            <div className="bg-[#0f172a]/50 p-1 rounded-full border border-gray-600 flex overflow-hidden">
+            <div className="bg-[#0f172a]/50 p-1 rounded-full border border-gray-600/50 backdrop-blur-sm flex overflow-hidden shadow-lg">
                 {periods.map((p) => (
                     <button
                         key={p.value}
                         onClick={() => handlePeriodChange(p.value)}
-                        className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${activePeriod === p.value
-                            ? "bg-[#0ea5e9] text-white"
-                            : "text-gray-300 hover:text-white hover:bg-white/10"
+                        className={`px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 ${activePeriod === p.value
+                            ? "bg-[#0ea5e9] text-white shadow-md shadow-cyan-500/20"
+                            : "text-gray-400 hover:text-white hover:bg-white/5"
                             }`}
                     >
                         {p.label}
@@ -102,25 +111,24 @@ export function DashboardFilterBar({
 
             {/* User & Settings */}
             <div className="flex items-center gap-3">
-                <div className="relative bg-[#0f172a]/50 px-4 py-2 rounded-full border border-gray-600 text-gray-300 text-sm flex items-center gap-2 hover:bg-white/10 transition-colors group">
-                    <span>{users.find(u => u.id === activeUserId)?.full_name || "Todos"}</span>
-                    <span className="w-px h-4 bg-gray-600 mx-1"></span>
-
-                    {/* Native Select Overlay */}
-                    <select
-                        value={activeUserId}
-                        onChange={(e) => handleUserChange(e.target.value)}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    >
-                        <option value="all">Todos os usuários</option>
+                <Select value={activeUserId} onValueChange={handleUserChange}>
+                    <SelectTrigger className="w-[200px] h-[42px] rounded-full bg-[#0f172a]/50 border-gray-600/50 text-gray-200 hover:bg-white/5 hover:border-gray-500 transition-colors focus:ring-0 focus:ring-offset-0">
+                        <div className="flex items-center gap-2">
+                            <UserCheck className="w-4 h-4 text-cyan-400" />
+                            <SelectValue placeholder="Selecione..." />
+                        </div>
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1e293b] border-gray-700 text-gray-200">
+                        <SelectItem value="all" className="focus:bg-[#0f172a] focus:text-white cursor-pointer">Todos os usuários</SelectItem>
                         {users.map(user => (
-                            <option key={user.id} value={user.id}>{user.full_name}</option>
+                            <SelectItem key={user.id} value={user.id} className="focus:bg-[#0f172a] focus:text-white cursor-pointer">
+                                {user.full_name}
+                            </SelectItem>
                         ))}
-                    </select>
+                    </SelectContent>
+                </Select>
 
-                    <span className="text-gray-400 text-xs">▼</span>
-                </div>
-                <Button size="icon" variant="ghost" className="rounded-full border border-gray-600 text-white hover:bg-[#1e293b] hover:text-cyan-400">
+                <Button size="icon" variant="ghost" className="rounded-full border border-gray-600/50 text-gray-300 hover:bg-[#1e293b] hover:text-cyan-400 h-[42px] w-[42px]">
                     <Settings className="h-4 w-4" />
                 </Button>
             </div>

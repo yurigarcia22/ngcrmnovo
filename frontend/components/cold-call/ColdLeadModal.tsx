@@ -5,7 +5,7 @@ import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
 import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send } from "lucide-react";
-import { addColdLeadNote, getColdLeadNotes, createTask } from "@/app/actions";
+import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote } from "@/app/actions";
 
 interface ColdLeadModalProps {
     lead: ColdLead;
@@ -41,6 +41,36 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         instagram_url: lead.instagram_url || "",
         google_meu_negocio_url: lead.google_meu_negocio_url || ""
     });
+
+
+
+    // Notes Edit State
+    const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+    const [editContent, setEditContent] = useState("");
+
+    function startEditing(note: any) {
+        setEditingNoteId(note.id);
+        setEditContent(note.content);
+    }
+
+    function cancelEditing() {
+        setEditingNoteId(null);
+        setEditContent("");
+    }
+
+    async function handleUpdateNote(id: string) {
+        if (!editContent.trim()) return;
+        setLoading(true);
+        const res = await updateColdLeadNote(id, editContent);
+        if (res.success) {
+            toast.success("Nota atualizada");
+            fetchNotes();
+            setEditingNoteId(null);
+        } else {
+            toast.error("Erro ao atualizar nota");
+        }
+        setLoading(false);
+    }
 
     const notesEndRef = useRef<HTMLDivElement>(null);
 
@@ -527,13 +557,34 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                 <div className="p-4 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
                                     <div className="text-center text-xs text-slate-400 py-2">Início do histórico</div>
                                     {notesHistory.map((note) => (
-                                        <div key={note.id} className="flex flex-col gap-1 items-start max-w-[90%]">
-                                            <div className="bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-slate-100 text-sm text-slate-700">
-                                                {note.content}
-                                            </div>
-                                            <span className="text-[10px] text-slate-400 pl-1">
-                                                {note.profiles?.full_name || "Usuário"} • {new Date(note.created_at).toLocaleString('pt-BR')}
-                                            </span>
+                                        <div key={note.id} className="group relative flex flex-col gap-1 items-start max-w-[90%]">
+                                            {editingNoteId === note.id ? (
+                                                <div className="w-full bg-white p-2 rounded-lg border border-blue-200 shadow-sm">
+                                                    <Textarea
+                                                        value={editContent}
+                                                        onChange={e => setEditContent(e.target.value)}
+                                                        className="min-h-[60px] text-sm mb-2"
+                                                    />
+                                                    <div className="flex justify-end gap-2">
+                                                        <Button size="xs" variant="ghost" onClick={cancelEditing}>Cancelar</Button>
+                                                        <Button size="xs" onClick={() => handleUpdateNote(note.id)}>Salvar</Button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-slate-100 text-sm text-slate-700 pr-8 relative">
+                                                        {note.content}
+                                                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white/80 rounded px-1">
+                                                            <button onClick={() => startEditing(note)} className="text-slate-400 hover:text-blue-500 p-1">
+                                                                <Pencil size={12} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[10px] text-slate-400 pl-1">
+                                                        {note.profiles?.full_name || "Usuário"} • {new Date(note.created_at).toLocaleString('pt-BR')}
+                                                    </span>
+                                                </>
+                                            )}
                                         </div>
                                     ))}
                                     <div ref={notesEndRef} />

@@ -46,77 +46,101 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             return q;
         };
 
-        // --- DEALS METRICS ---
+        // Prepare Queries
 
-        // 1. Total Leads (Created in period)
-        const leadsQuery = supabase.from("deals").select("*", { count: 'exact', head: true });
-        const { count: totalLeads } = await applyFilters(leadsQuery, "created_at");
+        // 1. Total Leads
+        const leadsQuery = applyFilters(supabase.from("deals").select("*", { count: 'exact', head: true }), "created_at");
 
-        // 2. Total Open Value (Active Pipeline)
-        // We filter OPEN deals by CREATION date? Usually pipeline is "everything open right now".
-        // But if filtering by "Last Week", maybe "Open deals created last week"?
-        // Let's stick to "Created in period" for consistency with the filter label.
-        const openValueQuery = supabase.from("deals").select("value").neq("status", "won").neq("status", "lost");
-        const { data: openDeals } = await applyFilters(openValueQuery, "created_at");
-        const totalOpenValue = openDeals?.reduce((sum: number, deal: any) => sum + (deal.value || 0), 0) || 0;
+        // 2. Open Value
+        const openValueQuery = applyFilters(supabase.from("deals").select("value").neq("status", "won").neq("status", "lost"), "created_at");
 
         // 3. Won Deals
-        const wonQuery = supabase.from("deals").select("value", { count: 'exact' }).eq("status", "won");
-        // For won, use closed_at
-        let qWon = wonQuery.eq("tenant_id", tenantId);
-        if (userId && userId !== "all") qWon = qWon.eq("owner_id", userId);
-        if (period !== "all") qWon = qWon.gte("closed_at", startDate).lte("closed_at", endDate);
-        const { count: wonDeals, data: wonDealsData } = await qWon;
-        const wonValue = wonDealsData?.reduce((sum: number, deal: any) => sum + (deal.value || 0), 0) || 0;
+        let wonQuery = supabase.from("deals").select("value", { count: 'exact' }).eq("status", "won").eq("tenant_id", tenantId);
+        if (userId && userId !== "all") wonQuery = wonQuery.eq("owner_id", userId);
+        if (period !== "all") wonQuery = wonQuery.gte("closed_at", startDate).lte("closed_at", endDate);
 
         // 4. Leads by Stage
-        const stageQuery = supabase.from("deals").select(`stage_id, stages (name)`).neq("status", "won").neq("status", "lost");
-        const { data: dealsByStage } = await applyFilters(stageQuery, "created_at");
+        const stageQuery = applyFilters(supabase.from("deals").select(`stage_id, stages (name)`).neq("status", "won").neq("status", "lost"), "created_at");
 
-        const stageMap: Record<string, number> = {};
-        dealsByStage?.forEach((deal: any) => {
-            const stageName = deal.stages?.name || "Unknown";
-            stageMap[stageName] = (stageMap[stageName] || 0) + 1;
-        });
-        const distByStage = Object.entries(stageMap).map(([name, value]) => ({ name, value }));
-
-        // --- TASKS METRICS ---
-        // Active Tasks (Snapshot, ignoring date filter for "Active", or Tasks Due in Period?)
-        // Let's do: Tasks Due in Period OR Created in Period?
-        // Usually "Tasks" card implies "Pending Tasks".
-        // Let's return Total Pending Tasks (Snapshot)
+        // 5. Tasks
         let tasksQuery = supabase.from("tasks").select("*", { count: 'exact', head: true }).neq("status", "completed").eq("tenant_id", tenantId);
         if (userId && userId !== "all") tasksQuery = tasksQuery.eq("owner_id", userId);
-        // Note: Not filtering pending tasks by date, showing ALL pending.
-        const { count: tasksCount } = await tasksQuery;
 
-
-        // --- CHAT METRICS ---
-        // 1. Current Conversations (Active in period)
-        // Distinct contacts messaged in period
+        // 6. Messages (Conversations)
         let msgQuery = supabase.from("messages").select("contact_id").eq("tenant_id", tenantId).gte("created_at", startDate).lte("created_at", endDate);
-        // Message table doesn't have owner_id directly usually, it links to contact -> owner?
-        // Or we just count global if userId is 'all'. If userId selected, we need to filter messages where contact owner is userId?
-        // Too complex for single query. Let's ignore userId filter for Chat Metrics for now OR try to join.
-        // For MVP, Global Chat Metrics.
-        const { data: rawMsgs } = await msgQuery;
-        const uniqueContacts = new Set(rawMsgs?.map((m: any) => m.contact_id));
-        const conversationsCount = uniqueContacts.size;
 
-
-        // 2. Unanswered Chats & Wait Time
-        // Strategy: Get latest message for top 50 active contacts
-        // Implementation: "Distinct On" contact_id ordered by created_at desc
-        const { data: latestMessages } = await supabase
+        // 7. Latest Messages (for Unanswered & Wait Time)
+        // We fetch a bit more to ensure we get enough distinct contacts
+        const latestMsgQuery = supabase
             .from("messages")
             .select("contact_id, direction, created_at, content")
             .eq("tenant_id", tenantId)
             .order("contact_id", { ascending: true })
             .order("created_at", { ascending: false });
 
-        // Post-process in JS (since distinct on via supabase js client is tricky without .distinctOn() method exposure maybe?)
-        // Actually, let's manual process.
-        // Group by contact_id
+        // 8. Cold Leads
+        let coldLeadsQuery = supabase.from("cold_leads").select("*", { count: 'exact', head: true }).eq("tenant_id", tenantId);
+        if (period !== 'all') {
+            coldLeadsQuery = coldLeadsQuery.gte("created_at", startDate).lte("created_at", endDate);
+        }
+
+        // 9. Cold Activity Notes
+        let coldActivityQuery = supabase
+            .from("cold_lead_notes")
+            .select("content, created_by") // Added created_by for filter check if needed (though applied below)
+            .ilike("content", "Interação Registrada:%");
+
+        if (period !== "all") {
+            coldActivityQuery = coldActivityQuery.gte("created_at", startDate).lte("created_at", endDate);
+        }
+        if (userId && userId !== "all") {
+            coldActivityQuery = coldActivityQuery.eq("created_by", userId);
+        }
+
+        // Execute all in parallel
+        const [
+            { count: totalLeads },
+            { data: openDeals },
+            { count: wonDeals, data: wonDealsData },
+            { data: dealsByStage },
+            { count: tasksCount },
+            { data: rawMsgs },
+            { data: latestMessages },
+            { count: coldLeadsCount },
+            { data: activityNotes }
+        ] = await Promise.all([
+            leadsQuery,
+            openValueQuery,
+            wonQuery,
+            stageQuery,
+            tasksQuery,
+            msgQuery,
+            latestMsgQuery,
+            coldLeadsQuery,
+            coldActivityQuery
+        ]);
+
+
+        // --- Process Results ---
+
+        const totalOpenValue = openDeals?.reduce((sum: number, deal: any) => sum + (deal.value || 0), 0) || 0;
+        const wonValue = wonDealsData?.reduce((sum: number, deal: any) => sum + (deal.value || 0), 0) || 0;
+
+        // Stage Distribution
+        const stageMap: Record<string, number> = {};
+        dealsByStage?.forEach((deal: any) => {
+            const stageName = deal.stages?.name || "Sem Etapa";
+            stageMap[stageName] = (stageMap[stageName] || 0) + 1;
+        });
+        const distByStage = Object.entries(stageMap)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value); // Sort by highest count
+
+        // Chat Metrics
+        const uniqueContacts = new Set(rawMsgs?.map((m: any) => m.contact_id));
+        const conversationsCount = uniqueContacts.size;
+
+        // Unanswered & Wait Time
         const lastMsgMap = new Map();
         latestMessages?.forEach((msg: any) => {
             if (!lastMsgMap.has(msg.contact_id)) {
@@ -136,8 +160,6 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             }
         }
 
-        // Format Max Wait Time
-        // e.g. "2h 30m"
         let longestWaitTime = "0m";
         if (maxWaitSeconds > 0) {
             const hours = Math.floor(maxWaitSeconds / 3600);
@@ -147,52 +169,19 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             else longestWaitTime = `${minutes}m`;
         }
 
-        // Avg Response Time? (Skip for now, complex)
-
-
-        // --- COLD CALL METRICS ---
-        // 1. Total Cold Leads
-        let coldLeadsQuery = supabase.from("cold_leads").select("*", { count: 'exact', head: true }).eq("tenant_id", tenantId);
-        if (period !== 'all') {
-            coldLeadsQuery = coldLeadsQuery.gte("created_at", startDate).lte("created_at", endDate);
-        }
-        const { count: coldLeadsCount } = await coldLeadsQuery;
-
-        // 2. Activity Metrics (Calls, Connections, Meetings) - via cold_lead_notes
-        let coldActivityQuery = supabase
-            .from("cold_lead_notes")
-            .select("content")
-            .ilike("content", "Interação Registrada:%");
-
-        if (period !== "all") {
-            coldActivityQuery = coldActivityQuery.gte("created_at", startDate).lte("created_at", endDate);
-        }
-        if (userId && userId !== "all") {
-            coldActivityQuery = coldActivityQuery.eq("created_by", userId);
-        }
-
-        const { data: activityNotes } = await coldActivityQuery;
-
+        // Cold Call Metrics
         let callsMade = 0;
         let connections = 0;
         let meetings = 0;
 
         activityNotes?.forEach((note: any) => {
             const rawResult = note.content.replace("Interação Registrada:", "").trim();
-            // result strings: ligacao_feita, contato_realizado, contato_decisor, reuniao_marcada, numero_inexistente
-
-            // Calls: All interactions count as a call (including numero_inexistente? User didn't specify, but usually yes)
-            // User said: "contabilize como ligação feita" for: ligacao_feita, contato_realizado, contato_decisor, reuniao_marcada
             if (['ligacao_feita', 'contato_realizado', 'contato_decisor', 'reuniao_marcada', 'numero_inexistente'].includes(rawResult)) {
                 callsMade++;
             }
-
-            // Connections: Answered (excludes ligacao_feita/numero_inexistente)
             if (['contato_realizado', 'contato_decisor', 'reuniao_marcada'].includes(rawResult)) {
                 connections++;
             }
-
-            // Meetings
             if (rawResult === 'reuniao_marcada') {
                 meetings++;
             }
@@ -205,14 +194,11 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             wonDeals: wonDeals || 0,
             wonValue,
             leadsByStage: distByStage,
-            lastLeads: [], // Deprecated in UI update plan? Or keep empty.
-
-            // New
+            lastLeads: [],
             tasksCount: tasksCount || 0,
             conversationsCount,
             unansweredChatsCount: unansweredCount,
             longestWaitTime,
-
             coldMetrics: {
                 total: coldLeadsCount || 0,
                 calls: callsMade,
