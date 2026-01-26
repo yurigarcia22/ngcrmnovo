@@ -97,7 +97,7 @@ export function NichoSelector({ value, onChange, placeholder = "Selecione ou dig
                     onFocus={() => setIsOpen(true)}
                     placeholder={placeholder}
                     disabled={disabled}
-                    className="pr-16" // make room for icons
+                    className="pr-16 text-slate-900 placeholder:text-slate-400" // make room for icons and ensure contrast
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                     {inputValue && !disabled && (

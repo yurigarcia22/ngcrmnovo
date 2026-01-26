@@ -98,8 +98,8 @@ export function FileUploader() {
     };
 
     const downloadTemplate = () => {
-        const headers = ['Nome', 'Telefone', 'Nicho', 'Email', 'Site', 'Instagram', 'Notas'];
-        const example = ['Empresa Exemplo', '11999999999', 'Tecnologia', 'contato@exemplo.com', 'www.exemplo.com', '@exemplo', 'Cliente potencial'];
+        const headers = ['Nome', 'Telefone', 'Nicho', 'Email', 'Site', 'Instagram', 'Google', 'Notas'];
+        const example = ['Empresa Exemplo', '11999999999', 'Tecnologia', 'contato@exemplo.com', 'www.exemplo.com', '@exemplo', 'https://g.page/exemplo', 'Cliente potencial'];
 
         // Use XLSX to write file
         const ws = XLSX.utils.aoa_to_sheet([headers, example]);

@@ -106,7 +106,7 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
     const downloadTemplate = () => {
         // Generate a simple CSV blob for template
         const headers = ['Nome,Telefone,Nicho,Site,Instagram,Google,Notas'];
-        const example = ['Empresa Exemplo,11999999999,Tecnologia,www.exemplo.com.br,@exemplo,,Lead interessado em software'];
+        const example = ['Empresa Exemplo,11999999999,Tecnologia,www.exemplo.com.br,@exemplo,https://g.page/exemplo,Lead interessado em software'];
         const csvContent = headers.concat(example).join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -156,26 +156,28 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                 {activeTab === 'manual' ? (
                     <form onSubmit={handleManualSubmit} className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Nome *</label>
+                            <label className="text-sm font-medium text-slate-700">Nome *</label>
                             <Input
                                 value={formData.nome}
                                 onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
                                 placeholder="Nome da empresa ou contato"
                                 required
+                                className="text-slate-900 placeholder:text-slate-400"
                             />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Telefone *</label>
+                                <label className="text-sm font-medium text-slate-700">Telefone *</label>
                                 <Input
                                     value={formData.telefone}
                                     onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
                                     placeholder="11999999999"
                                     required
+                                    className="text-slate-900 placeholder:text-slate-400"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Nicho *</label>
+                                <label className="text-sm font-medium text-slate-700">Nicho *</label>
                                 <NichoSelector
                                     value={formData.nicho}
                                     onChange={(val) => setFormData({ ...formData, nicho: val })}
@@ -184,17 +186,18 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Links (Opcionais)</label>
+                            <label className="text-sm font-medium text-slate-700">Links (Opcionais)</label>
                             <Input
                                 value={formData.siteUrl}
                                 onChange={(e) => setFormData({ ...formData, siteUrl: e.target.value })}
                                 placeholder="Site URL"
-                                className="mb-2"
+                                className="mb-2 text-slate-900 placeholder:text-slate-400"
                             />
                             <Input
                                 value={formData.instagramUrl}
                                 onChange={(e) => setFormData({ ...formData, instagramUrl: e.target.value })}
                                 placeholder="Instagram URL"
+                                className="text-slate-900 placeholder:text-slate-400"
                             />
                         </div>
                         <div className="pt-2">
