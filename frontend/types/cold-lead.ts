@@ -1,4 +1,4 @@
-export type ColdLeadStatus = 'novo_lead' | 'lead_qualificado' | 'ligacao_feita' | 'contato_realizado' | 'contato_decisor' | 'reuniao_marcada' | 'numero_inexistente';
+export type ColdLeadStatus = 'novo_lead' | 'ligacao_feita' | 'contato_realizado' | 'contato_decisor' | 'reuniao_marcada' | 'numero_inexistente';
 
 export interface ColdLead {
     id: string;
@@ -18,6 +18,7 @@ export interface ColdLead {
     ultima_interacao?: string | null;
     ultimo_resultado?: string | null;
     notas?: string | null;
+    custom_fields?: Record<string, any>;
 }
 
 export interface ColdLeadInsert {
@@ -35,6 +36,7 @@ export interface ColdLeadInsert {
     ultima_interacao?: string | null;
     ultimo_resultado?: string | null;
     notas?: string | null;
+    custom_fields?: Record<string, any>;
 }
 
 export interface ColdLeadUpdate extends Partial<ColdLeadInsert> { }

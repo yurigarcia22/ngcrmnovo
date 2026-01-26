@@ -144,12 +144,13 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                     >
                         Manual
                     </button>
-                    <button
-                        className={`pb-2 px-4 text-sm font-medium transition-colors ${activeTab === 'import' ? 'border-b-2 border-green-600 text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
-                        onClick={() => setActiveTab('import')}
+                    <a
+                        href="/cold-call/import"
+                        className="pb-2 px-4 text-sm font-medium text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-2"
                     >
-                        Importar Excel
-                    </button>
+                        Importar Excel (Novo)
+                        <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full">BETA</span>
+                    </a>
                 </div>
 
                 {activeTab === 'manual' ? (
@@ -220,6 +221,17 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                                 accept=".xlsx, .xls"
                                 onChange={handleFileChange}
                             />
+                        </div>
+
+                        <div className="text-center">
+                            <button
+                                type="button"
+                                onClick={downloadTemplate}
+                                className="text-sm text-blue-600 hover:text-blue-800 underline flex items-center justify-center gap-1 mx-auto"
+                            >
+                                <FileSpreadsheet className="h-4 w-4" />
+                                Baixar Modelo de Planilha
+                            </button>
                         </div>
 
                         <div className="bg-slate-50 p-4 rounded-md text-sm text-slate-700 space-y-2">

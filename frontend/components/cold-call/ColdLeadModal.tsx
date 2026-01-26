@@ -444,6 +444,23 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                 </div>
                             </div>
 
+                            {/* Custom Fields Display */}
+                            {lead.custom_fields && Object.keys(lead.custom_fields).length > 0 && (
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Informações Adicionais</label>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {Object.entries(lead.custom_fields).map(([key, value]) => (
+                                            <div key={key} className="bg-slate-50 p-2 rounded text-xs border border-slate-100">
+                                                <span className="font-bold text-slate-500 block mb-0.5">
+                                                    {key.replace('cf_', '').replace(/_/g, ' ')}
+                                                </span>
+                                                <span className="text-slate-700 break-all">{String(value)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="mt-auto grid grid-cols-2 gap-4 pt-6 border-t border-slate-100">
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Tentativas</label>

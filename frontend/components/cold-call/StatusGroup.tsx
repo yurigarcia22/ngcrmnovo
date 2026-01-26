@@ -32,7 +32,6 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
 
     const statusLabels: Record<ColdLeadStatus, string> = {
         'novo_lead': 'NOVO LEAD',
-        'lead_qualificado': 'LEAD QUALIFICADO',
         'ligacao_feita': 'LIGAÇÃO FEITA',
         'contato_realizado': 'CONTATO REALIZADO',
         'contato_decisor': 'CONTATO COM DECISOR',
@@ -42,7 +41,6 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
 
     const statusOptions: ColdLeadStatus[] = [
         'novo_lead',
-        'lead_qualificado',
         'ligacao_feita',
         'contato_realizado',
         'contato_decisor',

@@ -188,7 +188,6 @@ export default function ColdCallPage() {
     // Group leads
     const groupedLeads: Record<ColdLeadStatus, ColdLead[]> = {
         'novo_lead': [],
-        'lead_qualificado': [],
         'ligacao_feita': [],
         'contato_realizado': [],
         'contato_decisor': [],
@@ -204,7 +203,6 @@ export default function ColdCallPage() {
 
     const statusConfig: { status: ColdLeadStatus; color: string; label: string }[] = [
         { status: 'novo_lead', color: 'bg-slate-500', label: 'Novo Lead' },
-        { status: 'lead_qualificado', color: 'bg-blue-400', label: 'Lead Qualificado' },
         { status: 'ligacao_feita', color: 'bg-blue-600', label: 'Ligação Feita' },
         { status: 'contato_realizado', color: 'bg-indigo-500', label: 'Contato Realizado' },
         { status: 'contato_decisor', color: 'bg-purple-600', label: 'Contato Decisor' },
