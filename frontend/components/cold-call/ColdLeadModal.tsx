@@ -362,9 +362,9 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                             {/* Responsible */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Responsável</label>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Responsável</label>
                                 <select
-                                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200 cursor-pointer"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200 cursor-pointer text-slate-800"
                                     value={lead.responsavel_id || ""}
                                     onChange={async (e) => {
                                         const newId = e.target.value;
@@ -393,10 +393,10 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                             {/* Phone Box */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Telefone</label>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Telefone</label>
                                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative group">
                                     {isEditing ? (
-                                        <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white" />
+                                        <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900" />
                                     ) : (
                                         <div className="text-lg font-mono text-slate-800 font-medium">
                                             {lead.telefone}
@@ -413,7 +413,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                             {/* Links */}
                             <div className="space-y-3">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Links</label>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Links</label>
                                 <div className="space-y-2">
                                     <div
                                         className="flex items-center gap-3 p-2.5 rounded-md hover:bg-blue-50 text-slate-600 hover:text-blue-600 cursor-pointer transition-colors border border-transparent hover:border-blue-100 group"
@@ -437,8 +437,8 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                                     {isEditing && (
                                         <div className="pt-2 flex flex-col gap-2">
-                                            <Input placeholder="URL Google" value={editForm.google_meu_negocio_url} onChange={e => setEditForm({ ...editForm, google_meu_negocio_url: e.target.value })} className="h-8 text-xs" />
-                                            <Input placeholder="URL Site" value={editForm.site_url} onChange={e => setEditForm({ ...editForm, site_url: e.target.value })} className="h-8 text-xs" />
+                                            <Input placeholder="URL Google" value={editForm.google_meu_negocio_url} onChange={e => setEditForm({ ...editForm, google_meu_negocio_url: e.target.value })} className="h-8 text-xs text-slate-900 border-slate-300" />
+                                            <Input placeholder="URL Site" value={editForm.site_url} onChange={e => setEditForm({ ...editForm, site_url: e.target.value })} className="h-8 text-xs text-slate-900 border-slate-300" />
                                         </div>
                                     )}
                                 </div>
@@ -447,7 +447,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                             {/* Custom Fields Display */}
                             {lead.custom_fields && Object.keys(lead.custom_fields).length > 0 && (
                                 <div className="space-y-3">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Informações Adicionais</label>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Informações Adicionais</label>
                                     <div className="grid grid-cols-1 gap-2">
                                         {Object.entries(lead.custom_fields).map(([key, value]) => (
                                             <div key={key} className="bg-slate-50 p-2 rounded text-xs border border-slate-100">
@@ -463,11 +463,11 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                             <div className="mt-auto grid grid-cols-2 gap-4 pt-6 border-t border-slate-100">
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Tentativas</label>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Tentativas</label>
                                     <span className="text-2xl font-bold text-slate-700">{lead.tentativas || 0}</span>
                                 </div>
                                 <div className="text-right">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Último Resultado</label>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Último Resultado</label>
                                     <span className="inline-block px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded font-medium">
                                         {lead.ultimo_resultado?.replace('_', ' ') || '-'}
                                     </span>
