@@ -10,13 +10,9 @@ import {
     MessageSquare,
     CheckSquare,
     Settings,
-    ChevronDown,
-    ChevronsRight,
     LogOut,
-    Menu,
-    X,
-    Bell,
-    User,
+    PanelLeftClose,
+    PanelLeftOpen,
     Phone
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
@@ -46,7 +42,29 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
             className={`sticky top-0 h-screen shrink-0 border-r ${isMounted ? "transition-all duration-300 ease-in-out" : ""} ${open ? 'w-64' : 'w-20'
                 } border-gray-200 bg-white shadow-sm flex flex-col z-50`}
         >
-            <TitleSection open={open} />
+            <div className="flex items-center justify-between p-4 mb-2">
+                {open && (
+                    <div className="flex items-center gap-3 overflow-hidden transition-opacity duration-200 opacity-100">
+                        <Logo />
+                        <div>
+                            <span className="block text-sm font-bold text-gray-900 whitespace-nowrap">
+                                CRM NG
+                            </span>
+                            <span className="block text-xs text-blue-600 font-medium">
+                                Pro Plan
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                <button
+                    onClick={() => setOpen(!open)}
+                    className={`text-slate-500 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-md transition-colors ${!open ? 'mx-auto' : ''}`}
+                    title={open ? "Recolher menu" : "Expandir menu"}
+                >
+                    {open ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+                </button>
+            </div>
 
             <div className="space-y-1 mb-8 flex-1 overflow-y-auto custom-scrollbar px-2">
                 <Option
@@ -114,11 +132,9 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
                     )}
                 </button>
             </div>
-
-            <ToggleClose open={open} setOpen={setOpen} />
         </nav>
     );
-};
+}
 
 const Option = ({ Icon, title, href, selected, open, notifs }: any) => {
     return (
@@ -151,38 +167,9 @@ const Option = ({ Icon, title, href, selected, open, notifs }: any) => {
     );
 };
 
-const TitleSection = ({ open }: any) => {
-    return (
-        <div className="mb-6 border-b border-gray-200 pb-4 pt-4 px-2">
-            <div className="flex cursor-pointer items-center justify-between rounded-md p-2 transition-colors hover:bg-gray-50">
-                <div className="flex items-center gap-3 overflow-hidden">
-                    <Logo />
-                    {open && (
-                        <div className={`transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0'}`}>
-                            <div className="flex items-center gap-2">
-                                <div>
-                                    <span className="block text-sm font-bold text-gray-900 whitespace-nowrap">
-                                        CRM NG
-                                    </span>
-                                    <span className="block text-xs text-blue-600 font-medium">
-                                        Pro Plan
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-                {/* {open && (
-          <ChevronDown className="h-4 w-4 text-gray-400" />
-        )} */}
-            </div>
-        </div>
-    );
-};
-
 const Logo = () => {
     return (
-        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg">
+        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg">
             <Image
                 src="/logo-sidebar.png"
                 alt="NG Logo"
@@ -190,31 +177,5 @@ const Logo = () => {
                 className="object-cover"
             />
         </div>
-    );
-};
-
-const ToggleClose = ({ open, setOpen }: any) => {
-    return (
-        <button
-            onClick={() => setOpen(!open)}
-            className="border-t border-gray-200 transition-colors hover:bg-gray-50 w-full"
-        >
-            <div className="flex items-center p-3">
-                <div className="grid size-10 place-content-center shrink-0">
-                    <ChevronsRight
-                        className={`h-5 w-5 transition-transform duration-300 text-gray-500 ${!open ? "rotate-0" : "rotate-180"
-                            }`}
-                    />
-                </div>
-                {open && (
-                    <span
-                        className={`text-sm font-medium text-gray-600 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0'
-                            }`}
-                    >
-                        Esconder
-                    </span>
-                )}
-            </div>
-        </button>
     );
 };

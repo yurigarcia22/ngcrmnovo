@@ -316,24 +316,24 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
             <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
                 <DialogContent className="max-w-5xl h-[90vh] p-0 overflow-hidden flex flex-col bg-white gap-0 border-none rounded-lg shadow-2xl">
 
-                    {/* DARK HEADER */}
-                    <div className="bg-[#0f172a] text-white px-6 py-5 flex justify-between items-start shrink-0">
+                    {/* LIGHT HEADER */}
+                    <div className="bg-white text-gray-900 px-6 py-5 flex justify-between items-start shrink-0 border-b border-gray-200">
                         <div className="space-y-1">
                             <div className="flex items-center gap-3">
                                 {isEditing ? (
                                     <Input
                                         value={editForm.nome}
                                         onChange={e => setEditForm({ ...editForm, nome: e.target.value })}
-                                        className="font-bold text-xl bg-slate-800 border-slate-700 text-white w-[300px] h-8 py-0 px-2"
+                                        className="font-bold text-xl bg-gray-50 border-gray-300 text-gray-900 w-[300px] h-8 py-0 px-2"
                                     />
                                 ) : (
-                                    <h2 className="text-xl font-bold">{lead.nome}</h2>
+                                    <h2 className="text-xl font-bold text-gray-900">{lead.nome}</h2>
                                 )}
-                                <Badge variant="secondary" className="bg-slate-700 text-slate-200 hover:bg-slate-600 border-none text-xs rounded-sm px-2">
+                                <Badge variant="secondary" className="bg-gray-100 text-gray-600 hover:bg-gray-200 border-none text-xs rounded-sm px-2">
                                     {lead.nicho}
                                 </Badge>
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 block"></span>
                                 Em prospecção ativa
                             </div>
@@ -343,13 +343,13 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                             {hasNext && (
                                 <button
                                     onClick={onNext}
-                                    className="flex items-center text-sm font-medium text-slate-300 hover:text-white transition-colors"
+                                    className="flex items-center text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors"
                                 >
                                     Próximo <span className="ml-1 text-xs">›</span>
                                 </button>
                             )}
-                            <div className="w-px h-4 bg-slate-700 mx-2"></div>
-                            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+                            <div className="w-px h-4 bg-gray-300 mx-2"></div>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-900 transition-colors">
                                 <X size={20} />
                             </button>
                         </div>
@@ -583,8 +583,8 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                                         className="min-h-[60px] text-sm mb-2"
                                                     />
                                                     <div className="flex justify-end gap-2">
-                                                        <Button size="xs" variant="ghost" onClick={cancelEditing}>Cancelar</Button>
-                                                        <Button size="xs" onClick={() => handleUpdateNote(note.id)}>Salvar</Button>
+                                                        <Button size="sm" variant="ghost" onClick={cancelEditing}>Cancelar</Button>
+                                                        <Button size="sm" onClick={() => handleUpdateNote(note.id)}>Salvar</Button>
                                                     </div>
                                                 </div>
                                             ) : (
