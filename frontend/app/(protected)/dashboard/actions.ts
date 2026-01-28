@@ -172,6 +172,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         // Cold Call Metrics
         let callsMade = 0;
         let connections = 0;
+        let decisionMakers = 0;
         let meetings = 0;
 
         activityNotes?.forEach((note: any) => {
@@ -181,6 +182,9 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             }
             if (['contato_realizado', 'contato_decisor', 'reuniao_marcada'].includes(rawResult)) {
                 connections++;
+            }
+            if (['contato_decisor', 'reuniao_marcada'].includes(rawResult)) {
+                decisionMakers++;
             }
             if (rawResult === 'reuniao_marcada') {
                 meetings++;
@@ -203,6 +207,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
                 total: coldLeadsCount || 0,
                 calls: callsMade,
                 connections: connections,
+                decisionMakers: decisionMakers,
                 meetings: meetings
             }
         };
@@ -220,7 +225,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             conversationsCount: 0,
             unansweredChatsCount: 0,
             longestWaitTime: "0m",
-            coldMetrics: { total: 0, calls: 0, connections: 0, meetings: 0 }
+            coldMetrics: { total: 0, calls: 0, connections: 0, decisionMakers: 0, meetings: 0 }
         };
     }
 }

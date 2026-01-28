@@ -314,7 +314,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
     return (
         <>
             <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-                <DialogContent className="max-w-5xl h-[90vh] p-0 overflow-hidden flex flex-col bg-white gap-0 border-none rounded-lg shadow-2xl">
+                <DialogContent className="max-w-5xl h-[90vh] p-0 overflow-hidden flex flex-col bg-white gap-0 border-none rounded-lg shadow-2xl [&>button]:hidden">
 
                     {/* LIGHT HEADER */}
                     <div className="bg-white text-gray-900 px-6 py-5 flex justify-between items-start shrink-0 border-b border-gray-200">

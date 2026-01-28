@@ -157,30 +157,60 @@ async function DashboardContent({ period, userId }: { period: string, userId: st
             <h2 className="text-xl font-bold text-white tracking-wide">MÉTRICAS DE PROSPECÇÃO (COLD CALL)</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 relative z-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 relative z-10">
             {/* Total Leads */}
-            <div className="bg-[#0f172a]/40 p-6 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">LEADS IMPORTADOS</h3>
-              <div className="text-3xl font-bold text-white">{data.coldMetrics?.total || 0}</div>
-              <p className="text-xs text-gray-500 mt-2">{subtext}</p>
+            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">LEADS IMPORTADOS</h3>
+              <div className="text-2xl font-bold text-white">{data.coldMetrics?.total || 0}</div>
+              <p className="text-[10px] text-gray-500 mt-2">{subtext}</p>
             </div>
 
             {/* Ligações */}
-            <div className="bg-[#0f172a]/40 p-6 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">LIGAÇÕES FEITAS</h3>
-              <div className="text-3xl font-bold text-yellow-400">{data.coldMetrics?.calls || 0}</div>
+            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
+              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
+                {data.coldMetrics?.total ? Math.round(((data.coldMetrics.calls) / data.coldMetrics.total) * 100) : 0}%
+              </div>
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">LIGAÇÕES FEITAS</h3>
+              <div className="text-2xl font-bold text-yellow-400">{data.coldMetrics?.calls || 0}</div>
+              <p className="text-[10px] text-gray-500 mt-1">
+                de leads
+              </p>
             </div>
 
             {/* Conexões */}
-            <div className="bg-[#0f172a]/40 p-6 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">CONEXÕES</h3>
-              <div className="text-3xl font-bold text-orange-400">{data.coldMetrics?.connections || 0}</div>
+            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
+              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
+                {data.coldMetrics?.calls ? Math.round(((data.coldMetrics.connections) / data.coldMetrics.calls) * 100) : 0}%
+              </div>
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">CONEXÕES</h3>
+              <div className="text-2xl font-bold text-orange-400">{data.coldMetrics?.connections || 0}</div>
+              <p className="text-[10px] text-gray-500 mt-1">
+                de ligações
+              </p>
+            </div>
+
+            {/* Conexão com Decisor */}
+            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
+              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
+                {data.coldMetrics?.connections ? Math.round(((data.coldMetrics.decisionMakers || 0) / data.coldMetrics.connections) * 100) : 0}%
+              </div>
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">CONEXÃO COM O DECISOR</h3>
+              <div className="text-2xl font-bold text-cyan-400">{data.coldMetrics?.decisionMakers || 0}</div>
+              <p className="text-[10px] text-gray-500 mt-1">
+                de conexões
+              </p>
             </div>
 
             {/* Reuniões */}
-            <div className="bg-[#0f172a]/40 p-6 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">REUNIÕES</h3>
-              <div className="text-3xl font-bold text-emerald-400">{data.coldMetrics?.meetings || 0}</div>
+            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
+              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
+                {data.coldMetrics?.decisionMakers ? Math.round(((data.coldMetrics.meetings) / data.coldMetrics.decisionMakers) * 100) : 0}%
+              </div>
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">REUNIÕES</h3>
+              <div className="text-2xl font-bold text-emerald-400">{data.coldMetrics?.meetings || 0}</div>
+              <p className="text-[10px] text-gray-500 mt-1">
+                de decisores
+              </p>
             </div>
           </div>
         </div>

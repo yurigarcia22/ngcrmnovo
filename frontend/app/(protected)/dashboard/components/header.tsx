@@ -4,6 +4,8 @@ import { Search, Settings, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+
 export function DashboardHeader() {
     return (
         <div className="flex items-center justify-between mb-8 gap-4">
@@ -14,10 +16,13 @@ export function DashboardHeader() {
                     className="pl-10 bg-[#0f172a]/50 border-gray-600 text-white placeholder:text-gray-400 focus-visible:ring-offset-0 focus-visible:ring-cyan-500 rounded-lg"
                 />
             </div>
-            <Button variant="default" className="bg-[#0f172a] hover:bg-[#1e293b] text-white border border-gray-600">
-                <Calendar className="mr-2 h-4 w-4" />
-                EVENTOS
-            </Button>
+            <div className="flex items-center gap-3">
+                <NotificationBell />
+                <Button variant="default" className="bg-[#0f172a] hover:bg-[#1e293b] text-white border border-gray-600">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    EVENTOS
+                </Button>
+            </div>
         </div>
     );
 }

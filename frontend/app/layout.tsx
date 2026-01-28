@@ -24,6 +24,9 @@ export const metadata: Metadata = {
 
 import { Toaster } from "sonner";
 
+import { NotificationProvider } from "@/components/notifications/NotificationProvider";
+import { NotificationDrawer } from "@/components/notifications/NotificationDrawer";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,8 +38,11 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen overflow-hidden bg-[#f0f2f5]`}
         suppressHydrationWarning
       >
-        {children}
-        <Toaster position="top-right" />
+        <NotificationProvider>
+          {children}
+          <NotificationDrawer />
+          <Toaster position="top-right" />
+        </NotificationProvider>
       </body>
     </html>
   );

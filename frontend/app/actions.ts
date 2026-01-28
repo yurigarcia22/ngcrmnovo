@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
+import { scheduleTaskNotifications } from "@/lib/notifications";
 import * as XLSX from 'xlsx';
 
 // --- HELPER: Get Tenant ID ---
@@ -597,6 +598,12 @@ export async function updateNote(noteId: number, content: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
+        const { error } = await supabase
+            .from("notes")
+            .update({ content })
+            .eq("id", noteId)
+            .eq("tenant_id", tenantId);
+
         if (error) throw error;
         return { success: true };
     } catch (error: any) {
@@ -608,7 +615,7 @@ export async function updateNote(noteId: number, content: string) {
 export async function updateColdLeadNote(noteId: string, content: string) {
     try {
         const tenantId = await getTenantId();
-        const supabase = await createClient(); // Use server client
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
         const { error } = await supabase
             .from("cold_lead_notes")
@@ -643,12 +650,27 @@ export async function createTask(dealId: string | null, description: string, due
         if (dealId) payload.deal_id = dealId;
         if (coldLeadId) payload.cold_lead_id = coldLeadId;
 
-        const { error } = await supabase
+        const { data: newTask, error } = await supabase
             .from("tasks")
-            .insert(payload);
+            .insert(payload)
+            .select('id')
+            .single();
 
         if (error) throw error;
+
+        // Schedule Notifications
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && newTask) {
+            // We need to import this function at top of file
+            // await scheduleTaskNotifications(newTask.id, user.id, dueDate, tenantId);
+            // Since I can't easily add import with replace_file_content in one go if I don't see top, I will handle import separately or assume I can add it if I knew line 1.
+            // Wait, I can't add import here easily without reading top. I will add the call here and then add import at top.
+            await scheduleTaskNotifications(newTask.id, user.id, dueDate, tenantId);
+        }
+
         return { success: true };
+
+
     } catch (error: any) {
         console.error("createTask Error:", error);
         return { success: false, error: error.message };
@@ -657,6 +679,7 @@ export async function createTask(dealId: string | null, description: string, due
 
 export async function updateTask(taskId: string, description: string, dueDate: string) {
     try {
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
@@ -670,6 +693,13 @@ export async function updateTask(taskId: string, description: string, dueDate: s
             .eq("id", taskId);
 
         if (error) throw error;
+
+        // Reschedule Notifications
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            await scheduleTaskNotifications(taskId, user.id, dueDate, tenantId);
+        }
+
         return { success: true };
     } catch (error: any) {
         console.error("updateTask Error:", error);
@@ -1719,6 +1749,113 @@ export async function importLeadsFromExcel(formData: FormData) {
 
     } catch (error: any) {
         console.error("importLeadsFromExcel Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- Notifications ---
+
+export async function getNotifications() {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: "Not authenticated" };
+
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', user.id)
+            .not('sent_at', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function markNotificationAsRead(id: string) {
+    try {
+        const supabase = await createClient();
+        const { error } = await supabase
+            .from('notifications')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', id);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function markAllNotificationsAsRead() {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false };
+
+        const { error } = await supabase
+            .from('notifications')
+            .update({ read_at: new Date().toISOString() })
+            .eq('user_id', user.id)
+            .is('read_at', null);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getNotificationSettings() {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: "Not authenticated" };
+
+        const { data, error } = await supabase
+            .from('notification_settings')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+
+        if (!data) {
+            return {
+                success: true, data: {
+                    in_app_enabled: true,
+                    sound_enabled: true,
+                    morning_time: '09:00:00',
+                    advance_30m_enabled: true,
+                    advance_5m_enabled: true
+                }
+            };
+        }
+
+        return { success: true, data };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateNotificationSettings(settings: any) {
+    try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: "Not authenticated" };
+
+        const { error } = await supabase
+            .from('notification_settings')
+            .upsert({ user_id: user.id, ...settings })
+            .select();
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
         return { success: false, error: error.message };
     }
 }

@@ -12,9 +12,9 @@ import {
     Search,
     Plus,
     User,
-    Bell,
     MoreHorizontal
 } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import NewLeadModal from "@/components/NewLeadModal";
 import FilterBar from "@/components/kanban/FilterBar";
 import { DragDropContext, Draggable } from "@hello-pangea/dnd";
@@ -352,10 +352,7 @@ export default function LeadsPage() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                    <button className="text-gray-500 hover:text-gray-700 relative">
-                        <Bell size={20} />
-                        <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-                    </button>
+                    <NotificationBell />
                     <button
                         onClick={() => setIsNewLeadModalOpen(true)}
                         className="bg-[#2d76f9] hover:bg-[#2363d6] text-white px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 shadow-sm transition-colors"

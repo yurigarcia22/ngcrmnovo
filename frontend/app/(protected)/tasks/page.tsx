@@ -15,6 +15,8 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+
 export default function TasksPage() {
     const [tasks, setTasks] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -116,12 +118,17 @@ export default function TasksPage() {
         <div className="flex flex-col min-h-screen bg-[#f5f7f8] text-gray-800 font-sans">
 
             <main className="flex-1 p-8">
-                <header className="mb-8 border-b border-gray-200 pb-4">
-                    <h1 className="text-3xl font-bold flex items-center gap-3 text-gray-900">
-                        <CheckSquare className="text-blue-600" size={32} />
-                        Minhas Tarefas
-                    </h1>
-                    <p className="text-gray-500 mt-2 font-medium">Organize seu dia e não perca nenhum follow-up.</p>
+                <header className="mb-8 border-b border-gray-200 pb-4 flex justify-between items-end">
+                    <div>
+                        <h1 className="text-3xl font-bold flex items-center gap-3 text-gray-900">
+                            <CheckSquare className="text-blue-600" size={32} />
+                            Minhas Tarefas
+                        </h1>
+                        <p className="text-gray-500 mt-2 font-medium">Organize seu dia e não perca nenhum follow-up.</p>
+                    </div>
+                    <div className="mb-2">
+                        <NotificationBell />
+                    </div>
                 </header>
 
                 {loading ? (

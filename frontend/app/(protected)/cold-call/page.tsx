@@ -12,6 +12,8 @@ import { NichoSelector } from '@/components/cold-call/NichoSelector';
 import { toast } from 'sonner';
 import { getMembers } from '@/app/(protected)/settings/team/actions';
 
+import { NotificationBell } from '@/components/notifications/NotificationBell';
+
 export default function ColdCallPage() {
     const [leads, setLeads] = useState<ColdLead[]>([]);
     const [loading, setLoading] = useState(true);
@@ -259,7 +261,8 @@ export default function ColdCallPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Prospecção Ativa</h1>
                     <p className="text-muted-foreground text-sm">"Simplicidade em larga escala vence sofisticação procrastinadora."</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                    <NotificationBell />
                     <Button onClick={() => setIsAddModalOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800">
                         <Plus className="mr-2 h-4 w-4" />
                         Adicionar Lead
