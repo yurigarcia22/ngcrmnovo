@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { updateDeal, updateContact, deleteDeal, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getTeamMembers, getDealItems, upsertDealItems, addNote, getNotes, deleteNote, updateNote, checkDealHasMessages } from "@/app/actions";
+import { updateDeal, updateContact, deleteDeal, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getTeamMembers, getDealItems, upsertDealItems, addNote, getNotes, deleteNote, updateNote, checkDealHasMessages, addDealContact, removeDealContact, getDealContacts, rescheduleTask, updateDealContact } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
@@ -324,6 +324,63 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     const [selectedStageId, setSelectedStageId] = useState<number | null>(deal.stage_id || null);
     const supabase = createClient();
 
+    // Multi-Contact Logic
+    const [contacts, setContacts] = useState<any[]>(deal.deal_contacts || []);
+    const [isAddingContact, setIsAddingContact] = useState(false);
+    const [newContact, setNewContact] = useState({ name: "", phone: "" });
+
+    // Meeting/Reschedule Logic
+    // Find next incomplete task with date
+    const nextTask = deal.tasks?.filter((t: any) => !t.is_completed && t.due_date)
+        .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
+
+    const [reschedulingTaskId, setReschedulingTaskId] = useState<string | null>(null);
+    const [newTaskDate, setNewTaskDate] = useState("");
+
+    async function handleSaveContact() {
+        if (!newContact.name) return;
+        const res = await addDealContact(deal.id, newContact);
+        if (res.success) {
+            setContacts([...contacts, res.data]);
+            setNewContact({ name: "", phone: "" });
+            setIsAddingContact(false);
+            if (onUpdate) onUpdate();
+        } else {
+            alert("Erro ao salvar contato");
+        }
+    }
+
+    async function handleRemoveContact(id: string) {
+        if (!confirm("Remover contato?")) return;
+        setContacts(contacts.filter(c => c.id !== id));
+        await removeDealContact(id);
+        if (onUpdate) onUpdate();
+    }
+
+    async function handleSetPrimaryContact(id: string) {
+        // Optimistic update
+        const updatedContacts = contacts.map(c => ({
+            ...c,
+            is_primary: c.id === id
+        }));
+        setContacts(updatedContacts);
+
+        await updateDealContact(id, { is_primary: true });
+        if (onUpdate) onUpdate();
+    }
+
+    async function handleReschedule(taskId: string) {
+        if (!newTaskDate) return;
+        const res = await rescheduleTask(taskId, newTaskDate);
+        if (res.success) {
+            alert("Reunião reagendada!");
+            setReschedulingTaskId(null);
+            if (onUpdate) onUpdate();
+        } else {
+            alert("Erro ao reagendar reunião");
+        }
+    }
+
     // Init Pipeline
     useEffect(() => {
         async function loadPipelineInfo() {
@@ -431,6 +488,11 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     useEffect(() => {
         setLocalTags(deal.deal_tags || []);
     }, [deal.deal_tags]);
+
+    // Update contacts local state if deal updates
+    useEffect(() => {
+        if (deal.deal_contacts) setContacts(deal.deal_contacts);
+    }, [deal.deal_contacts]);
 
     async function handleSave() {
         const contactId = deal.contacts?.id || deal.contact_id;
@@ -611,6 +673,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                     {/* LEFT: INFO & CONTACT */}
                     <div className="space-y-5">
                         {/* CLIENTE */}
+                        {/* CLIENTE */}
                         <div className="group">
                             <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 block">Cliente</label>
                             <div className="flex items-center gap-2">
@@ -626,20 +689,137 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                             </div>
                         </div>
 
-                        {/* TELEFONE & WHATSAPP */}
+                        {/* MULTI-CONTACTS SECTION */}
                         <div className="group">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 block">Contato</label>
-                            <div className="flex items-center gap-2">
-                                <div className="p-2 bg-green-50 text-green-600 rounded-full cursor-pointer hover:bg-green-100 transition-colors" onClick={handleWhatsApp} title="Abrir WhatsApp">
-                                    <MessageCircle size={18} />
-                                </div>
-                                <input
-                                    value={phone}
-                                    onChange={e => setPhone(e.target.value)}
-                                    className="font-medium text-gray-600 w-full bg-transparent border-b border-transparent hover:border-gray-200 focus:border-blue-500 focus:outline-none py-1 transition-all"
-                                    placeholder="Telefone / WhatsApp"
-                                />
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Contatos</label>
+                                <button className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1" onClick={() => setIsAddingContact(true)}>
+                                    <Plus size={10} /> Novo
+                                </button>
                             </div>
+
+                            {/* ADD CONTACT FORM */}
+                            {isAddingContact && (
+                                <div className="mb-3 bg-blue-50/50 p-2 rounded-md border border-blue-100 animate-in slide-in-from-top-2">
+                                    <input
+                                        placeholder="Nome"
+                                        className="w-full text-xs p-1 mb-1 border rounded"
+                                        value={newContact.name}
+                                        onChange={e => setNewContact({ ...newContact, name: e.target.value })}
+                                    />
+                                    <input
+                                        placeholder="Telefone / WhatsApp"
+                                        className="w-full text-xs p-1 mb-1 border rounded"
+                                        value={newContact.phone}
+                                        onChange={e => setNewContact({ ...newContact, phone: e.target.value })}
+                                    />
+                                    <div className="flex justify-end gap-2 mt-1">
+                                        <button onClick={() => setIsAddingContact(false)} className="text-xs text-gray-500">Cancelar</button>
+                                        <button onClick={handleSaveContact} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold">Salvar</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* LIST CONTACTS */}
+                            <div className="space-y-2">
+                                {/* Legacy/Main Contact */}
+                                {deal.contacts && (
+                                    <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-md border border-gray-100">
+                                        <div className="p-1.5 bg-white rounded-full border border-gray-100 text-gray-400">
+                                            <User size={14} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-bold text-gray-700 truncate">{deal.contacts.name}</div>
+                                            <div className="text-[10px] text-gray-500 flex items-center gap-1">
+                                                <Phone size={10} /> {deal.contacts.phone || "-"}
+                                                <span className="text-[9px] bg-gray-200 px-1 rounded ml-auto">Principal</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={handleWhatsApp} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors" title="WhatsApp">
+                                            <MessageCircle size={14} />
+                                        </button>
+                                    </div>
+                                )}
+                                {contacts.map((c: any) => (
+                                    <div key={c.id} className={`flex items-center gap-2 bg-white p-2 rounded-md border transition-colors group/item ${c.is_primary ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100 hover:border-blue-100'}`}>
+                                        <div className={`p-1.5 rounded-full ${c.is_primary ? 'bg-amber-100 text-amber-500' : 'bg-gray-50 text-gray-400'}`}>
+                                            <User size={14} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1">
+                                                <div className="text-xs font-bold text-gray-700 truncate">{c.name}</div>
+                                                {c.is_primary && <div className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded font-bold">Principal</div>}
+                                            </div>
+                                            <div className="text-[10px] text-gray-500 truncate">{c.phone}</div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => handleSetPrimaryContact(c.id)}
+                                            className={`p-1 transition-colors ${c.is_primary ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}`}
+                                            title="Definir como Principal"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill={c.is_primary ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                                        </button>
+
+                                        <button
+                                            onClick={() => window.open(`https://wa.me/55${c.phone?.replace(/\D/g, "")}`, '_blank')}
+                                            className="text-gray-300 hover:text-green-600 p-1 transition-colors"
+                                        >
+                                            <MessageCircle size={14} />
+                                        </button>
+                                        <button onClick={() => handleRemoveContact(c.id)} className="text-gray-300 hover:text-red-500 p-1 opacity-0 group-hover/item:opacity-100 transition-all">
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* NEXT MEETING / RESCHEDULE */}
+                        <div className="group pt-2 border-t border-gray-100">
+                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2 block">Próxima Reunião</label>
+
+                            {nextTask ? (
+                                <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2 text-amber-700 font-bold text-xs">
+                                            <Clock size={14} />
+                                            {new Date(nextTask.due_date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                                        </div>
+                                        <button
+                                            onClick={() => setReschedulingTaskId(reschedulingTaskId === nextTask.id ? null : nextTask.id)}
+                                            className="text-[10px] bg-white border border-amber-200 text-amber-600 px-2 py-1 rounded font-bold hover:bg-amber-100"
+                                        >
+                                            Reagendar
+                                        </button>
+                                    </div>
+                                    <div className="text-xs text-amber-800 line-clamp-2">{nextTask.description || "Sem descrição"}</div>
+
+                                    {/* RESCHEDULE PICKER */}
+                                    {reschedulingTaskId === nextTask.id && (
+                                        <div className="mt-3 pt-2 border-t border-amber-200/50 animate-in slide-in-from-top-2">
+                                            <label className="text-[10px] font-bold text-amber-700 mb-1 block">Nova Data:</label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="datetime-local"
+                                                    className="flex-1 text-xs border border-amber-300 rounded p-1"
+                                                    onChange={(e) => setNewTaskDate(e.target.value)}
+                                                />
+                                                <button
+                                                    onClick={() => handleReschedule(nextTask.id)}
+                                                    className="bg-amber-600 text-white text-xs px-2 rounded font-bold hover:bg-amber-700"
+                                                >
+                                                    Salvar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="text-xs text-gray-400 italic bg-gray-50 p-2 rounded border border-gray-100 text-center">
+                                    Nenhuma reunião agendada.
+                                </div>
+                            )}
                         </div>
 
                         {/* OWNER */}

@@ -426,6 +426,224 @@ export async function deleteDeal(dealId: string) {
     }
 }
 
+export async function deleteDeals(dealIds: string[]) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const tenantId = await getTenantId();
+
+        // 1. Delete dependent messages
+        await supabase.from("messages").delete().in("deal_id", dealIds);
+        // 2. Delete tasks
+        await supabase.from("tasks").delete().in("deal_id", dealIds);
+        // 3. Delete notes
+        await supabase.from("notes").delete().in("deal_id", dealIds);
+
+        // 4. Delete Deals
+        const { error } = await supabase
+            .from("deals")
+            .delete()
+            .in("id", dealIds)
+            .eq("tenant_id", tenantId); // Security check
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("deleteDeals Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// DEAL CONTACTS ACTIONS
+export async function addDealContact(dealId: string, contact: { name: string, phone?: string, email?: string, title?: string }) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { data, error } = await supabase
+            .from("deal_contacts")
+            .insert({ ...contact, deal_id: dealId })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("addDealContact Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function removeDealContact(contactId: string) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { error } = await supabase
+            .from("deal_contacts")
+            .delete()
+            .eq("id", contactId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("removeDealContact Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getDealContacts(dealId: string) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { data, error } = await supabase
+            .from("deal_contacts")
+            .select("*")
+            .eq("deal_id", dealId)
+            .order("created_at", { ascending: true });
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("getDealContacts Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateDealContact(contactId: string, updates: any) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        // If setting as primary, we might want to unset others for this deal? 
+        // For simplicity, let's just update the specific contact for now. 
+        // Ideally, we'd use a transaction or a second query to unset others 
+        // if updates.is_primary is true.
+
+        if (updates.is_primary) {
+            // Fetch deal_id to unset others
+            const { data: current } = await supabase.from('deal_contacts').select('deal_id').eq('id', contactId).single();
+            if (current) {
+                await supabase.from('deal_contacts').update({ is_primary: false }).eq('deal_id', current.deal_id);
+            }
+        }
+
+        const { data, error } = await supabase
+            .from("deal_contacts")
+            .update(updates)
+            .eq("id", contactId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("updateDealContact Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- Deal Members Actions ---
+
+export async function addDealMember(dealId: string, userId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data, error } = await supabase
+            .from("deal_members")
+            .insert({
+                deal_id: dealId,
+                user_id: userId,
+                tenant_id: tenantId
+            })
+            .select(`*, profiles(id, full_name, avatar_url)`)
+            .single();
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        // Ignore unique constraint error (already member)
+        if (error.code === '23505') return { success: true, alreadyExists: true };
+        console.error("addDealMember Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function removeDealMember(memberId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("deal_members")
+            .delete()
+            .eq("id", memberId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("removeDealMember Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// MEETING RESCHEDULE ACTION
+export async function rescheduleTask(taskId: string, newDate: string) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { error } = await supabase
+            .from("tasks")
+            .update({ due_date: newDate })
+            .eq("id", taskId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("rescheduleTask Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateDeals(dealIds: string[], updates: any) {
+    try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const tenantId = await getTenantId();
+
+        const { error } = await supabase
+            .from("deals")
+            .update(updates)
+            .in("id", dealIds)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("updateDeals Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function sendMedia(formData: FormData) {
     try {
         const tenantId = await getTenantId();
@@ -1059,6 +1277,9 @@ export async function getDealById(id: string) {
             .select(`
                 *, 
                 contacts (id, name, phone, email), 
+                deal_contacts (*),
+                deal_members (id, user_id, profiles(id, full_name, avatar_url)),
+                tasks (id, description, due_date, is_completed),
                 deal_tags (tags (id, name, color)),
                 deal_items (
                     id, 
@@ -1422,6 +1643,29 @@ export async function promoteToLead(dealId: string, title?: string, value?: numb
         return { success: true };
     } catch (error: any) {
         console.error("promoteToLead Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// --- HELPER: Complete Task ---
+export async function completeTask(taskId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("tasks")
+            .update({ is_completed: true })
+            .eq("id", taskId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error("completeTask Error:", error);
         return { success: false, error: error.message };
     }
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2 } from "lucide-react";
-import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems } from "@/app/actions";
+import { useRef, useEffect, useState } from "react";
+import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle } from "lucide-react";
+import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember } from "@/app/actions";
 import { useRouter } from "next/navigation";
 
 export default function DealInfoSidebar({ deal, teamMembers, pipelines, availableTags, products = [], dealItems = [], lossReasons = [] }: any) {
@@ -194,9 +194,13 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
         }
     }
 
-    // Owner State
+    // Owner State (Primary)
     const [editingOwner, setEditingOwner] = useState(false);
     const [selectedOwner, setSelectedOwner] = useState(deal.owner_id || "");
+
+    // Members State (Secondary)
+    const [members, setMembers] = useState(deal.deal_members || []);
+    const [isAddingMember, setIsAddingMember] = useState(false);
 
     async function handleSaveOwner() {
         if (selectedOwner === deal.owner_id) { setEditingOwner(false); return; }
@@ -206,7 +210,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
         const res = await updateDeal(deal.id, { owner_id: selectedOwner || null });
         if (res.success) {
-            await logSystemActivity(deal.id, `Alterou o responsável para "${newOwnerName}"`);
+            await logSystemActivity(deal.id, `Alterou o responsável principal para "${newOwnerName}"`);
             deal.owner_id = selectedOwner; // Optimistic update
             router.refresh();
         } else {
@@ -215,6 +219,111 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
         }
         setEditingOwner(false);
         setLoadingField(null);
+    }
+
+    async function handleAddMember(userId: string) {
+        setIsAddingMember(false);
+        // Optimistic check
+        if (members.some((m: any) => m.user_id === userId) || deal.owner_id === userId) return;
+
+        const res = await addDealMember(deal.id, userId);
+        if (res.success) {
+            const newMemberName = teamMembers.find((m: any) => m.id === userId)?.full_name || "Novo membro";
+            setMembers([...members, res.data || { user_id: userId, profiles: teamMembers.find((m: any) => m.id === userId) }]);
+            await logSystemActivity(deal.id, `Adicionou responsável: ${newMemberName}`);
+            router.refresh();
+        } else {
+            alert("Erro ao adicionar membro: " + res.error);
+        }
+    }
+
+    async function handleRemoveMember(memberId: string, memberName: string) {
+        if (!confirm(`Remover ${memberName}?`)) return;
+        setMembers(members.filter((m: any) => m.id !== memberId));
+        await removeDealMember(memberId);
+        await logSystemActivity(deal.id, `Removeu responsável: ${memberName}`);
+        router.refresh();
+    }
+
+    // --- MULTI CONTACTS & MEETING STATE ---
+    const [contacts, setContacts] = useState(deal.deal_contacts || []);
+    const [newContact, setNewContact] = useState({ name: "", phone: "" });
+
+    // Meeting
+    const [nextTask, setNextTask] = useState<any>(null);
+    const [isRescheduling, setIsRescheduling] = useState(false);
+    const [newTaskDate, setNewTaskDate] = useState("");
+    const [reschedulingTaskId, setReschedulingTaskId] = useState<string | null>(null);
+
+    // Calc Next Task on Mount
+    useEffect(() => {
+        if (deal.tasks && deal.tasks.length > 0) {
+            const incomplete = deal.tasks.filter((t: any) => !t.is_completed);
+
+            // Sort by due_date
+            incomplete.sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+
+            if (incomplete.length > 0) {
+                setNextTask(incomplete[0]);
+                // Init date picker value
+                if (incomplete[0].due_date) {
+                    const d = new Date(incomplete[0].due_date);
+                    const iso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                    setNewTaskDate(iso);
+                }
+            }
+        }
+    }, [deal.tasks]);
+
+    async function handleSaveContact() {
+        if (!newContact.name) return;
+        const res = await addDealContact(deal.id, { name: newContact.name, phone: newContact.phone });
+        if (res.success) {
+            setContacts([...contacts, res.data]);
+            setNewContact({ name: "", phone: "" });
+            setIsAddingContact(false);
+            await logSystemActivity(deal.id, `Adicionou contato secundário: ${newContact.name}`);
+            router.refresh();
+        }
+    }
+
+    async function handleRemoveContact(id: string) {
+        if (!confirm("Remover este contato?")) return;
+        setContacts(contacts.filter((c: any) => c.id !== id));
+        await removeDealContact(id);
+        await logSystemActivity(deal.id, `Removeu um contato secundário`);
+        router.refresh();
+    }
+
+    async function handleSetPrimaryContact(id: string) {
+        // Optimistic
+        const updated = contacts.map((c: any) => ({ ...c, is_primary: c.id === id }));
+        setContacts(updated);
+
+        await updateDealContact(id, { is_primary: true });
+        await logSystemActivity(deal.id, `Definiu um novo contato principal`);
+        router.refresh();
+    }
+
+    async function handleReschedule() {
+        if (!nextTask || !newTaskDate) return;
+        await rescheduleTask(nextTask.id, newTaskDate);
+        setNextTask({ ...nextTask, due_date: newTaskDate }); // Optimistic
+        setIsRescheduling(false);
+        await logSystemActivity(deal.id, `Reagendou reunião para ${new Date(newTaskDate).toLocaleString('pt-BR')}`);
+        router.refresh();
+    }
+
+    async function handleCompleteTask() {
+        if (!nextTask) return;
+        if (!confirm("Concluir esta reunião?")) return;
+
+        await completeTask(nextTask.id);
+
+        // Optimistic remove
+        setNextTask(null);
+        await logSystemActivity(deal.id, `Concluiu a reunião: ${nextTask.description || "Sem descrição"}`);
+        router.refresh();
     }
 
     return (
@@ -230,36 +339,145 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
                 {/* INFO GERAL */}
                 <div className="space-y-4">
-                    {/* OWNER */}
-                    <div className="grid grid-cols-[140px_1fr] items-center gap-2 min-h-[30px]">
-                        <span className="text-gray-400 text-xs font-bold uppercase">Responsável</span>
-                        {editingOwner ? (
-                            <div className="flex items-center gap-1 animate-in fade-in">
-                                <select
-                                    value={selectedOwner}
-                                    onChange={(e) => setSelectedOwner(e.target.value)}
-                                    className="w-full border border-blue-300 rounded px-1 py-0.5 text-xs font-medium focus:outline-none"
-                                    autoFocus
-                                >
-                                    <option value="">Sem dono</option>
-                                    {teamMembers.map((m: any) => (
-                                        <option key={m.id} value={m.id}>{m.full_name}</option>
-                                    ))}
-                                </select>
-                                <button onClick={handleSaveOwner} disabled={loadingField === 'owner'} className="text-green-600 hover:bg-green-50 p-1 rounded shrink-0"><Check size={14} /></button>
-                                <button onClick={() => { setEditingOwner(false); setSelectedOwner(deal.owner_id || ""); }} className="text-red-500 hover:bg-red-50 p-1 rounded shrink-0"><X size={14} /></button>
-                            </div>
-                        ) : (
-                            <div onClick={() => { setSelectedOwner(deal.owner_id || ""); setEditingOwner(true); }} className="flex items-center gap-2 group cursor-pointer relative hover:bg-gray-50 px-1 -ml-1 rounded transition-colors">
-                                <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[10px] text-blue-600 font-bold shrink-0">
-                                    {deal.owner_id && teamMembers.find((m: any) => m.id === deal.owner_id)?.full_name ? teamMembers.find((m: any) => m.id === deal.owner_id).full_name.charAt(0).toUpperCase() : "?"}
+
+                    {/* MEETING SECTION */}
+                    <div className="grid grid-cols-[140px_1fr] items-start gap-2 min-h-[30px]">
+                        <span className="text-gray-400 text-xs font-bold uppercase pt-1">Próxima Reunião</span>
+                        <div className="w-full">
+                            {nextTask ? (
+                                <div className="bg-orange-50 border border-orange-100 rounded p-2 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <Calendar size={14} className="text-orange-500" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold text-gray-800">
+                                                {new Date(nextTask.due_date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
+                                            </span>
+                                            <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                                                <Clock size={10} /> {new Date(nextTask.due_date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {isRescheduling ? (
+                                        <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2">
+                                            <input
+                                                type="datetime-local"
+                                                value={newTaskDate}
+                                                onChange={e => setNewTaskDate(e.target.value)}
+                                                className="text-[10px] p-1 border rounded w-32"
+                                            />
+                                            <button onClick={handleReschedule} className="text-green-600 bg-white border border-gray-200 p-1 rounded hover:bg-green-50"><Check size={12} /></button>
+                                            <button onClick={() => setIsRescheduling(false)} className="text-red-500 bg-white border border-gray-200 p-1 rounded hover:bg-red-50"><X size={12} /></button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-end gap-1">
+                                            <button onClick={() => setIsRescheduling(true)} className="text-[10px] text-orange-600 font-bold hover:underline bg-white px-2 py-1 rounded border border-orange-100 hover:bg-orange-100 transition-colors w-full text-center">
+                                                Reagendar
+                                            </button>
+                                            <button onClick={handleCompleteTask} className="text-[10px] text-green-600 font-bold hover:underline bg-white px-2 py-1 rounded border border-green-100 hover:bg-green-100 transition-colors w-full text-center">
+                                                Concluir
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                                <span className="text-sm font-medium text-blue-600 truncate">
-                                    {teamMembers.find((m: any) => m.id === deal.owner_id)?.full_name || "Sem dono"}
-                                </span>
-                                <Edit2 size={10} className="text-gray-300 opacity-0 group-hover:opacity-100" />
+                            ) : (
+                                <div className="text-xs text-gray-400 italic py-1">Nenhuma reunião agendada</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* OWNERS / RESPONSÁVEIS */}
+                    <div className="grid grid-cols-[140px_1fr] items-start gap-2 min-h-[30px]">
+                        <div className="flex flex-col pt-1">
+                            <span className="text-gray-400 text-xs font-bold uppercase">Responsáveis</span>
+                        </div>
+
+                        <div className="w-full space-y-2">
+                            {/* Primary Owner */}
+                            {editingOwner ? (
+                                <div className="flex items-center gap-1 animate-in fade-in">
+                                    <select
+                                        value={selectedOwner}
+                                        onChange={(e) => setSelectedOwner(e.target.value)}
+                                        className="w-full border border-blue-300 rounded px-1 py-0.5 text-xs font-medium focus:outline-none"
+                                        autoFocus
+                                    >
+                                        <option value="">Sem dono</option>
+                                        {teamMembers.map((m: any) => (
+                                            <option key={m.id} value={m.id}>{m.full_name}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={handleSaveOwner} disabled={loadingField === 'owner'} className="text-green-600 hover:bg-green-50 p-1 rounded shrink-0"><Check size={14} /></button>
+                                    <button onClick={() => { setEditingOwner(false); setSelectedOwner(deal.owner_id || ""); }} className="text-red-500 hover:bg-red-50 p-1 rounded shrink-0"><X size={14} /></button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-between group cursor-pointer hover:bg-gray-50 p-1 rounded -ml-1" onClick={() => { setSelectedOwner(deal.owner_id || ""); setEditingOwner(true); }}>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[10px] text-blue-600 font-bold shrink-0 border border-blue-200">
+                                            {deal.owner_id && teamMembers.find((m: any) => m.id === deal.owner_id)?.full_name ? teamMembers.find((m: any) => m.id === deal.owner_id).full_name.charAt(0).toUpperCase() : "?"}
+                                        </div>
+                                        <span className="text-sm font-bold text-gray-700 truncate">
+                                            {teamMembers.find((m: any) => m.id === deal.owner_id)?.full_name || "Sem dono"}
+                                        </span>
+                                        <span className="text-[9px] bg-blue-100 text-blue-800 px-1 rounded font-bold">Principal</span>
+                                    </div>
+                                    <Edit2 size={10} className="text-gray-300 opacity-0 group-hover:opacity-100" />
+                                </div>
+                            )}
+
+                            {/* Secondary Members */}
+                            {members.map((member: any) => (
+                                <div key={member.id} className="flex items-center justify-between group p-1 rounded -ml-1 border border-transparent hover:border-gray-100 hover:bg-gray-50">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-600 font-bold shrink-0 border border-gray-200">
+                                            {member.profiles?.full_name ? member.profiles.full_name.charAt(0).toUpperCase() : "?"}
+                                        </div>
+                                        <span className="text-sm text-gray-600 truncate">
+                                            {member.profiles?.full_name || "Desconhecido"}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={() => handleRemoveMember(member.id, member.profiles?.full_name)}
+                                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ))}
+
+                            {/* Add Member Button */}
+                            <div className="relative">
+                                {!isAddingMember && (
+                                    <button onClick={() => setIsAddingMember(true)} className="text-[10px] text-gray-400 hover:text-blue-500 font-bold uppercase flex items-center gap-1 p-1 hover:bg-blue-50 rounded transition-colors">
+                                        <Plus size={10} /> Adicionar
+                                    </button>
+                                )}
+
+                                {isAddingMember && (
+                                    <div className="absolute top-0 left-0 bg-white border border-gray-200 shadow-xl rounded-md p-2 z-10 w-48 max-h-48 overflow-y-auto animate-in fade-in zoom-in-95">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-[10px] font-bold text-gray-400 uppercase">Selecionar Membro</span>
+                                            <button onClick={() => setIsAddingMember(false)}><X size={12} className="text-gray-400 hover:text-red-500" /></button>
+                                        </div>
+                                        {teamMembers
+                                            .filter((m: any) => m.id !== deal.owner_id && !members.some((mem: any) => mem.user_id === m.id))
+                                            .map((m: any) => (
+                                                <button
+                                                    key={m.id}
+                                                    onClick={() => handleAddMember(m.id)}
+                                                    className="block w-full text-left px-2 py-1.5 text-xs hover:bg-blue-50 text-gray-700 rounded mb-1"
+                                                >
+                                                    {m.full_name}
+                                                </button>
+                                            ))}
+                                        {teamMembers.filter((m: any) => m.id !== deal.owner_id && !members.some((mem: any) => mem.user_id === m.id)).length === 0 && (
+                                            <div className="text-xs text-gray-400 italic p-1">Todos já adicionados</div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                        )}
+
+                        </div>
                     </div>
 
                     {/* VALUE */}
@@ -402,156 +620,97 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
                     <hr className="border-gray-100" />
 
-                    {/* CONTATO */}
+                    {/* CONTATOS */}
                     <div className="space-y-3">
-                        {/* IF NO CONTACT: SHOW ADD BUTTON */}
-                        {!contact && !isAddingContact && (
-                            <div className="flex items-center gap-2 cursor-pointer group" onClick={() => setIsAddingContact(true)}>
-                                <div className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center bg-white group-hover:border-blue-500 transition-colors">
-                                    <Plus size={16} className="text-gray-400 group-hover:text-blue-500" />
-                                </div>
-                                <span className="text-gray-400 text-sm group-hover:text-blue-500 transition-colors">Adicionar contato</span>
-                            </div>
-                        )}
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-400 text-xs font-bold uppercase">Contatos</span>
+                            <button className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1" onClick={() => setIsAddingContact(true)}>
+                                <Plus size={10} /> Novo
+                            </button>
+                        </div>
 
-                        {/* ADDING CONTACT FORM */}
-                        {!contact && isAddingContact && (
-                            <div className="bg-white p-1 rounded animate-in fade-in slide-in-from-top-2">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center">
-                                        <Plus size={16} className="text-gray-400" />
-                                    </div>
-                                    <input
-                                        className="border-b border-blue-500 w-full text-sm p-1 focus:outline-none placeholder:text-gray-300"
-                                        placeholder="Nome do contato"
-                                        autoFocus
-                                        value={newContactData.name}
-                                        onChange={e => setNewContactData({ ...newContactData, name: e.target.value })}
-                                    />
-                                </div>
-
-                                <div className="pl-10 space-y-3">
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-                                        <span className="text-gray-400 text-xs">Empresa</span>
-                                        <input className="border-b border-gray-200 w-full text-sm p-0.5 focus:border-blue-500 focus:outline-none placeholder:text-gray-300" placeholder="Nome da empresa" />
-                                    </div>
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-                                        <span className="text-gray-400 text-xs">Tel. comercial</span>
-                                        <input
-                                            className="border-b border-gray-200 w-full text-sm p-0.5 focus:border-blue-500 focus:outline-none placeholder:text-gray-300"
-                                            placeholder="..."
-                                            value={newContactData.phone}
-                                            onChange={e => setNewContactData({ ...newContactData, phone: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-                                        <span className="text-gray-400 text-xs">Email comercial</span>
-                                        <input
-                                            className="border-b border-gray-200 w-full text-sm p-0.5 focus:border-blue-500 focus:outline-none placeholder:text-gray-300"
-                                            placeholder="..."
-                                            value={newContactData.email}
-                                            onChange={e => setNewContactData({ ...newContactData, email: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-                                        <span className="text-gray-400 text-xs">Posição</span>
-                                        <input
-                                            className="border-b border-gray-200 w-full text-sm p-0.5 focus:border-blue-500 focus:outline-none placeholder:text-gray-300"
-                                            placeholder="..."
-                                            value={newContactData.position}
-                                            onChange={e => setNewContactData({ ...newContactData, position: e.target.value })}
-                                        />
-                                    </div>
-
-                                    <div className="flex items-center gap-3 pt-2">
-                                        <button
-                                            onClick={handleCreateContact}
-                                            disabled={loadingField === 'create_contact'}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded font-bold"
-                                        >
-                                            {loadingField === 'create_contact' ? "Salvando..." : "Salvar"}
-                                        </button>
-                                        <button onClick={() => setIsAddingContact(false)} className="text-xs text-gray-400 hover:text-red-500 underline decoration-dashed">cancelar</button>
-                                    </div>
+                        {/* ADD CONTACT FORM */}
+                        {isAddingContact && (
+                            <div className="mb-3 bg-blue-50/50 p-2 rounded-md border border-blue-100 animate-in slide-in-from-top-2">
+                                <input
+                                    placeholder="Nome"
+                                    className="w-full text-xs p-1 mb-1 border rounded"
+                                    value={newContact.name}
+                                    onChange={e => setNewContact({ ...newContact, name: e.target.value })}
+                                />
+                                <input
+                                    placeholder="Telefone / WhatsApp"
+                                    className="w-full text-xs p-1 mb-1 border rounded"
+                                    value={newContact.phone}
+                                    onChange={e => setNewContact({ ...newContact, phone: e.target.value })}
+                                />
+                                <div className="flex justify-end gap-2 mt-1">
+                                    <button onClick={() => setIsAddingContact(false)} className="text-xs text-gray-500">Cancelar</button>
+                                    <button onClick={handleSaveContact} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold">Salvar</button>
                                 </div>
                             </div>
                         )}
 
-                        {/* EXISTING CONTACT DISPLAY */}
-                        {contact && (
-                            <>
-                                <div className="flex items-center gap-2 group">
-                                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                                        <User size={16} className="text-gray-500" />
+                        <div className="space-y-2">
+                            {/* Legacy Contact */}
+                            {contact && (
+                                <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-md border border-gray-100">
+                                    <div className="p-1.5 bg-white rounded-full border border-gray-100 text-gray-400">
+                                        <User size={14} />
                                     </div>
-                                    {editingName ? (
-                                        <div className="flex items-center gap-1">
-                                            <input
-                                                value={tempName}
-                                                onChange={e => setTempName(e.target.value)}
-                                                className="border border-blue-300 rounded px-1 py-0.5 text-sm font-bold w-40"
-                                                autoFocus
-                                            />
-                                            <button onClick={() => handleSaveContactField('name', tempName, setEditingName)} className="text-green-600"><Check size={14} /></button>
-                                            <button onClick={() => setEditingName(false)} className="text-red-500"><X size={14} /></button>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-bold text-gray-700 truncate">{contact.name}</div>
+                                        <div className="text-[10px] text-gray-500 flex items-center gap-1">
+                                            <Phone size={10} /> {contact.phone || "-"}
+                                            <span className="text-[9px] bg-gray-200 px-1 rounded ml-auto">Principal</span>
                                         </div>
-                                    ) : (
-                                        <h3 onClick={() => { setTempName(contact.name); setEditingName(true); }} className="font-bold text-gray-800 text-sm cursor-pointer hover:text-blue-600 flex items-center gap-2">
-                                            {contact.name || "Sem Nome"}
-                                            <Edit2 size={10} className="text-gray-300 opacity-0 group-hover:opacity-100" />
-                                        </h3>
-                                    )}
+                                    </div>
+                                    <button
+                                        onClick={() => window.open(`https://wa.me/${contact.phone?.replace(/\D/g, "")}`, '_blank')}
+                                        className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"
+                                        title="WhatsApp"
+                                    >
+                                        <MessageCircle size={14} />
+                                    </button>
                                 </div>
+                            )}
 
-                                <div className="pl-10 space-y-2">
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2 group min-h-[24px]">
-                                        <span className="text-gray-400 text-xs">Tel. comercial</span>
-                                        {editingPhone ? (
-                                            <div className="flex items-center gap-1">
-                                                <input
-                                                    value={tempPhone}
-                                                    onChange={e => setTempPhone(e.target.value)}
-                                                    className="border border-blue-300 rounded px-1 py-0 text-xs w-32"
-                                                    autoFocus
-                                                />
-                                                <button onClick={() => handleSaveContactField('phone', tempPhone, setEditingPhone)} className="text-green-600"><Check size={12} /></button>
-                                                <button onClick={() => setEditingPhone(false)} className="text-red-500"><X size={12} /></button>
-                                            </div>
-                                        ) : (
-                                            <span onClick={() => { setTempPhone(contact.phone); setEditingPhone(true); }} className="text-sm font-medium text-gray-700 cursor-pointer hover:text-blue-600 flex items-center gap-2">
-                                                {contact.phone || "-"}
-                                                <Edit2 size={10} className="text-gray-300 opacity-0 group-hover:opacity-100" />
-                                            </span>
-                                        )}
+                            {contacts.map((c: any) => (
+                                <div key={c.id} className={`flex items-center gap-2 bg-white p-2 rounded-md border transition-colors group/item ${c.is_primary ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100 hover:border-blue-100'}`}>
+                                    <div className={`p-1.5 rounded-full ${c.is_primary ? 'bg-amber-100 text-amber-500' : 'bg-gray-50 text-gray-400'}`}>
+                                        <User size={14} />
                                     </div>
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2 group min-h-[24px]">
-                                        <span className="text-gray-400 text-xs">Email comercial</span>
-                                        {editingEmail ? (
-                                            <div className="flex items-center gap-1">
-                                                <input
-                                                    value={tempEmail}
-                                                    onChange={e => setTempEmail(e.target.value)}
-                                                    className="border border-blue-300 rounded px-1 py-0 text-xs w-48"
-                                                    autoFocus
-                                                />
-                                                <button onClick={() => handleSaveContactField('email', tempEmail, setEditingEmail)} className="text-green-600"><Check size={12} /></button>
-                                                <button onClick={() => setEditingEmail(false)} className="text-red-500"><X size={12} /></button>
-                                            </div>
-                                        ) : (
-                                            <span onClick={() => { setTempEmail(contact.email); setEditingEmail(true); }} className="text-sm font-medium text-gray-700 cursor-pointer hover:text-blue-600 flex items-center gap-2 truncate">
-                                                {contact.email || "-"}
-                                                <Edit2 size={10} className="text-gray-300 opacity-0 group-hover:opacity-100" />
-                                            </span>
-                                        )}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1">
+                                            <div className="text-xs font-bold text-gray-700 truncate">{c.name}</div>
+                                            {c.is_primary && <div className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded font-bold">Principal</div>}
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 truncate">{c.phone}</div>
                                     </div>
-                                    <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-                                        <span className="text-gray-400 text-xs">Posição</span>
-                                        <span className="text-sm text-gray-500">...</span>
-                                    </div>
+
+                                    <button
+                                        onClick={() => handleSetPrimaryContact(c.id)}
+                                        className={`p-1 transition-colors ${c.is_primary ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}`}
+                                        title="Definir como Principal"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill={c.is_primary ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                                    </button>
+
+                                    <button
+                                        onClick={() => window.open(`https://wa.me/55${c.phone?.replace(/\D/g, "")}`, '_blank')}
+                                        className="text-gray-300 hover:text-green-600 p-1 transition-colors"
+                                    >
+                                        <MessageCircle size={14} />
+                                    </button>
+                                    <button onClick={() => handleRemoveContact(c.id)} className="text-gray-300 hover:text-red-500 p-1 opacity-0 group-hover/item:opacity-100 transition-all">
+                                        <Trash2 size={14} />
+                                    </button>
                                 </div>
-                            </>
-                        )}
+                            ))}
+                        </div>
+
                     </div>
+
 
                     <hr className="border-gray-100" />
 

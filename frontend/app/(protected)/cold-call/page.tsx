@@ -168,6 +168,36 @@ export default function ColdCallPage() {
         }
     };
 
+    const handleBulkDelete = async () => {
+        if (!selectedLeads.length) return;
+        if (!confirm(`Tem certeza que deseja excluir ${selectedLeads.length} leads permanentemente?`)) return;
+
+        const toastId = toast.loading('Excluindo leads...');
+
+        try {
+            const res = await fetch('/api/cold-leads/bulk', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: selectedLeads })
+            });
+
+            if (!res.ok) throw new Error('Falha ao excluir em massa');
+
+            const data = await res.json();
+            toast.success(`${data.count || selectedLeads.length} leads excluídos!`, { id: toastId });
+
+            // Clear selection
+            setSelectedLeads([]);
+
+            // Refresh
+            fetchLeads();
+
+        } catch (error) {
+            console.error(error);
+            toast.error('Erro ao excluir leads', { id: toastId });
+        }
+    };
+
     const handleDeleteLead = useCallback(async (leadId: string) => {
         if (!confirm('Excluir este lead permanentemente?')) return;
 
@@ -414,6 +444,9 @@ export default function ColdCallPage() {
                         </Button>
                         <Button onClick={handleBulkUpdate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-900/50">
                             Aplicar Alterações
+                        </Button>
+                        <Button onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700 text-white font-bold shadow-lg shadow-red-900/20 ml-2">
+                            Excluir
                         </Button>
                     </div>
                 </div>

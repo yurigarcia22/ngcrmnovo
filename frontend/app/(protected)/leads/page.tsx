@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
-import { markAsWon, getTeamMembers } from "@/app/actions";
+import { markAsWon, getTeamMembers, deleteDeals, updateDeals } from "@/app/actions";
 import { getPipelines, getBoardData } from "./actions";
 // Removed standalone getFields import as it is now in getBoardData
 import { GitPullRequest, Link as LinkIcon } from "lucide-react";
@@ -45,6 +45,14 @@ export default function LeadsPage() {
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
     const [filterOwner, setFilterOwner] = useState('loading'); // Começa loading para não mostrar 'todos' antes de saber quem sou
     const [currentUserId, setCurrentUserId] = useState<string>("");
+
+    // Bulk Actions
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [selectedDeals, setSelectedDeals] = useState<string[]>([]);
+
+    // Bulk Change Owner
+    const [showBulkOwnerSelect, setShowBulkOwnerSelect] = useState(false);
+    const [bulkOwnerId, setBulkOwnerId] = useState("");
 
 
 
@@ -230,6 +238,49 @@ export default function LeadsPage() {
         }
     };
 
+    // Bulk Actions Handlers
+    const toggleSelection = (dealId: string) => {
+        setSelectedDeals(prev =>
+            prev.includes(dealId) ? prev.filter(id => id !== dealId) : [...prev, dealId]
+        );
+    };
+
+    const handleBulkDelete = async () => {
+        if (!selectedDeals.length) return;
+        if (!confirm(`Tem certeza que deseja excluir ${selectedDeals.length} oportunidades? Esta ação é irreversível.`)) return;
+
+        try {
+            const res = await deleteDeals(selectedDeals);
+            if (res.success) {
+                fetchData();
+                setSelectedDeals([]);
+                setIsSelectionMode(false);
+            } else {
+                alert("Erro ao excluir: " + res.error);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleBulkChangeOwner = async () => {
+        if (!bulkOwnerId || !selectedDeals.length) return;
+
+        try {
+            const res = await updateDeals(selectedDeals, { owner_id: bulkOwnerId });
+            if (res.success) {
+                fetchData();
+                setSelectedDeals([]);
+                setIsSelectionMode(false);
+                setShowBulkOwnerSelect(false);
+            } else {
+                alert("Erro ao alterar: " + res.error);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     // Lógica de Filtro
     const filteredDeals = deals.filter(deal => {
         // 0. OWNER FILTER (Novo)
@@ -348,6 +399,23 @@ export default function LeadsPage() {
                             <option value="active">Ativos</option>
                             <option value="lost">Perdidos</option>
                         </select>
+
+                        {/* Bulk Selection Toggle */}
+                        <button
+                            onClick={() => {
+                                setIsSelectionMode(!isSelectionMode);
+                                setSelectedDeals([]);
+                            }}
+                            className={`
+                                flex items-center justify-center w-8 h-8 rounded-md border transition-all
+                                ${isSelectionMode ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}
+                            `}
+                            title="Seleção Múltipla"
+                        >
+                            <div className="w-4 h-4 border-2 border-current rounded-sm flex items-center justify-center">
+                                {isSelectionMode && <div className="w-2 h-2 bg-current rounded-[1px]" />}
+                            </div>
+                        </button>
                     </div>
                 </div>
 
@@ -361,10 +429,10 @@ export default function LeadsPage() {
                         Novo Lead
                     </button>
                 </div>
-            </header>
+            </header >
 
             {/* KANBAN BOARD */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar-x">
+            < div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar-x" >
                 <DragDropContext onDragEnd={onDragEnd}>
                     <div className="flex h-full gap-6 min-w-max">
                         {stages.map((stage) => {
@@ -407,7 +475,10 @@ export default function LeadsPage() {
                                                         deal={deal}
                                                         index={index}
                                                         fields={fields}
-                                                        onClick={() => { }} // Navigation handled internally
+                                                        // onClick={() => { }} // Navigation handled internally by KanbanCard
+                                                        isSelectionMode={isSelectionMode}
+                                                        isSelected={selectedDeals.includes(deal.id)}
+                                                        onToggleSelection={toggleSelection}
                                                     />
                                                 ))}
                                                 {provided.placeholder}
@@ -419,7 +490,7 @@ export default function LeadsPage() {
                         })}
                     </div>
                 </DragDropContext>
-            </div>
+            </div >
 
 
             {/* MODAL NOVO LEAD */}
@@ -428,6 +499,59 @@ export default function LeadsPage() {
                 onClose={() => setIsNewLeadModalOpen(false)}
                 onSuccess={() => fetchData()} // Recarrega os dados ao criar
             />
+
+            {/* Floating Bulk Action Bar */}
+            {
+                selectedDeals.length > 0 && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-xl shadow-2xl z-40 flex items-center gap-4 animate-in slide-in-from-bottom-5 w-[90%] max-w-2xl border border-slate-700">
+                        <div className="font-semibold whitespace-nowrap border-r border-slate-700 pr-4 mr-2">
+                            {selectedDeals.length} selecionados
+                        </div>
+
+                        <div className="flex items-center gap-3 flex-1">
+                            {showBulkOwnerSelect ? (
+                                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-5">
+                                    <select
+                                        value={bulkOwnerId}
+                                        onChange={(e) => setBulkOwnerId(e.target.value)}
+                                        className="bg-slate-800 border-slate-700 text-white h-9 rounded-md text-sm px-3 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                    >
+                                        <option value="">Selecione novo responsável...</option>
+                                        {teamMembers.map(m => (
+                                            <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={handleBulkChangeOwner} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold">Salvar</button>
+                                    <button onClick={() => setShowBulkOwnerSelect(false)} className="px-3 py-1.5 hover:bg-slate-800 rounded-md text-sm">Cancelar</button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setShowBulkOwnerSelect(true)}
+                                        className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors border border-slate-700"
+                                    >
+                                        Alterar Responsável
+                                    </button>
+                                </div>
+                            )}
+
+                            {!showBulkOwnerSelect && (
+                                <button
+                                    onClick={handleBulkDelete}
+                                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors ml-auto shadow-lg shadow-red-900/20"
+                                >
+                                    Excluir
+                                </button>
+                            )}
+                        </div>
+
+                        <button className="text-slate-400 hover:text-white" onClick={() => setSelectedDeals([])}>
+                            <MoreHorizontal size={16} className="rotate-90 hidden" /> {/* Just spacer or cancel icon? */}
+                            <span className="text-xs underline ml-2">Cancelar</span>
+                        </button>
+                    </div>
+                )
+            }
         </div >
     );
 }

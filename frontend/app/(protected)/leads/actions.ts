@@ -79,12 +79,16 @@ export async function getBoardData(pipelineId?: string) {
                 .select(`
                     *,
                     contacts (name, phone),
+                    deal_contacts (id, name, phone, email, title),
+                    deal_members (id, user_id, profiles(full_name, avatar_url)),
+                    owner:owner_id (full_name, avatar_url),
                     deal_tags (
                         tags (id, name, color)
                     ),
                     deal_items (
                         products (name)
-                    )
+                    ),
+                    tasks (id, due_date, description, is_completed)
                 `)
                 .eq("tenant_id", tenantId)
                 .in("stage_id", stageIds)

@@ -37,3 +37,26 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true, count: data?.length });
 }
+
+export async function DELETE(request: NextRequest) {
+    const supabase = await createClient();
+    const body = await request.json();
+    const { ids } = body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return NextResponse.json({ error: 'IDs inválidos ou ausentes' }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+        .from('cold_leads')
+        .delete()
+        .in('id', ids)
+        .select();
+
+    if (error) {
+        console.error('Bulk delete error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, count: data?.length });
+}
