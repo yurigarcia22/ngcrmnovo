@@ -97,9 +97,9 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
                 />
                 <Option
                     Icon={CheckSquare}
-                    title="Tarefas"
-                    href="/tasks"
-                    selected={pathname.startsWith("/tasks")}
+                    title="Follow up"
+                    href="/follow-up"
+                    selected={pathname.startsWith("/follow-up")}
                     open={open}
                 />
             </div>

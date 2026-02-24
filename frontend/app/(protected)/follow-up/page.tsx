@@ -28,6 +28,9 @@ export default function TasksPage() {
     // Edit Task State
     const [taskToEdit, setTaskToEdit] = useState<any>(null);
 
+    // Filters
+    const [filterUserId, setFilterUserId] = useState<string>("");
+
     useEffect(() => {
         fetchTasks();
         fetchTeam();
@@ -52,6 +55,9 @@ export default function TasksPage() {
                         id,
                         name,
                         phone
+                    ),
+                    deal_members (
+                        user_id
                     )
                 ),
                 cold_leads (
@@ -68,6 +74,7 @@ export default function TasksPage() {
                 )
             `)
             .eq("is_completed", false)
+            .not("description", "ilike", "Reunião%")
             .order("due_date", { ascending: true });
 
         if (error) {
@@ -107,26 +114,46 @@ export default function TasksPage() {
     const tomorrowStart = new Date(todayStart);
     tomorrowStart.setDate(tomorrowStart.getDate() + 1);
 
-    const overdueTasks = tasks.filter(t => new Date(t.due_date) < now);
-    const todayTasks = tasks.filter(t => {
+    const filteredTasks = tasks.filter(t => {
+        if (!filterUserId) return true;
+        const isColdLeadMatch = t.cold_leads?.responsavel_id === filterUserId;
+        const isDealMatch = t.deals?.deal_members?.some((m: any) => m.user_id === filterUserId);
+        return isColdLeadMatch || isDealMatch;
+    });
+
+    const overdueTasks = filteredTasks.filter(t => new Date(t.due_date) < now);
+    const todayTasks = filteredTasks.filter(t => {
         const d = new Date(t.due_date);
         return d >= now && d < tomorrowStart;
     });
-    const upcomingTasks = tasks.filter(t => new Date(t.due_date) >= tomorrowStart);
+    const upcomingTasks = filteredTasks.filter(t => new Date(t.due_date) >= tomorrowStart);
 
     return (
         <div className="flex flex-col min-h-screen bg-[#f5f7f8] text-gray-800 font-sans">
 
             <main className="flex-1 p-8">
-                <header className="mb-8 border-b border-gray-200 pb-4 flex justify-between items-end">
+                <header className="mb-8 border-b border-gray-200 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                     <div>
                         <h1 className="text-3xl font-bold flex items-center gap-3 text-gray-900">
                             <CheckSquare className="text-blue-600" size={32} />
-                            Minhas Tarefas
+                            Follow up
                         </h1>
-                        <p className="text-gray-500 mt-2 font-medium">Organize seu dia e não perca nenhum follow-up.</p>
+                        <p className="text-gray-500 mt-2 font-medium">Consulte abaixo os agendamentos e follow-ups em aberto.</p>
                     </div>
-                    <div className="mb-2">
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                        <select
+                            className="h-10 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-48 appearance-none"
+                            value={filterUserId}
+                            onChange={(e) => setFilterUserId(e.target.value)}
+                        >
+                            <option value="">Todos os Responsáveis</option>
+                            {teamMembers.map((member: any) => (
+                                <option key={member.id} value={member.id}>
+                                    {member.full_name || member.email}
+                                </option>
+                            ))}
+                        </select>
+
                         <NotificationBell />
                     </div>
                 </header>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
-import { markAsWon, getTeamMembers, deleteDeals, updateDeals } from "@/app/actions";
+import { markAsWon, recoverDeal, getTeamMembers, deleteDeals, updateDeals, addDealMember } from "@/app/actions";
 import { getPipelines, getBoardData } from "./actions";
 // Removed standalone getFields import as it is now in getBoardData
 import { GitPullRequest, Link as LinkIcon } from "lucide-react";
@@ -53,6 +53,10 @@ export default function LeadsPage() {
     // Bulk Change Owner
     const [showBulkOwnerSelect, setShowBulkOwnerSelect] = useState(false);
     const [bulkOwnerId, setBulkOwnerId] = useState("");
+
+    // Bulk Add Member
+    const [showBulkMemberSelect, setShowBulkMemberSelect] = useState(false);
+    const [bulkMemberId, setBulkMemberId] = useState("");
 
 
 
@@ -229,6 +233,14 @@ export default function LeadsPage() {
 
                 // Marca como Ganho no Backend
                 await markAsWon(dealId);
+            } else {
+                // Se NÃO for a última etapa, mas o deal estava como 'won' ou 'lost', reverte para 'open'
+                // A gente não tem o status antigo fácil aqui sem buscar no 'deals' state antigo
+                const oldDealStatus = oldDeals.find(d => String(d.id) === dealId)?.status;
+                if (oldDealStatus === 'won' || oldDealStatus === 'lost') {
+                    console.log('Revertendo status para OPEN...');
+                    await recoverDeal(dealId);
+                }
             }
 
         } catch (error: any) {
@@ -281,11 +293,61 @@ export default function LeadsPage() {
         }
     };
 
+    const handleBulkAddMember = async () => {
+        if (!bulkMemberId || !selectedDeals.length) return;
+
+        try {
+            // Promise.all to add member to multiple deals in parallel
+            const results = await Promise.all(
+                selectedDeals.map(dealId => addDealMember(dealId, bulkMemberId))
+            );
+
+            // Check if any failed critically
+            const failed = results.filter(r => !r.success);
+            if (failed.length > 0) {
+                alert("Erro parcial ao adicionar membro a alguns leads.");
+            }
+
+            fetchData();
+            setSelectedDeals([]);
+            setIsSelectionMode(false);
+            setShowBulkMemberSelect(false);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleBulkRecover = async () => {
+        if (!selectedDeals.length) return;
+        if (!confirm(`Tem certeza que deseja reabrir ${selectedDeals.length} leads perdidos?`)) return;
+
+        try {
+            const res = await updateDeals(selectedDeals, {
+                status: 'open',
+                closed_at: null,
+                lost_reason: null,
+                lost_details: null
+            });
+
+            if (res.success) {
+                fetchData();
+                setSelectedDeals([]);
+                setIsSelectionMode(false);
+            } else {
+                alert("Erro ao reabrir leads: " + res.error);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     // Lógica de Filtro
     const filteredDeals = deals.filter(deal => {
         // 0. OWNER FILTER (Novo)
         if (filterOwner !== 'all' && filterOwner !== 'loading') {
-            if (deal.owner_id !== filterOwner) return false;
+            // Check primary owner OR if user is in deal_members
+            const isMember = deal.deal_members?.some((m: any) => m.user_id === filterOwner);
+            if (deal.owner_id !== filterOwner && !isMember) return false;
         }
 
         // 1. Filtro de Status (Ativos vs Perdidos)
@@ -524,18 +586,47 @@ export default function LeadsPage() {
                                     <button onClick={handleBulkChangeOwner} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold">Salvar</button>
                                     <button onClick={() => setShowBulkOwnerSelect(false)} className="px-3 py-1.5 hover:bg-slate-800 rounded-md text-sm">Cancelar</button>
                                 </div>
+                            ) : showBulkMemberSelect ? (
+                                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-5">
+                                    <select
+                                        value={bulkMemberId}
+                                        onChange={(e) => setBulkMemberId(e.target.value)}
+                                        className="bg-slate-800 border-slate-700 text-white h-9 rounded-md text-sm px-3 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                                    >
+                                        <option value="">Selecione novo participante...</option>
+                                        {teamMembers.map(m => (
+                                            <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={handleBulkAddMember} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold">Adicionar</button>
+                                    <button onClick={() => setShowBulkMemberSelect(false)} className="px-3 py-1.5 hover:bg-slate-800 rounded-md text-sm">Cancelar</button>
+                                </div>
                             ) : (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                     <button
                                         onClick={() => setShowBulkOwnerSelect(true)}
                                         className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors border border-slate-700"
                                     >
                                         Alterar Responsável
                                     </button>
+                                    <button
+                                        onClick={() => setShowBulkMemberSelect(true)}
+                                        className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors border border-slate-700"
+                                    >
+                                        Adicionar Participante
+                                    </button>
+                                    {filterStatus === 'lost' && (
+                                        <button
+                                            onClick={handleBulkRecover}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors border border-emerald-500 shadow-lg shadow-emerald-900/20"
+                                        >
+                                            Reabrir Leads
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
-                            {!showBulkOwnerSelect && (
+                            {!showBulkOwnerSelect && !showBulkMemberSelect && (
                                 <button
                                     onClick={handleBulkDelete}
                                     className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-md text-sm font-medium transition-colors ml-auto shadow-lg shadow-red-900/20"

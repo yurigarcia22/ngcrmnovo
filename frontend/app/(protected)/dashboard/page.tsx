@@ -15,6 +15,8 @@ export default async function DashboardPage(props: {
   const searchParams = await props.searchParams;
   const period = searchParams.period as string || "today";
   const userId = searchParams.userId as string || "all";
+  const startDate = searchParams.startDate as string | undefined;
+  const endDate = searchParams.endDate as string | undefined;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-8 font-sans">
@@ -28,32 +30,34 @@ export default async function DashboardPage(props: {
           <p className="text-blue-200/60 font-medium">Visão Geral de Performance</p>
           <div className="mt-6 flex justify-center">
             <Suspense fallback={<div className="h-10 bg-white/10 rounded-full w-64 animate-pulse" />}>
-              <FilterWrapper period={period} userId={userId} />
+              <FilterWrapper period={period} userId={userId} startDate={startDate} endDate={endDate} />
             </Suspense>
           </div>
         </div>
 
         <Suspense fallback={<DashboardSkeleton />}>
-          <DashboardContent period={period} userId={userId} />
+          <DashboardContent period={period} userId={userId} startDate={startDate} endDate={endDate} />
         </Suspense>
       </div>
     </div>
   );
 }
 
-async function FilterWrapper({ period, userId }: { period: string, userId: string }) {
+async function FilterWrapper({ period, userId, startDate, endDate }: { period: string, userId: string, startDate?: string, endDate?: string }) {
   const { data: users } = await getTeamMembers();
   return (
     <DashboardFilterBar
       currentPeriod={period}
       currentUserId={userId}
       users={users || []}
+      currentStartDate={startDate}
+      currentEndDate={endDate}
     />
   )
 }
 
-async function DashboardContent({ period, userId }: { period: string, userId: string }) {
-  const data = await getDashboardData({ period, userId });
+async function DashboardContent({ period, userId, startDate, endDate }: { period: string, userId: string, startDate?: string, endDate?: string }) {
+  const data = await getDashboardData({ period, userId, startDate, endDate });
 
   const formattedPipeline = new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -70,6 +74,10 @@ async function DashboardContent({ period, userId }: { period: string, userId: st
     if (period === 'yesterday') return 'ontem';
     if (period === 'week') return 'esta semana';
     if (period === 'month') return 'este mês';
+    if (period === 'custom' && startDate && endDate) {
+      if (startDate === endDate) return `em ${startDate.split('-').reverse().join('/')}`;
+      return `de ${startDate.split('-').reverse().join('/')} até ${endDate.split('-').reverse().join('/')}`;
+    }
     return 'período selecionado';
   }
   const subtext = getSubtext();

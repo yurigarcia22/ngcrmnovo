@@ -21,7 +21,7 @@ export default function ColdCallPage() {
         search: '',
         nicho: 'all',
         status: 'all',
-        responsavelId: 'all',
+        responsavelId: 'meus_leads',
     });
     const [selectedLead, setSelectedLead] = useState<ColdLead | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,8 +41,8 @@ export default function ColdCallPage() {
             if (filters.search) params.append('search', filters.search);
             if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
             if (filters.status !== 'all') params.append('status', filters.status);
-            if (filters.responsavelId !== 'all') params.append('responsavelId', filters.responsavelId);
-            params.append('limit', '100');
+            if (filters.responsavelId) params.append('responsavelId', filters.responsavelId);
+            params.append('limit', '1000');
 
             const res = await fetch(`/api/cold-leads?${params.toString()}`);
             const data = await res.json();
@@ -350,6 +350,7 @@ export default function ColdCallPage() {
                                 value={filters.responsavelId}
                                 onChange={(e) => setFilters({ ...filters, responsavelId: e.target.value })}
                             >
+                                <option value="meus_leads">Meus Leads</option>
                                 <option value="all">Todos Responsáveis</option>
                                 {teamMembers.map(m => (
                                     <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
@@ -357,11 +358,11 @@ export default function ColdCallPage() {
                             </select>
                         </div>
 
-                        {(filters.status !== 'all' || filters.nicho !== 'all' || filters.responsavelId !== 'all' || filters.search) && (
+                        {(filters.status !== 'all' || filters.nicho !== 'all' || filters.responsavelId !== 'meus_leads' || filters.search) && (
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'all' })}
+                                onClick={() => setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'meus_leads' })}
                                 className="text-slate-500 hover:text-slate-900"
                             >
                                 Limpar

@@ -9,7 +9,7 @@ export function NotificationBell() {
     return (
         <button
             onClick={() => setIsOpen(true)}
-            className="relative p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-300"
+            className={`relative p-2 rounded-full transition-colors ${unreadCount > 0 ? 'text-red-500 animate-bounce' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
         >
             <Bell size={20} />
             {unreadCount > 0 && (

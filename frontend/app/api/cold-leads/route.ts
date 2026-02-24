@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const nicho = searchParams.get('nicho');
     const responsavelId = searchParams.get('responsavelId');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const limit = parseInt(searchParams.get('limit') || '1000');
     const offset = parseInt(searchParams.get('offset') || '0');
 
     let query = supabase
@@ -28,7 +28,14 @@ export async function GET(request: NextRequest) {
         query = query.eq('nicho', nicho);
     }
     if (responsavelId) {
-        query = query.eq('responsavel_id', responsavelId);
+        if (responsavelId === 'meus_leads') {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                query = query.eq('responsavel_id', user.id);
+            }
+        } else if (responsavelId !== 'all') {
+            query = query.eq('responsavel_id', responsavelId);
+        }
     }
 
     query = query

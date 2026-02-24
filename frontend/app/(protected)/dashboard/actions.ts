@@ -3,7 +3,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getTenantId } from "@/app/actions";
 
-export async function getDashboardData(filters?: { period?: string; userId?: string }) {
+export async function getDashboardData(filters?: { period?: string; userId?: string; startDate?: string; endDate?: string }) {
     try {
         const tenantId = await getTenantId();
         const supabase = createClient(
@@ -11,7 +11,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const { period = "today", userId } = filters || {};
+        const { period = "today", userId, startDate: customStart, endDate: customEnd } = filters || {};
 
         // Date Logic
         const now = new Date();
@@ -30,6 +30,11 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         } else if (period === "month") {
             const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
             startDate = monthStart.toISOString();
+        } else if (period === "custom" && customStart && customEnd) {
+            const [sYear, sMonth, sDay] = customStart.split('-').map(Number);
+            const [eYear, eMonth, eDay] = customEnd.split('-').map(Number);
+            startDate = new Date(sYear, sMonth - 1, sDay, 0, 0, 0).toISOString();
+            endDate = new Date(eYear, eMonth - 1, eDay, 23, 59, 59).toISOString();
         } else if (period === "all") {
             startDate = new Date(0).toISOString(); // Epoch
         }

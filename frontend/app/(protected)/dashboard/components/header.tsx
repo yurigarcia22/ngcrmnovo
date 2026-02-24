@@ -48,18 +48,23 @@ interface User {
 export function DashboardFilterBar({
     currentPeriod,
     currentUserId,
-    users
+    users,
+    currentStartDate,
+    currentEndDate
 }: {
     currentPeriod: string;
     currentUserId: string;
-    users: User[]
+    users: User[];
+    currentStartDate?: string;
+    currentEndDate?: string;
 }) {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    // Optimistic UI states
     const [activePeriod, setActivePeriod] = useState(currentPeriod);
     const [activeUserId, setActiveUserId] = useState(currentUserId);
+    const [startDate, setStartDate] = useState(currentStartDate || '');
+    const [endDate, setEndDate] = useState(currentEndDate || '');
 
     // Sync with props if they change externally (e.g. browser back button)
     useEffect(() => {
@@ -70,10 +75,34 @@ export function DashboardFilterBar({
         setActiveUserId(currentUserId);
     }, [currentUserId]);
 
+    useEffect(() => {
+        setStartDate(currentStartDate || '');
+    }, [currentStartDate]);
+
+    useEffect(() => {
+        setEndDate(currentEndDate || '');
+    }, [currentEndDate]);
+
     const handlePeriodChange = (period: string) => {
         setActivePeriod(period); // Immediate visual update
         const params = new URLSearchParams(searchParams.toString());
         params.set("period", period);
+        if (period !== "custom") {
+            params.delete("startDate");
+            params.delete("endDate");
+        } else {
+            if (startDate) params.set("startDate", startDate);
+            if (endDate) params.set("endDate", endDate);
+        }
+        router.push(`?${params.toString()}`);
+    };
+
+    const handleCustomDateApply = () => {
+        if (!startDate || !endDate) return;
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("period", "custom");
+        params.set("startDate", startDate);
+        params.set("endDate", endDate);
         router.push(`?${params.toString()}`);
     };
 
@@ -94,24 +123,55 @@ export function DashboardFilterBar({
         { label: "Semana", value: "week" },
         { label: "Mês", value: "month" },
         { label: "Todos", value: "all" },
+        { label: "Personalizado", value: "custom" },
     ];
 
     return (
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
-            {/* Date Toggles */}
-            <div className="bg-[#0f172a]/50 p-1 rounded-full border border-gray-600/50 backdrop-blur-sm flex overflow-hidden shadow-lg">
-                {periods.map((p) => (
-                    <button
-                        key={p.value}
-                        onClick={() => handlePeriodChange(p.value)}
-                        className={`px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 ${activePeriod === p.value
-                            ? "bg-[#0ea5e9] text-white shadow-md shadow-cyan-500/20"
-                            : "text-gray-400 hover:text-white hover:bg-white/5"
-                            }`}
-                    >
-                        {p.label}
-                    </button>
-                ))}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8 w-full">
+            {/* Date Toggles and Custom Container */}
+            <div className="flex flex-wrap items-center gap-4">
+                <div className="bg-[#0f172a]/50 p-1 rounded-full border border-gray-600/50 backdrop-blur-sm flex overflow-hidden shadow-lg">
+                    {periods.map((p) => (
+                        <button
+                            key={p.value}
+                            onClick={() => handlePeriodChange(p.value)}
+                            className={`px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 ${activePeriod === p.value
+                                ? "bg-[#0ea5e9] text-white shadow-md shadow-cyan-500/20"
+                                : "text-gray-400 hover:text-white hover:bg-white/5"
+                                }`}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Custom Date Pickers */}
+                {activePeriod === 'custom' && (
+                    <div className="flex items-center gap-2 bg-[#0f172a]/50 p-1 rounded-full border border-gray-600/50 backdrop-blur-sm shadow-lg">
+                        <input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            style={{ colorScheme: 'dark' }}
+                            className="bg-transparent text-sm text-gray-200 px-4 py-1.5 rounded-full outline-none focus:bg-white/5"
+                        />
+                        <span className="text-gray-400">-</span>
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            style={{ colorScheme: 'dark' }}
+                            className="bg-transparent text-sm text-gray-200 px-4 py-1.5 rounded-full outline-none focus:bg-white/5"
+                        />
+                        <button
+                            onClick={handleCustomDateApply}
+                            disabled={!startDate || !endDate}
+                            className="bg-[#0ea5e9] text-white px-4 py-1.5 rounded-full text-sm font-medium hover:bg-[#0284c7] disabled:opacity-50 transition-colors"
+                        >
+                            Aplicar
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* User & Settings */}

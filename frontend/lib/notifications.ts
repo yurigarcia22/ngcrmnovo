@@ -53,6 +53,14 @@ export async function scheduleTaskNotifications(taskId: string, userId: string, 
         });
     }
 
+    // We need task details (title) to make messages better. 
+    // Optimization: The caller might pass title, or we fetch it.
+    // For now, let's fetch task title if we are inserting.
+
+    const { data: task } = await supabase.from('tasks').select('description, title, cold_lead_id').eq('id', taskId).single();
+    const taskTitle = task?.title || task?.description || 'Tarefa';
+    const isColdCallFollowUp = !!task?.cold_lead_id;
+
     // --- B) 30 Minutes Before ---
     if (advance30) {
         const date30 = subMinutes(due, 30);
@@ -64,23 +72,27 @@ export async function scheduleTaskNotifications(taskId: string, userId: string, 
                 title: 'Em 30 minutos',
                 message: `Sua tarefa vence em breve.`,
                 scheduled_for: date30.toISOString(),
-                tenant_id: tenantId
+                tenant_id: tenantId,
+                meta_json: isColdCallFollowUp ? { isColdCallFollowUp: true } : null
             });
         }
     }
 
-
-
-    // We need task details (title) to make messages better. 
-    // Optimization: The caller might pass title, or we fetch it.
-    // For now, let's fetch task title if we are inserting.
-
-    // We need task details (title) to make messages better. 
-    // Optimization: The caller might pass title, or we fetch it.
-    // For now, let's fetch task title if we are inserting.
-
-    const { data: task } = await supabase.from('tasks').select('description, title').eq('id', taskId).single();
-    const taskTitle = task?.title || task?.description || 'Tarefa';
+    // --- B.2) 15 Minutes Before (New Logic) ---
+    // If we have 5m, let's also have 15m. It might not be in settings, so we enable it by default.
+    const date15 = subMinutes(due, 15);
+    if (isAfter(date15, now)) {
+        notificationsToInsert.push({
+            user_id: userId,
+            task_id: taskId,
+            kind: 'before_15',
+            title: 'Em 15 minutos',
+            message: `Sua tarefa vence em 15 minutos.`,
+            scheduled_for: date15.toISOString(),
+            tenant_id: tenantId,
+            meta_json: isColdCallFollowUp ? { isColdCallFollowUp: true } : null
+        });
+    }
 
     // --- C) 5 Minutes Before ---
     if (advance5) {
@@ -94,7 +106,8 @@ export async function scheduleTaskNotifications(taskId: string, userId: string, 
                 title: 'Em 5 minutos',
                 message: `Começa em 5m: ${taskTitle}`,
                 scheduled_for: date5.toISOString(),
-                tenant_id: tenantId
+                tenant_id: tenantId,
+                meta_json: isColdCallFollowUp ? { isColdCallFollowUp: true } : null
             });
         } else if (isAfter(due, now)) {
             // Urgent case: We are within the 5 minute window, but task hasn't happened yet.
@@ -106,7 +119,8 @@ export async function scheduleTaskNotifications(taskId: string, userId: string, 
                 title: 'Atenção: Prazo Próximo',
                 message: `Tarefa vence em menos de 5m: ${taskTitle}`,
                 scheduled_for: new Date().toISOString(), // Immediate
-                tenant_id: tenantId
+                tenant_id: tenantId,
+                meta_json: isColdCallFollowUp ? { isColdCallFollowUp: true } : null
             });
         }
     }
