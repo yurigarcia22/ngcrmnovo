@@ -394,20 +394,42 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                             {/* Phone Box */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Telefone</label>
-                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative group">
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative group flex items-center justify-between">
                                     {isEditing ? (
-                                        <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900" />
+                                        <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900 w-full mr-10" />
                                     ) : (
-                                        <div className="text-lg font-mono text-slate-800 font-medium">
+                                        <div className="text-lg font-mono text-slate-800 font-medium overflow-hidden text-ellipsis whitespace-nowrap">
                                             {lead.telefone}
                                         </div>
                                     )}
-                                    <button
-                                        onClick={() => { navigator.clipboard.writeText(lead.telefone); toast.success("Copiado!"); }}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-all"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
-                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                                        {!isEditing && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const cleanPhone = lead.telefone.replace(/\D/g, "");
+                                                    let sipPhone = cleanPhone;
+                                                    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+                                                        sipPhone = "+55" + cleanPhone;
+                                                    } else if (!cleanPhone.startsWith("+") && cleanPhone.length > 11) {
+                                                        sipPhone = "+" + cleanPhone;
+                                                    }
+                                                    window.location.href = `sip:${sipPhone}`;
+                                                }}
+                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors"
+                                                title="Ligar com MicroSIP"
+                                            >
+                                                <Phone className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => { navigator.clipboard.writeText(lead.telefone); toast.success("Copiado!"); }}
+                                            className="w-8 h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+                                            title="Copiar número"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 

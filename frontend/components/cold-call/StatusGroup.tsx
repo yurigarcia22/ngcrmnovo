@@ -47,8 +47,7 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
         'reuniao_marcada'
     ];
 
-    const toggleSelectAllGroup = (e: React.MouseEvent) => {
-        e.stopPropagation();
+    const toggleSelectAllGroup = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!onToggleSelection) return;
         // If all selected, deselect all. Otherwise, select all.
         const allSelected = leads.every(l => selectedLeads.includes(l.id));
@@ -148,7 +147,23 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
 
                                 {/* Contact Info */}
                                 <div className="flex items-center gap-2 text-slate-500 text-sm flex-1">
-                                    <Phone className="h-3 w-3" />
+                                    <button
+                                        className="text-slate-400 hover:text-emerald-500 transition-colors tooltip-trigger relative group/sip"
+                                        title="Ligar com MicroSIP"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const cleanPhone = lead.telefone.replace(/\D/g, "");
+                                            let sipPhone = cleanPhone;
+                                            if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+                                                sipPhone = "+55" + cleanPhone;
+                                            } else if (!cleanPhone.startsWith("+") && cleanPhone.length > 11) {
+                                                sipPhone = "+" + cleanPhone;
+                                            }
+                                            window.location.href = `sip:${sipPhone}`;
+                                        }}
+                                    >
+                                        <Phone className="h-3 w-3" />
+                                    </button>
                                     <span className="font-mono text-xs">{lead.telefone}</span>
                                 </div>
 
