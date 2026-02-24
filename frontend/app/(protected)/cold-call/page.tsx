@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import { getMembers } from '@/app/(protected)/settings/team/actions';
 
 import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { AutoDialToggle } from '@/components/cold-call/AutoDialToggle';
+import { useAutoDial } from '@/hooks/useAutoDial';
 
 export default function ColdCallPage() {
     const [leads, setLeads] = useState<ColdLead[]>([]);
@@ -28,6 +30,21 @@ export default function ColdCallPage() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
     const [isSelectionMode, setIsSelectionMode] = useState(false);
+
+    // Auto Dial State
+    const [isAutoDialEnabled, setIsAutoDialEnabled] = useState(false);
+
+    useEffect(() => {
+        const saved = localStorage.getItem('autoDialEnabled');
+        if (saved) setIsAutoDialEnabled(saved === 'true');
+    }, []);
+
+    const handleAutoDialToggle = (enabled: boolean) => {
+        setIsAutoDialEnabled(enabled);
+        localStorage.setItem('autoDialEnabled', String(enabled));
+    };
+
+    useAutoDial({ enabled: isAutoDialEnabled, lead: selectedLead });
 
     // Bulk selection state
     const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
@@ -292,6 +309,7 @@ export default function ColdCallPage() {
                     <p className="text-muted-foreground text-sm">"Simplicidade em larga escala vence sofisticação procrastinadora."</p>
                 </div>
                 <div className="flex gap-2 items-center">
+                    <AutoDialToggle enabled={isAutoDialEnabled} onChange={handleAutoDialToggle} />
                     <NotificationBell />
                     <Button onClick={() => setIsAddModalOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800">
                         <Plus className="mr-2 h-4 w-4" />
