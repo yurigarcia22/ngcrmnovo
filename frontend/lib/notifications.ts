@@ -57,7 +57,11 @@ export async function scheduleTaskNotifications(taskId: string, userId: string, 
     // Optimization: The caller might pass title, or we fetch it.
     // For now, let's fetch task title if we are inserting.
 
-    const { data: task } = await supabase.from('tasks').select('description, title, cold_lead_id').eq('id', taskId).single();
+    const { data: task, error: taskError } = await supabase.from('tasks').select('description, title, cold_lead_id').eq('id', taskId).single();
+    if (taskError) {
+        console.error("Error fetching task for notification:", taskError);
+    }
+
     const taskTitle = task?.title || task?.description || 'Tarefa';
     const isColdCallFollowUp = !!task?.cold_lead_id;
 

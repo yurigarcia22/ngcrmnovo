@@ -78,13 +78,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     // Initial Fetch & Poll
     useEffect(() => {
-        fetchNotifications();
+        fetchNotifications().catch(console.error);
 
         // Poll for updates and TRIGGER cron (for local dev environments where external cron isn't set up)
         const interval = setInterval(() => {
-            fetchNotifications();
+            fetchNotifications().catch(() => { });
             // Trigger the cron endpoint to process scheduled notifications
-            fetch('/api/cron/notifications').catch(err => console.error("Auto-cron failed", err));
+            fetch('/api/cron/notifications').catch(() => { });
         }, 60000);
 
         return () => clearInterval(interval);
@@ -92,53 +92,59 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     // Realtime Subscription
     useEffect(() => {
-        const channel = supabase
-            .channel('notifications-realtime')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'notifications'
-                },
-                (payload) => {
-                    const newNotif = payload.new as Notification;
+        let channel: any;
 
-                    // Only care if sent_at is present (it might have been NULL before)
-                    if (!newNotif.sent_at) return;
+        const setupRealtime = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
 
-                    // Update list
-                    setNotifications(prev => {
-                        const exists = prev.find(n => n.id === newNotif.id);
-                        if (exists) {
-                            // If it was already in the list (e.g. read status update), update it
-                            return prev.map(n => n.id === newNotif.id ? newNotif : n);
-                        }
-                        // If it wasn't in list, it's new for us (was pending, now sent)
-                        return [newNotif, ...prev];
-                    });
+            channel = supabase
+                .channel(`notifications-realtime-${user.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'UPDATE',
+                        schema: 'public',
+                        table: 'notifications',
+                        filter: `user_id=eq.${user.id}`
+                    },
+                    (payload) => {
+                        const newNotif = payload.new as Notification;
 
-                    // Alert if it's new (sent recently) and unread
-                    // Simple check: Is it unread?
-                    if (!newNotif.read_at) {
-                        playSound();
+                        // Only care if sent_at is present (it might have been NULL before)
+                        if (!newNotif.sent_at) return;
 
-                        // Check if it's a cold call follow up needing a popup
-                        if (newNotif.meta_json?.isColdCallFollowUp) {
-                            setActiveAlert(newNotif);
-                        } else {
-                            toast(newNotif.title, {
-                                description: newNotif.message,
-                                duration: 5000,
-                            });
+                        // Update list
+                        setNotifications(prev => {
+                            const exists = prev.find(n => n.id === newNotif.id);
+                            if (exists) {
+                                return prev.map(n => n.id === newNotif.id ? newNotif : n);
+                            }
+                            return [newNotif, ...prev];
+                        });
+
+                        // Alert if it's new (sent recently) and unread
+                        if (!newNotif.read_at) {
+                            playSound();
+
+                            if (newNotif.meta_json?.isColdCallFollowUp) {
+                                setActiveAlert(newNotif);
+                            } else {
+                                toast(newNotif.title, {
+                                    description: newNotif.message,
+                                    duration: 5000,
+                                });
+                            }
                         }
                     }
-                }
-            )
-            .subscribe();
+                )
+                .subscribe();
+        };
+
+        setupRealtime();
 
         return () => {
-            supabase.removeChannel(channel);
+            if (channel) supabase.removeChannel(channel);
         };
     }, [supabase]);
 
