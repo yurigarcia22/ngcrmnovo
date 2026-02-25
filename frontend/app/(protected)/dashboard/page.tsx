@@ -4,6 +4,7 @@ import { getTeamMembers } from "@/app/actions";
 import { DashboardHeader, DashboardFilterBar } from "./components/header";
 import { StatCard, MessagesCard } from "./components/cards";
 import { DealsStageChart } from "./components/radial-chart";
+import { WonLeadsWidget } from "./components/WonLeadsWidget";
 
 export const dynamic = "force-dynamic";
 
@@ -107,12 +108,14 @@ async function DashboardContent({ period, userId, startDate, endDate }: { period
 
       {/* 3. Leads Ganhos */}
       <div className="md:col-span-6 lg:col-span-2">
-        <StatCard title="LEADS GANHOS" value={data.wonDeals} trend="up" trendValue="Vendas">
-          <div className="mt-4">
-            <div className="text-4xl font-bold text-white">{data.wonDeals}</div>
-            <p className="text-lg font-medium text-emerald-400 mt-1">{formattedWonValue}</p>
-          </div>
-        </StatCard>
+        <WonLeadsWidget
+          wonDealsCount={data.wonDeals}
+          formattedWonValue={formattedWonValue}
+          period={period}
+          userId={userId}
+          startDate={startDate}
+          endDate={endDate}
+        />
       </div>
 
       {/* 4. Chart (Distribuição) */}

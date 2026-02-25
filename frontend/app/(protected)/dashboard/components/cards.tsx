@@ -11,16 +11,20 @@ interface StatCardProps {
     children?: React.ReactNode;
     trend?: "up" | "down" | "neutral";
     trendValue?: string;
+    onClick?: () => void;
 }
 
-export function StatCard({ title, value, subtitle, className, children, trend, trendValue }: StatCardProps) {
+export function StatCard({ title, value, subtitle, className, children, trend, trendValue, onClick }: StatCardProps) {
     return (
-        <div className={cn(
-            "relative overflow-hidden rounded-2xl p-6 transition-all duration-300 group",
-            "bg-[#0f172a]/60 backdrop-blur-xl border border-white/5",
-            "hover:border-white/10 hover:bg-[#0f172a]/80 hover:shadow-2xl hover:shadow-cyan-500/10",
-            className
-        )}>
+        <div
+            onClick={onClick}
+            className={cn(
+                "relative overflow-hidden rounded-2xl p-6 transition-all duration-300 group",
+                "bg-[#0f172a]/60 backdrop-blur-xl border border-white/5",
+                "hover:border-white/10 hover:bg-[#0f172a]/80 hover:shadow-2xl hover:shadow-cyan-500/10",
+                onClick && "cursor-pointer hover:scale-[1.02]",
+                className
+            )}>
             {/* Gradient Glow Effect */}
             <div className="absolute top-0 right-0 -mr-16 -mt-16 w-32 h-32 rounded-full bg-cyan-500/10 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 

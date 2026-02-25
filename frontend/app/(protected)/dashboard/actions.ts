@@ -234,3 +234,58 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         };
     }
 }
+
+export async function getWonDealsDetails(filters?: { period?: string; userId?: string; startDate?: string; endDate?: string }) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { period = "today", userId, startDate: customStart, endDate: customEnd } = filters || {};
+
+        const now = new Date();
+        let startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        let endDate = new Date().toISOString();
+
+        if (period === "yesterday") {
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            startDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()).toISOString();
+            endDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59).toISOString();
+        } else if (period === "week") {
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - 7);
+            startDate = weekStart.toISOString();
+        } else if (period === "month") {
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            startDate = monthStart.toISOString();
+        } else if (period === "custom" && customStart && customEnd) {
+            const [sYear, sMonth, sDay] = customStart.split('-').map(Number);
+            const [eYear, eMonth, eDay] = customEnd.split('-').map(Number);
+            startDate = new Date(sYear, sMonth - 1, sDay, 0, 0, 0).toISOString();
+            endDate = new Date(eYear, eMonth - 1, eDay, 23, 59, 59).toISOString();
+        } else if (period === "all") {
+            startDate = new Date(0).toISOString();
+        }
+
+        let wonQuery = supabase
+            .from("deals")
+            .select("id, title, value, closed_at, status")
+            .eq("status", "won")
+            .eq("tenant_id", tenantId)
+            .order("closed_at", { ascending: false });
+
+        if (userId && userId !== "all") wonQuery = wonQuery.eq("owner_id", userId);
+        if (period !== "all") wonQuery = wonQuery.gte("closed_at", startDate).lte("closed_at", endDate);
+
+        const { data, error } = await wonQuery;
+        if (error) throw error;
+
+        return { success: true, data };
+    } catch (error: any) {
+        console.error("getWonDealsDetails Error:", error);
+        return { success: false, error: error.message };
+    }
+}
