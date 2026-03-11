@@ -15,7 +15,8 @@ import {
     PanelLeftOpen,
     Phone,
     Briefcase,
-    Zap
+    Zap,
+    Mail
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
@@ -117,6 +118,13 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
                     title="Conversas"
                     href="/chat"
                     isActive={pathname.startsWith("/chat")}
+                    open={open}
+                />
+                <Option
+                    Icon={Mail}
+                    title="E-mails"
+                    href="/emails"
+                    isActive={pathname.startsWith("/emails")}
                     open={open}
                 />
             </div>
