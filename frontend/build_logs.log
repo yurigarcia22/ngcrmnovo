@@ -1,0 +1,28 @@
+
+> frontend@0.1.0 build
+> next build
+
+   ▲ Next.js 15.1.11
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+Failed to compile.
+
+./components/cold-call/ColdLeadModal.tsx
+Module parse failed: Identifier 'handleScheduleTask' has already been declared (335:10)
+File was processed with these loaders:
+ * ./node_modules/next/dist/build/webpack/loaders/next-flight-client-module-loader.js
+ * ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js
+You may need an additional loader to handle the result of these loaders.
+|         setMeetingDate(dateString);
+|     };
+>     const handleScheduleTask = async ()=>{
+|         if (!meetingDate) return;
+|         setLoading(true);
+
+Import trace for requested module:
+./components/cold-call/ColdLeadModal.tsx
+./app/(protected)/cold-call/page.tsx
+
+
+> Build failed because of webpack errors

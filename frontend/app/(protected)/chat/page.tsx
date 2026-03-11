@@ -127,6 +127,18 @@ export default function ChatPage() {
         const res = await getConversations(search, filterOwner);
         if (res.success && res.data) {
             let data = res.data;
+
+            // Oculta leads/negócios que ainda não possuem NENHUMA mensagem
+            // a não ser que o usuário: 1) Pesquisou; 2) Clicou via URL; 3) Já está selecionado
+            data = data.filter((conv: any) => {
+                const hasMessages = conv.messages && conv.messages.length > 0;
+                const isSearched = search && search.trim().length > 0;
+                const isFromUrl = urlDealId && conv.id === urlDealId;
+                const isSelectedNow = selectedDeal && conv.id === selectedDeal.id;
+
+                return hasMessages || isSearched || isFromUrl || isSelectedNow;
+            });
+
             // CLIENT SIDE INSTANCE FILTER (Best Effort)
             // We don't have instanceId on deal/message easily visible yet.
             setConversations(data);

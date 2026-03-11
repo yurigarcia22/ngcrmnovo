@@ -2116,3 +2116,89 @@ export async function updateNotificationSettings(settings: any) {
         return { success: false, error: error.message };
     }
 }
+
+// -------------------------------------------------------------
+// COLD CALL FOLLOW-UPS OPERATIONS
+// -------------------------------------------------------------
+
+export async function createColdCallFollowup(data: Omit<any, 'id' | 'created_at' | 'updated_at' | 'tenant_id'>) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data: followup, error } = await supabase
+            .from("cold_call_followups")
+            .insert({
+                ...data,
+                tenant_id: tenantId
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        console.log('[createColdCallFollowup] Created:', followup?.id);
+        return { success: true, data: followup };
+    } catch (error: any) {
+        console.error("Erro ao criar follow-up de cold call:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getColdCallFollowups(filters?: { status?: string, periodo?: string, date?: string, leadId?: string }) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        let query = supabase
+            .from("cold_call_followups")
+            .select(`
+                *,
+                cold_leads (id, nome, telefone, nicho, status)
+            `)
+            .eq("tenant_id", tenantId);
+
+        if (filters?.status) query = query.eq('status', filters.status);
+        if (filters?.periodo) query = query.eq('periodo', filters.periodo);
+        if (filters?.date) query = query.eq('data_agendada', filters.date);
+        if (filters?.leadId) query = query.eq('cold_lead_id', filters.leadId);
+
+        query = query.order("data_agendada", { ascending: true });
+
+        const { data, error } = await query;
+        if (error) throw error;
+        console.log('[getColdCallFollowups] Found:', data?.length, 'followups');
+        return { success: true, data };
+    } catch (error: any) {
+        console.error('getColdCallFollowups Error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateColdCallFollowup(id: string, updates: any) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data, error } = await supabase
+            .from("cold_call_followups")
+            .update(updates)
+            .eq("id", id)
+            .eq("tenant_id", tenantId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}

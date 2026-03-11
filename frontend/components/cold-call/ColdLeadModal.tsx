@@ -4,8 +4,8 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
-import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send } from "lucide-react";
-import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote } from "@/app/actions";
+import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle } from "lucide-react";
+import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup } from "@/app/actions";
 
 interface ColdLeadModalProps {
     lead: ColdLead;
@@ -41,6 +41,21 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         instagram_url: lead.instagram_url || "",
         google_meu_negocio_url: lead.google_meu_negocio_url || ""
     });
+
+    // Follow-up State
+    const [isFollowupMode, setIsFollowupMode] = useState(false);
+    const [fupPeriodo, setFupPeriodo] = useState('manha');
+    const [fupData, setFupData] = useState('');
+    const [fupTipoAcao, setFupTipoAcao] = useState('ligacao');
+    const [fupPrioridade, setFupPrioridade] = useState('media');
+    const [leadFollowups, setLeadFollowups] = useState<any[]>([]);
+
+    const fetchLeadFollowups = async () => {
+        const res = await getColdCallFollowups({ leadId: lead.id });
+        if (res.success && res.data) {
+            setLeadFollowups(res.data.filter((f: any) => f.status === 'pendente' || f.status === 'atrasado'));
+        }
+    };
 
 
 
@@ -91,6 +106,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
             });
             fetchPipelines();
             fetchNotes();
+            fetchLeadFollowups();
         }
     }, [isOpen, lead]);
 
@@ -195,6 +211,78 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         }
     };
 
+    const handleSaveFollowup = async () => {
+        if (!fupData) {
+            toast.error("Selecione a data do follow-up");
+            return;
+        }
+        setLoading(true);
+        try {
+            console.log('[FollowUp] Saving:', { cold_lead_id: lead.id, data_agendada: fupData, periodo: fupPeriodo, tipo_acao: fupTipoAcao, prioridade: fupPrioridade });
+            const res = await createColdCallFollowup({
+                cold_lead_id: lead.id,
+                responsavel_id: lead.responsavel_id,
+                data_agendada: fupData,
+                periodo: fupPeriodo,
+                tipo_acao: fupTipoAcao,
+                prioridade: fupPrioridade,
+                status: 'pendente'
+            });
+
+            console.log('[FollowUp] Server response:', res);
+
+            if (res.success) {
+                toast.success("Follow-up agendado com sucesso!");
+                setIsFollowupMode(false);
+                setFupData("");
+                fetchLeadFollowups(); // Refresh after save
+            } else {
+                console.error('[FollowUp] Save error:', res.error);
+                toast.error("Erro ao agendar follow-up: " + (res.error || "erro desconhecido"));
+            }
+        } catch (error) {
+            console.error('[FollowUp] Exception:', error);
+            toast.error("Erro no servidor");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleConfirmConversion = async () => {
+        // Keeps old meeting scheduling logic if needed, but we replace the UI mostly.
+        // Keeping it for the 'Reunião Marcada' flow.
+        if (!meetingDate) {
+            toast.error("Selecione uma data para a reunião.");
+            return;
+        }
+        setLoading(true);
+        try {
+            const payload: any = {
+                resultado: 'reuniao_marcada',
+                proxima_ligacao: meetingDate,
+                notas: currentNote || "Reunião marcada",
+                pipeline_id: selectedPipeline,
+                stage_id: selectedStage
+            };
+            const res = await fetch(`/api/cold-leads/${lead.id}/call`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error("Erro");
+
+            toast.success("Reunião agendada e Lead convertido!");
+            setIsMeetingMode(false);
+            onActionComplete(await res.json());
+            setTimeout(() => onClose(), 500);
+
+        } catch (e) {
+            toast.error("Erro ao agendar reunião.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSaveEdit = async () => {
         setLoading(true);
         try {
@@ -213,7 +301,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         } finally {
             setLoading(false);
         }
-    }
+    };
 
     const handleDelete = async () => {
         if (!confirm("Tem certeza que deseja EXCLUIR este lead permanentemente?")) return;
@@ -518,77 +606,203 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                         {/* RIGHT CONTENT - ACTIONS */}
                         <div className="col-span-8 p-0 flex flex-col bg-slate-50 h-full overflow-hidden">
 
-                            {/* 1. RESULTADO DA LIGAÇÃO (Agora no Topo) */}
-                            <div className="bg-white p-6 border-b border-slate-100 shadow-sm shrink-0">
-                                <label className="text-sm font-bold text-slate-800 mb-3 block">Resultado da Ligação</label>
-                                <div className="grid grid-cols-6 gap-3">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => handleResult('numero_inexistente')}
-                                        className="col-span-2 h-10 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 text-xs"
-                                        disabled={loading}
-                                    >
-                                        <XCircle size={14} className="mr-2 text-red-500" /> Número Inexistente
-                                    </Button>
-
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => handleResult('ligacao_feita')}
-                                        className="col-span-2 h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
-                                        disabled={loading}
-                                    >
-                                        <Phone size={14} className="mr-2 text-pink-500" /> Ligação Feita
-                                    </Button>
-
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => handleResult('contato_realizado')}
-                                        className="col-span-2 h-10 border-slate-200 text-slate-700 hover:border-purple-300 hover:text-purple-600 hover:bg-purple-50 text-xs"
-                                        disabled={loading}
-                                    >
-                                        <MessageCircle size={14} className="mr-2 text-purple-500" /> Contato Realizado
-                                    </Button>
-
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => handleResult('contato_decisor')}
-                                        className="col-span-3 h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs"
-                                        disabled={loading}
-                                    >
-                                        <Target size={14} className="mr-2 text-indigo-600" /> Contato com Decisor
-                                    </Button>
-
-                                    <Button
-                                        onClick={() => setIsMeetingMode(true)}
-                                        className="col-span-3 h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
-                                        disabled={loading}
-                                    >
-                                        <Calendar size={14} className="mr-2" /> Reunião Marcada
-                                    </Button>
+                            {/* 1. RESULTADO DA LIGAÇÃO E CONVERSÃO (Topo) */}
+                            {isMeetingMode ? (
+                                <div className="bg-emerald-50 p-6 border-b border-emerald-100 shadow-sm shrink-0 animate-in fade-in">
+                                    <h3 className="text-emerald-800 font-bold mb-3 flex items-center gap-2">
+                                        <Calendar size={18} /> Agendar Reunião e Converter
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <label className="text-xs font-bold text-emerald-700 block mb-1">Selecionar Funil</label>
+                                            <select
+                                                className="w-full bg-white border border-emerald-200 rounded px-3 py-2 text-sm text-slate-800 focus:ring-emerald-500"
+                                                value={selectedPipeline}
+                                                onChange={e => handlePipelineChange(e.target.value)}
+                                            >
+                                                {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-emerald-700 block mb-1">Etapa Inicial</label>
+                                            <select
+                                                className="w-full bg-white border border-emerald-200 rounded px-3 py-2 text-sm text-slate-800 focus:ring-emerald-500"
+                                                value={selectedStage}
+                                                onChange={e => setSelectedStage(e.target.value)}
+                                            >
+                                                {stages.map(s => <option key={s.id} value={s.id}>{s.name || s.title}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2 space-y-2 relative">
+                                            <label className="text-xs font-bold text-emerald-700 block mb-1">Data da Reunião</label>
+                                            <div className="flex gap-2">
+                                                <Button variant="outline" size="sm" onClick={() => setDateShortcut(0)} className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-100">Hoje</Button>
+                                                <Button variant="outline" size="sm" onClick={() => setDateShortcut(1)} className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-100">Amanhã</Button>
+                                                <Input
+                                                    type="datetime-local"
+                                                    value={meetingDate}
+                                                    onChange={e => setMeetingDate(e.target.value)}
+                                                    className="flex-1 text-xs border-emerald-200"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                        <Button variant="ghost" className="text-emerald-700 hover:bg-emerald-100" onClick={() => setIsMeetingMode(false)}>Cancelar</Button>
+                                        <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleConfirmConversion} disabled={loading || !meetingDate}>Confirmar Conversão</Button>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="bg-white p-6 border-b border-slate-100 shadow-sm shrink-0">
+                                    <label className="text-sm font-bold text-slate-800 mb-3 flex justify-between items-center">
+                                        Ação Rápida
+                                    </label>
+                                    <div className="grid grid-cols-6 gap-3">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => handleResult('numero_inexistente')}
+                                            className="col-span-2 h-10 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 text-xs"
+                                            disabled={loading}
+                                        >
+                                            <XCircle size={14} className="mr-2 text-red-500" /> Número Inexistente
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => handleResult('sem_interesse')}
+                                            className="col-span-2 h-10 border-slate-200 text-slate-600 hover:border-orange-200 hover:text-orange-600 hover:bg-orange-50 text-xs"
+                                            disabled={loading}
+                                        >
+                                            <XCircle size={14} className="mr-2 text-orange-500" /> Sem Interesse
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                handleResult('ligacao_feita');
+                                                setIsFollowupMode(true);
+                                                toast("Lembre-se de agendar o Follow-up!");
+                                            }}
+                                            className="col-span-2 h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
+                                            disabled={loading}
+                                        >
+                                            <Phone size={14} className="mr-2 text-blue-500" /> Ligação Feita
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                handleResult('contato_decisor');
+                                                setIsFollowupMode(true);
+                                            }}
+                                            className="col-span-3 h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs font-bold"
+                                            disabled={loading}
+                                        >
+                                            <Target size={14} className="mr-2 text-indigo-600" /> Contato com Decisor
+                                        </Button>
+
+                                        <Button
+                                            onClick={() => setIsMeetingMode(true)}
+                                            className="col-span-3 h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200"
+                                            disabled={loading}
+                                        >
+                                            <Calendar size={14} className="mr-2" /> Reunião (Converter em Lead)
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* 2. AGENDAR FOLLOW UP (Meio) */}
-                            <div className="p-6 shrink-0 bg-white border-b border-slate-100">
-                                <label className="text-sm font-bold text-slate-800 mb-2 block">Agendar Follow-up</label>
-                                <div className="flex gap-2">
-                                    <Button variant="outline" size="sm" onClick={() => setDateShortcut(0)} className="text-xs text-slate-600">Hoje</Button>
-                                    <Button variant="outline" size="sm" onClick={() => setDateShortcut(1)} className="text-xs text-slate-600">Amanhã</Button>
-                                    <Input
-                                        type="datetime-local"
-                                        value={meetingDate}
-                                        onChange={e => setMeetingDate(e.target.value)}
-                                        className="flex-1 text-xs h-9"
-                                    />
-                                    <Button
-                                        size="sm"
-                                        onClick={handleScheduleTask}
-                                        disabled={loading || !meetingDate}
-                                        className="bg-slate-800 text-white hover:bg-slate-700 h-9"
-                                    >
-                                        Agendar
-                                    </Button>
+                            <div className="p-6 shrink-0 bg-slate-50 border-b border-slate-100">
+                                <div className="flex items-center justify-between mb-3">
+                                    <label className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                        <Clock size={16} className="text-blue-500" /> Próximo Passos (Follow-up)
+                                    </label>
+                                    {!isFollowupMode && (
+                                        <Button size="sm" variant="outline" onClick={() => setIsFollowupMode(true)} className="h-8 text-xs border-blue-200 text-blue-600 hover:bg-blue-50">
+                                            + Agendar Follow-up
+                                        </Button>
+                                    )}
                                 </div>
+
+                                {isFollowupMode ? (
+                                    <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm animate-in fade-in space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Data</label>
+                                                <Input type="date" value={fupData} onChange={e => setFupData(e.target.value)} className="h-9 text-xs" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Período</label>
+                                                <select className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs" value={fupPeriodo} onChange={e => setFupPeriodo(e.target.value)}>
+                                                    <option value="manha">Manhã (08h - 12h)</option>
+                                                    <option value="tarde">Tarde (13h - 18h)</option>
+                                                    <option value="noite">Noite (Após 18h)</option>
+                                                    <option value="qualquer">Qualquer horário</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Ação</label>
+                                                <select className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs" value={fupTipoAcao} onChange={e => setFupTipoAcao(e.target.value)}>
+                                                    <option value="ligacao">Ligar Novamente</option>
+                                                    <option value="whatsapp">Enviar WhatsApp</option>
+                                                    <option value="email">Enviar E-mail</option>
+                                                    <option value="retorno_prometido">Retorno Prometido (Eles ligam)</option>
+                                                    <option value="nova_tentativa">Nova Tentativa (Geral)</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Prioridade</label>
+                                                <select className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs" value={fupPrioridade} onChange={e => setFupPrioridade(e.target.value)}>
+                                                    <option value="baixa">Baixa</option>
+                                                    <option value="media">Média</option>
+                                                    <option value="alta">Alta</option>
+                                                    <option value="urgente">Urgente 🔥</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-end gap-2 pt-2 border-t border-slate-50">
+                                            <Button variant="ghost" size="sm" onClick={() => setIsFollowupMode(false)} className="text-slate-500 h-8 text-xs">Cancelar</Button>
+                                            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white h-8 text-xs" onClick={handleSaveFollowup} disabled={loading || !fupData}>
+                                                Salvar Follow-up
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : leadFollowups.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {leadFollowups.map((fup: any) => (
+                                            <div key={fup.id} className={`flex items-center justify-between p-3 rounded-lg border text-xs ${fup.status === 'atrasado' ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'
+                                                }`}>
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="font-bold text-slate-800">
+                                                        📅 {new Date(fup.data_agendada + 'T00:00:00').toLocaleDateString('pt-BR')} — {fup.periodo === 'manha' ? '☀️ Manhã' : fup.periodo === 'tarde' ? '🌅 Tarde' : fup.periodo}
+                                                    </span>
+                                                    <span className="text-slate-500 capitalize">{fup.tipo_acao.replace('_', ' ')} • <span className={fup.prioridade === 'urgente' || fup.prioridade === 'alta' ? 'text-red-600 font-bold' : ''}>{fup.prioridade}</span></span>
+                                                </div>
+                                                <button
+                                                    onClick={async () => {
+                                                        const res = await updateColdCallFollowup(fup.id, { status: 'concluido' });
+                                                        if (res.success) {
+                                                            toast.success('Follow-up concluído!');
+                                                            fetchLeadFollowups();
+                                                        } else {
+                                                            toast.error('Erro ao concluir follow-up.');
+                                                        }
+                                                    }}
+                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors font-bold text-[11px] border border-emerald-200"
+                                                >
+                                                    <CheckCircle className="w-3 h-3" />
+                                                    Concluir
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="bg-amber-50 rounded-lg border border-dashed border-amber-200 p-4 text-center">
+                                        <AlertTriangle size={16} className="text-amber-500 mx-auto mb-1" />
+                                        <p className="text-xs text-amber-700">Nenhum follow-up futuro agendado.</p>
+                                    </div>
+                                )}
                             </div>
 
                             {/* 3. NOTES (Bottom - Chat Style) */}

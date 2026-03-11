@@ -12,7 +12,8 @@ import {
     Instagram,
     MoreHorizontal,
     ChevronDownCircle,
-    Trash2
+    Trash2,
+    Clock
 } from 'lucide-react';
 
 interface StatusGroupProps {
@@ -25,9 +26,10 @@ interface StatusGroupProps {
     onToggleSelection?: (id: string) => void;
     isSelectionMode?: boolean;
     onDeleteClick?: (id: string) => void;
+    followupLeadIds?: Set<string>;
 }
 
-export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusChange, selectedLeads = [], onToggleSelection, isSelectionMode = false, onDeleteClick }: StatusGroupProps) {
+export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusChange, selectedLeads = [], onToggleSelection, isSelectionMode = false, onDeleteClick, followupLeadIds }: StatusGroupProps) {
     const [isExpanded, setIsExpanded] = useState(true);
 
     const statusLabels: Record<ColdLeadStatus, string> = {
@@ -136,8 +138,14 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
                                 </div>
 
                                 {/* Lead Name */}
-                                <span className="font-medium text-slate-700 min-w-[200px] truncate cursor-pointer hover:text-blue-600" onClick={() => onCallClick(lead)}>
+                                <span className="font-medium text-slate-700 min-w-[200px] truncate cursor-pointer hover:text-blue-600 flex items-center gap-1.5" onClick={() => onCallClick(lead)}>
                                     {lead.nome}
+                                    {followupLeadIds?.has(lead.id) && (
+                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 text-[10px] font-bold" title="Follow-up agendado">
+                                            <Clock className="w-2.5 h-2.5" />
+                                            FUP
+                                        </span>
+                                    )}
                                 </span>
 
                                 {/* Nicho Badge */}

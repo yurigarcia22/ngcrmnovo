@@ -1,4 +1,40 @@
-export type ColdLeadStatus = 'novo_lead' | 'ligacao_feita' | 'contato_realizado' | 'contato_decisor' | 'reuniao_marcada' | 'numero_inexistente';
+export type ColdLeadStatus =
+    | 'novo_lead'
+    | 'novo'
+    | 'tentativa_inicial'
+    | 'lead_qualificado'
+    | 'ligacao_feita'
+    | 'contato_realizado'
+    | 'contato_decisor'
+    | 'em_follow_up'
+    | 'aguardando_retorno'
+    | 'sem_interesse'
+    | 'nao_consegui_contato'
+    | 'perdido'
+    | 'convertido'
+    | 'reuniao_marcada'
+    | 'numero_inexistente';
+
+export interface ColdCallFollowup {
+    id: string;
+    cold_lead_id: string;
+    responsavel_id?: string | null;
+    tenant_id: string;
+    data_agendada: string;
+    periodo: 'manha' | 'tarde' | 'noite' | 'qualquer';
+    horario_especifico?: string | null;
+    tipo_acao: 'ligacao' | 'whatsapp' | 'email' | 'retorno_prometido' | 'nova_tentativa';
+    objetivo?: string | null;
+    prioridade: 'baixa' | 'media' | 'alta' | 'urgente';
+    status: 'pendente' | 'concluido' | 'atrasado' | 'reagendado' | 'cancelado';
+    created_at: string;
+    updated_at: string;
+
+    // Joint associations
+    cold_leads?: Partial<ColdLead>;
+    profiles?: any;
+}
+
 
 export interface ColdLead {
     id: string;

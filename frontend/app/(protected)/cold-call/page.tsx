@@ -15,9 +15,15 @@ import { getMembers } from '@/app/(protected)/settings/team/actions';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { AutoDialToggle } from '@/components/cold-call/AutoDialToggle';
 import { useAutoDial } from '@/hooks/useAutoDial';
+import { FollowUpMetrics } from '@/components/cold-call/FollowUpMetrics';
+import { FollowUpBoard } from '@/components/cold-call/FollowUpBoard';
+import { getColdCallFollowups, updateColdCallFollowup } from '@/app/actions';
 
 export default function ColdCallPage() {
+    // Top-level Navigation State
+    const [activeTab, setActiveTab] = useState<'cold-call' | 'follow-ups'>('cold-call');
     const [leads, setLeads] = useState<ColdLead[]>([]);
+    const [followups, setFollowups] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({
         search: '',
@@ -73,6 +79,31 @@ export default function ColdCallPage() {
         }
     }, [filters]);
 
+    const fetchFollowupsData = useCallback(async () => {
+        try {
+            // Fetch ALL non-completed followups (pendente + atrasado)
+            const res = await getColdCallFollowups({ status: 'pendente' });
+            const resAtrasados = await getColdCallFollowups({ status: 'atrasado' });
+
+            let allFollowups: any[] = [];
+            if (res.success && res.data) {
+                allFollowups.push(...res.data);
+            } else {
+                console.error('Erro ao buscar followups pendentes:', res.error);
+            }
+            if (resAtrasados.success && resAtrasados.data) {
+                allFollowups.push(...resAtrasados.data);
+            } else {
+                console.error('Erro ao buscar followups atrasados:', resAtrasados.error);
+            }
+
+            console.log('[FollowUps] Loaded:', allFollowups.length, 'followups');
+            setFollowups(allFollowups);
+        } catch (err) {
+            console.error('[FollowUps] Fetch error:', err);
+        }
+    }, []);
+
     const fetchMembers = useCallback(async () => {
         const res = await getMembers();
         if (res.success && res.profiles) {
@@ -83,7 +114,8 @@ export default function ColdCallPage() {
     useEffect(() => {
         fetchLeads();
         fetchMembers();
-    }, [fetchLeads, fetchMembers]);
+        fetchFollowupsData();
+    }, [fetchLeads, fetchMembers, fetchFollowupsData]);
 
     const handleCallClick = (lead: ColdLead) => {
         setSelectedLead(lead);
@@ -94,6 +126,7 @@ export default function ColdCallPage() {
         setIsModalOpen(false);
         setSelectedLead(null);
         fetchLeads();
+        fetchFollowupsData(); // Refresh followups after modal close
     };
 
     const handleStatusChange = async (leadId: string, newStatus: ColdLeadStatus) => {
@@ -299,11 +332,12 @@ export default function ColdCallPage() {
 
             return updatedLeads;
         });
-    }, []);
+        fetchFollowupsData(); // Refresh followups after action
+    }, [fetchFollowupsData]);
 
     return (
         <div className="p-6 space-y-6 bg-white min-h-screen relative pb-24">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Prospecção Ativa</h1>
                     <p className="text-muted-foreground text-sm">"Simplicidade em larga escala vence sofisticação procrastinadora."</p>
@@ -322,109 +356,208 @@ export default function ColdCallPage() {
                 </div>
             </div>
 
-            <Card className="border-none shadow-none bg-transparent">
-                <CardContent className="p-0">
-                    <div className="flex gap-4 items-center mb-6">
-                        <div className="relative w-64 flex gap-2">
-                            <Input
-                                placeholder="Buscar..."
-                                value={filters.search}
-                                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                                className="bg-white"
-                            />
-                            <Button
-                                variant={isSelectionMode ? "default" : "outline"}
-                                className={isSelectionMode ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-white text-slate-600 border-slate-200"}
-                                onClick={() => {
-                                    if (isSelectionMode) setSelectedLeads([]);
-                                    setIsSelectionMode(!isSelectionMode);
-                                }}
-                            >
-                                {isSelectionMode ? "Cancelar" : "Selecionar"}
-                            </Button>
-                        </div>
-                        <div className="w-56">
-                            <NichoSelector
-                                value={filters.nicho === 'all' ? '' : filters.nicho}
-                                onChange={(val) => setFilters({ ...filters, nicho: val || 'all' })}
-                                placeholder="Filtrar por Nicho..."
-                            />
-                        </div>
-                        <div className="w-56">
-                            <select
-                                className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
-                                value={filters.status}
-                                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                            >
-                                <option value="all">Todas as Etapas</option>
-                                {statusConfig.map(s => (
-                                    <option key={s.status} value={s.status}>{s.label}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="w-56">
-                            <select
-                                className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
-                                value={filters.responsavelId}
-                                onChange={(e) => setFilters({ ...filters, responsavelId: e.target.value })}
-                            >
-                                <option value="meus_leads">Meus Leads</option>
-                                <option value="all">Todos Responsáveis</option>
-                                {teamMembers.map(m => (
-                                    <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
-                                ))}
-                            </select>
-                        </div>
+            {/* Metrics Dashboard */}
+            <FollowUpMetrics
+                metrics={{
+                    totalHoje: followups.filter(f => {
+                        const today = new Date().toISOString().split('T')[0];
+                        return f.data_agendada === today && f.status !== 'concluido';
+                    }).length,
+                    manha: followups.filter(f => f.periodo === 'manha' && f.status !== 'concluido' && f.status !== 'atrasado').length,
+                    tarde: followups.filter(f => (f.periodo === 'tarde' || f.periodo === 'noite' || f.periodo === 'qualquer') && f.status !== 'concluido' && f.status !== 'atrasado').length,
+                    atrasados: followups.filter(f => f.status === 'atrasado').length,
+                    concluidosHoje: followups.filter(f => f.status === 'concluido').length,
+                    semFollowup: leads.filter(l => !['convertido', 'perdido', 'sem_interesse', 'numero_inexistente'].includes(l.status)).length - followups.filter(f => f.status === 'pendente').length,
+                }}
+            />
 
-                        {(filters.status !== 'all' || filters.nicho !== 'all' || filters.responsavelId !== 'meus_leads' || filters.search) && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'meus_leads' })}
-                                className="text-slate-500 hover:text-slate-900"
-                            >
-                                Limpar
-                            </Button>
-                        )}
+            {/* View Tabs */}
+            <div className="flex bg-slate-100 p-1 rounded-lg w-fit mb-6">
+                <button
+                    onClick={() => setActiveTab('cold-call')}
+                    className={`px-6 py-2 rounded-md font-semibold text-sm transition-all ${activeTab === 'cold-call' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Fila de Cold Call
+                </button>
+                <button
+                    onClick={() => setActiveTab('follow-ups')}
+                    className={`px-6 py-2 rounded-md font-semibold text-sm transition-all flex items-center gap-2 ${activeTab === 'follow-ups' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Follow-ups do Dia
+                    <span className="bg-red-500 text-white text-[10px] uppercase px-2 py-0.5 rounded-full font-bold">Hoje</span>
+                </button>
+            </div>
 
-                        {selectedLeads.length > 0 && (
-                            <div className="ml-auto text-sm font-medium text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full flex items-center gap-2">
-                                <span className="bg-slate-800 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">{selectedLeads.length}</span>
-                                selecionados
-                                <button className="ml-2 text-slate-400 hover:text-slate-600 text-xs underline" onClick={() => setSelectedLeads([])}>Limpar</button>
+            {activeTab === 'cold-call' && (
+                <Card className="border-none shadow-none bg-transparent animate-in fade-in zoom-in-95 duration-200">
+                    <CardContent className="p-0">
+                        <div className="flex gap-4 items-center mb-6">
+                            <div className="relative w-64 flex gap-2">
+                                <Input
+                                    placeholder="Buscar..."
+                                    value={filters.search}
+                                    onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                                    className="bg-white"
+                                />
+                                <Button
+                                    variant={isSelectionMode ? "default" : "outline"}
+                                    className={isSelectionMode ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-white text-slate-600 border-slate-200"}
+                                    onClick={() => {
+                                        if (isSelectionMode) setSelectedLeads([]);
+                                        setIsSelectionMode(!isSelectionMode);
+                                    }}
+                                >
+                                    {isSelectionMode ? "Cancelar" : "Selecionar"}
+                                </Button>
                             </div>
-                        )}
-                    </div>
-
-                    <div className="space-y-1">
-                        {loading ? (
-                            <div className="text-center py-10 text-muted-foreground">Carregando leads...</div>
-                        ) : (
-                            statusConfig
-                                .filter(config => filters.status === 'all' || config.status === filters.status)
-                                .map((config) => (
-                                    <StatusGroup
-                                        key={config.status}
-                                        status={config.status}
-                                        colorClass={config.color}
-                                        leads={groupedLeads[config.status]}
-                                        onCallClick={handleCallClick}
-                                        onStatusChange={handleStatusChange}
-                                        selectedLeads={selectedLeads}
-                                        onToggleSelection={isSelectionMode ? toggleSelection : undefined}
-                                        isSelectionMode={isSelectionMode}
-                                        onDeleteClick={handleDeleteLead}
-                                    />
-                                ))
-                        )}
-                        {leads.length === 0 && !loading && (
-                            <div className="text-center py-10 text-muted-foreground flex flex-col items-center gap-2">
-                                <p>Nenhum lead encontrado com estes filtros.</p>
+                            <div className="w-56">
+                                <NichoSelector
+                                    value={filters.nicho === 'all' ? '' : filters.nicho}
+                                    onChange={(val) => setFilters({ ...filters, nicho: val || 'all' })}
+                                    placeholder="Filtrar por Nicho..."
+                                />
                             </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+                            <div className="w-56">
+                                <select
+                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                                    value={filters.status}
+                                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                                >
+                                    <option value="all">Todas as Etapas</option>
+                                    {statusConfig.map(s => (
+                                        <option key={s.status} value={s.status}>{s.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="w-56">
+                                <select
+                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                                    value={filters.responsavelId}
+                                    onChange={(e) => setFilters({ ...filters, responsavelId: e.target.value })}
+                                >
+                                    <option value="meus_leads">Meus Leads</option>
+                                    <option value="all">Todos Responsáveis</option>
+                                    {teamMembers.map(m => (
+                                        <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {(filters.status !== 'all' || filters.nicho !== 'all' || filters.responsavelId !== 'meus_leads' || filters.search) && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'meus_leads' })}
+                                    className="text-slate-500 hover:text-slate-900"
+                                >
+                                    Limpar
+                                </Button>
+                            )}
+
+                            {selectedLeads.length > 0 && (
+                                <div className="ml-auto text-sm font-medium text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full flex items-center gap-2">
+                                    <span className="bg-slate-800 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">{selectedLeads.length}</span>
+                                    selecionados
+                                    <button className="ml-2 text-slate-400 hover:text-slate-600 text-xs underline" onClick={() => setSelectedLeads([])}>Limpar</button>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="space-y-1">
+                            {loading ? (
+                                <div className="text-center py-10 text-muted-foreground">Carregando leads...</div>
+                            ) : (
+                                statusConfig
+                                    .filter(config => filters.status === 'all' || config.status === filters.status)
+                                    .map((config) => {
+                                        const followupLeadIds = new Set(followups.map(f => f.cold_lead_id));
+                                        return (
+                                            <StatusGroup
+                                                key={config.status}
+                                                status={config.status}
+                                                colorClass={config.color}
+                                                leads={groupedLeads[config.status]}
+                                                onCallClick={handleCallClick}
+                                                onStatusChange={handleStatusChange}
+                                                selectedLeads={selectedLeads}
+                                                onToggleSelection={isSelectionMode ? toggleSelection : undefined}
+                                                isSelectionMode={isSelectionMode}
+                                                onDeleteClick={handleDeleteLead}
+                                                followupLeadIds={followupLeadIds}
+                                            />
+                                        )
+                                    })
+                            )}
+                            {leads.length === 0 && !loading && (
+                                <div className="text-center py-10 text-muted-foreground flex flex-col items-center gap-2">
+                                    <p>Nenhum lead encontrado com estes filtros.</p>
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {activeTab === 'follow-ups' && (
+                <div className="animate-in fade-in zoom-in-95 duration-200">
+                    <FollowUpBoard
+                        followups={followups}
+                        onRowClick={(followup) => {
+                            // Find the lead from our leads list that matches this followup's cold_lead_id
+                            const lead = leads.find(l => l.id === followup.cold_lead_id);
+                            if (lead) {
+                                setSelectedLead(lead);
+                                setIsModalOpen(true);
+                            } else {
+                                toast.error('Lead não encontrado na lista atual.');
+                            }
+                        }}
+                        onActionClick={async (id, action) => {
+                            if (action === 'complete') {
+                                // Mark followup as completed
+                                const res = await updateColdCallFollowup(id, { status: 'concluido' });
+                                if (res.success) {
+                                    toast.success('Follow-up concluído!');
+                                    // Find the current followup index and advance to next
+                                    const currentIndex = followups.findIndex(f => f.id === id);
+                                    const nextFollowup = followups[currentIndex + 1];
+                                    if (nextFollowup) {
+                                        const nextLead = leads.find(l => l.id === nextFollowup.cold_lead_id);
+                                        if (nextLead) {
+                                            setSelectedLead(nextLead);
+                                            setIsModalOpen(true);
+                                        }
+                                    }
+                                    fetchFollowupsData();
+                                } else {
+                                    toast.error('Erro ao concluir follow-up.');
+                                }
+                            } else if (action === 'call') {
+                                // Find lead and trigger SIP call
+                                const followup = followups.find(f => f.id === id);
+                                if (followup?.cold_leads?.telefone) {
+                                    const cleanPhone = followup.cold_leads.telefone.replace(/\D/g, "");
+                                    let sipPhone = cleanPhone;
+                                    if (cleanPhone.length === 10 || cleanPhone.length === 11) sipPhone = "+55" + cleanPhone;
+                                    window.location.href = `sip:${sipPhone}`;
+                                }
+                                // Also open the modal
+                                const lead = leads.find(l => l.id === followup?.cold_lead_id);
+                                if (lead) {
+                                    setSelectedLead(lead);
+                                    setIsModalOpen(true);
+                                }
+                            } else if (action === 'whatsapp') {
+                                const followup = followups.find(f => f.id === id);
+                                if (followup?.cold_leads?.telefone) {
+                                    const cleanPhone = followup.cold_leads.telefone.replace(/\D/g, "");
+                                    window.open(`https://wa.me/55${cleanPhone}`, '_blank');
+                                }
+                            }
+                        }}
+                    />
+                </div>
+            )}
 
             {/* Floating Bulk Action Bar */}
             {selectedLeads.length > 0 && (

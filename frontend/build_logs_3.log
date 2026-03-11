@@ -1,0 +1,75 @@
+
+> frontend@0.1.0 build
+> next build
+
+   ▲ Next.js 15.1.11
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/32) ...
+   Generating static pages (8/32) 
+   Generating static pages (16/32) 
+   Generating static pages (24/32) 
+ ✓ Generating static pages (32/32)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    194 B           106 kB
+├ ○ /_not-found                          194 B           106 kB
+├ ƒ /api/cold-leads                      194 B           106 kB
+├ ƒ /api/cold-leads/[id]                 194 B           106 kB
+├ ƒ /api/cold-leads/[id]/call            194 B           106 kB
+├ ƒ /api/cold-leads/bulk                 194 B           106 kB
+├ ƒ /api/cold-leads/import               194 B           106 kB
+├ ƒ /api/cold-leads/import/batch         194 B           106 kB
+├ ƒ /api/cold-leads/next                 194 B           106 kB
+├ ƒ /api/cold-leads/niches               194 B           106 kB
+├ ƒ /api/crm/pipelines                   194 B           106 kB
+├ ƒ /api/cron/notifications              194 B           106 kB
+├ ƒ /auth/callback                       194 B           106 kB
+├ ƒ /chat                                12.8 kB         176 kB
+├ ƒ /cold-call                           12.5 kB         216 kB
+├ ƒ /cold-call/import                    147 kB          291 kB
+├ ƒ /dashboard                           114 kB          323 kB
+├ ƒ /deals/[id]                          11.2 kB         178 kB
+├ ƒ /debug                               194 B           106 kB
+├ ƒ /follow-up                           12.8 kB         216 kB
+├ ƒ /leads                               24.3 kB         255 kB
+├ ○ /login                               2.29 kB         112 kB
+├ ƒ /ngzap                               2.68 kB         112 kB
+├ ○ /register                            2.1 kB          112 kB
+├ ƒ /settings                            194 B           106 kB
+├ ƒ /settings/company                    194 B           106 kB
+├ ƒ /settings/fields                     3.26 kB         109 kB
+├ ƒ /settings/loss-reasons               4.06 kB         127 kB
+├ ƒ /settings/notifications              6.58 kB         130 kB
+├ ƒ /settings/pipelines                  6.7 kB          159 kB
+├ ƒ /settings/products                   3.64 kB         109 kB
+├ ƒ /settings/profile                    1.8 kB          165 kB
+├ ƒ /settings/quick-replies              174 B           110 kB
+├ ƒ /settings/tags                       3.84 kB         110 kB
+├ ƒ /settings/team                       3.22 kB         166 kB
+├ ƒ /settings/whatsapp                   4.36 kB         119 kB
+└ ○ /setup                               2.68 kB         166 kB
++ First Load JS shared by all            106 kB
+  ├ chunks/1517-992895fd16216ba7.js      50.8 kB
+  ├ chunks/4bd1b696-eae2367ee58f827b.js  53 kB
+  └ other shared chunks (total)          2.02 kB
+
+
+ƒ Middleware                             81.4 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+> frontend@0.1.0 postbuild
+> cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/
+
+'cp' n�o � reconhecido como um comando interno
+ou externo, um programa oper�vel ou um arquivo em lotes.
