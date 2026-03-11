@@ -108,14 +108,7 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
                     isActive={pathname.startsWith("/cold-call")}
                     open={open}
                 />
-                <Option
-                    Icon={CheckSquare}
-                    title="Follow up"
-                    href="/follow-up"
-                    isActive={pathname.startsWith("/follow-up")}
-                    open={open}
-                    notifs={3} // Just as an example structural support
-                />
+
 
                 {open && <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Comunicação</div>}
 
