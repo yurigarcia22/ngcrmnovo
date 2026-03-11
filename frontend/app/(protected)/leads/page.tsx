@@ -4,8 +4,7 @@ import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
 import { markAsWon, recoverDeal, getTeamMembers, deleteDeals, updateDeals, addDealMember } from "@/app/actions";
 import { getPipelines, getBoardData } from "./actions";
-// Removed standalone getFields import as it is now in getBoardData
-import { GitPullRequest, Link as LinkIcon } from "lucide-react";
+import { GitPullRequest, CheckSquare, Square } from "lucide-react";
 
 import {
     MessageCircle,
@@ -257,6 +256,22 @@ export default function LeadsPage() {
         );
     };
 
+    const handleSelectAllInStage = (stageDeals: any[]) => {
+        const stageDealIds = stageDeals.map(d => d.id);
+        const allSelected = stageDealIds.every(id => selectedDeals.includes(id));
+
+        if (allSelected) {
+            // Unselect all in this stage
+            setSelectedDeals(prev => prev.filter(id => !stageDealIds.includes(id)));
+        } else {
+            // Select all in this stage
+            setSelectedDeals(prev => {
+                const newSelection = new Set([...prev, ...stageDealIds]);
+                return Array.from(newSelection);
+            });
+        }
+    };
+
     const handleBulkDelete = async () => {
         if (!selectedDeals.length) return;
         if (!confirm(`Tem certeza que deseja excluir ${selectedDeals.length} oportunidades? Esta ação é irreversível.`)) return;
@@ -397,101 +412,106 @@ export default function LeadsPage() {
         );
     });
 
-    if (loading) return <div suppressHydrationWarning className="flex h-screen items-center justify-center bg-[#f5f7f8] text-gray-600">Carregando CRM...</div>;
+    if (loading) return <div suppressHydrationWarning className="flex h-screen items-center justify-center bg-slate-50 text-slate-500 font-medium">Carregando CRM...</div>;
 
     return (
-        <div suppressHydrationWarning className="flex flex-col h-screen overflow-hidden bg-[#f5f7f8]">
+        <div suppressHydrationWarning className="flex flex-col h-screen overflow-hidden bg-slate-50">
 
-            {/* HEADER */}
-            <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10 shrink-0">
+            {/* HEADER SUPERIOR - Branding e Ação Principal */}
+            <header className="bg-white border-b border-slate-200/80 px-6 py-4 flex items-center justify-between shrink-0 z-20">
                 <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-bold text-gray-800">Leads</h1>
+                    <h1 className="text-xl font-bold text-slate-800 tracking-tight">Pipeline de Vendas</h1>
 
-                    {/* Pipeline Selector */}
-                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-1.5 shadow-sm hover:border-gray-300 transition-colors">
-                        <GitPullRequest size={16} className="text-blue-600" />
+                    {/* Pipeline Selector Redesigned */}
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm hover:border-slate-300 hover:bg-slate-100 transition-colors">
+                        <GitPullRequest size={16} className="text-indigo-600" />
                         <select
                             value={selectedPipelineId}
                             onChange={(e) => setSelectedPipelineId(e.target.value)}
-                            className="text-sm font-semibold text-gray-700 bg-transparent focus:outline-none cursor-pointer min-w-[120px]"
+                            className="text-sm font-bold text-slate-700 bg-transparent focus:outline-none cursor-pointer min-w-[140px] appearance-none pr-4"
                         >
                             {pipelines.map(p => (
                                 <option key={p.id} value={p.id}>{p.name}</option>
                             ))}
                         </select>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                        {/* Owner Filter Component (Inline for now) */}
-                        <div className="flex items-center gap-2 bg-white rounded-md px-2 py-1.5 border border-gray-200 shadow-sm hover:border-gray-300 transition-colors">
-                            <User size={14} className="text-gray-500" />
-                            <select
-                                value={filterOwner}
-                                onChange={(e) => setFilterOwner(e.target.value)}
-                                className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
-                            >
-                                <option value="all">Todos</option>
-                                <option disabled value="loading">Carregando user...</option>
-                                {teamMembers.map((member) => (
-                                    <option key={member.id} value={member.id}>
-                                        {/* Mostra 'Meus Leads' apenas se o membro for o usuário logado */}
-                                        {member.id === currentUserId ? 'Meus Leads' : member.full_name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Filter Bar Component */}
-                        <FilterBar
-                            searchTerm={searchTerm}
-                            setSearchTerm={setSearchTerm}
-                            filterTag={filterTag}
-                            setFilterTag={setFilterTag}
-                            filterDate={filterDate}
-                            setFilterDate={setFilterDate}
-                            availableTags={tags}
-                        />
-
-                        {/* Status Filter */}
-                        <select
-                            value={filterStatus}
-                            onChange={(e) => setFilterStatus(e.target.value as 'active' | 'lost')}
-                            className="bg-white border border-gray-200 text-gray-700 text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer shadow-sm"
-                        >
-                            <option value="active">Ativos</option>
-                            <option value="lost">Perdidos</option>
-                        </select>
-
-                        {/* Bulk Selection Toggle */}
-                        <button
-                            onClick={() => {
-                                setIsSelectionMode(!isSelectionMode);
-                                setSelectedDeals([]);
-                            }}
-                            className={`
-                                flex items-center justify-center w-8 h-8 rounded-md border transition-all
-                                ${isSelectionMode ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}
-                            `}
-                            title="Seleção Múltipla"
-                        >
-                            <div className="w-4 h-4 border-2 border-current rounded-sm flex items-center justify-center">
-                                {isSelectionMode && <div className="w-2 h-2 bg-current rounded-[1px]" />}
-                            </div>
-                        </button>
-                    </div>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-6">
                     <NotificationBell />
                     <button
                         onClick={() => setIsNewLeadModalOpen(true)}
-                        className="bg-[#2d76f9] hover:bg-[#2363d6] text-white px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 shadow-sm transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm shadow-indigo-600/20 transition-all hover:-translate-y-0.5"
                     >
-                        <Plus size={16} />
+                        <Plus size={18} strokeWidth={2.5} />
                         Novo Lead
                     </button>
                 </div>
-            </header >
+            </header>
+
+            {/* TOOLBAR INFERIOR - Filtros e Busca */}
+            <div className="bg-white border-b border-slate-200/60 px-6 py-3 flex flex-wrap items-center justify-between shrink-0 z-10 gap-4">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <FilterBar
+                        searchTerm={searchTerm}
+                        setSearchTerm={setSearchTerm}
+                        filterTag={filterTag}
+                        setFilterTag={setFilterTag}
+                        filterDate={filterDate}
+                        setFilterDate={setFilterDate}
+                        availableTags={tags}
+                    />
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                    {/* Owner Filter Component Redesigned */}
+                    <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-slate-200 shadow-sm hover:border-slate-300 transition-colors">
+                        <User size={16} className="text-slate-400" />
+                        <select
+                            value={filterOwner}
+                            onChange={(e) => setFilterOwner(e.target.value)}
+                            className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none cursor-pointer appearance-none pr-4"
+                        >
+                            <option value="all">Todos Responsáveis</option>
+                            <option disabled value="loading">Carregando...</option>
+                            {teamMembers.map((member) => (
+                                <option key={member.id} value={member.id}>
+                                    {member.id === currentUserId ? 'Meus Leads' : member.full_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Status Filter Redesigned */}
+                    <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value as 'active' | 'lost')}
+                        className="bg-white border border-slate-200 text-slate-700 font-medium text-sm rounded-lg px-4 py-2 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all cursor-pointer shadow-sm hover:border-slate-300"
+                    >
+                        <option value="active">Oportunidades Ativas</option>
+                        <option value="lost">Oportunidades Perdidas</option>
+                    </select>
+
+                    {/* Bulk Selection Toggle */}
+                    <div className="h-8 w-px bg-slate-200 mx-1"></div>
+                    <button
+                        onClick={() => {
+                            setIsSelectionMode(!isSelectionMode);
+                            setSelectedDeals([]);
+                        }}
+                        className={`
+                            flex items-center gap-2 px-3 py-2 rounded-lg border transition-all text-sm font-bold
+                            ${isSelectionMode ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}
+                        `}
+                        title="Seleção Múltipla"
+                    >
+                        <div className="w-4 h-4 border-[2px] border-current rounded flex items-center justify-center pointer-events-none">
+                            {isSelectionMode && <div className="w-2 h-2 bg-current rounded-[1px]" />}
+                        </div>
+                        {isSelectionMode ? "Seleção Ativa" : "Selecionar"}
+                    </button>
+                </div>
+            </div>
 
             {/* KANBAN BOARD */}
             < div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar-x" >
@@ -517,8 +537,22 @@ export default function LeadsPage() {
                                                 <div className="flex justify-between items-start">
                                                     <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider">{stage.name}</h3>
                                                     <div className="flex flex-col items-end">
-                                                        <span className="text-[10px] text-gray-400 font-medium">
+                                                        <span className="text-[10px] text-gray-400 font-medium flex items-center gap-2">
                                                             {stageDeals.length} leads
+
+                                                            {isSelectionMode && stageDeals.length > 0 && (
+                                                                <button
+                                                                    onClick={() => handleSelectAllInStage(stageDeals)}
+                                                                    className="text-gray-400 hover:text-blue-600 transition-colors ml-1"
+                                                                    title="Selecionar Todos desta Etapa"
+                                                                >
+                                                                    {stageDeals.every(d => selectedDeals.includes(d.id)) ? (
+                                                                        <CheckSquare size={14} className="text-blue-600" />
+                                                                    ) : (
+                                                                        <Square size={14} />
+                                                                    )}
+                                                                </button>
+                                                            )}
                                                         </span>
                                                         {stageValue > 0 && (
                                                             <span className="text-[10px] text-gray-400 font-medium">

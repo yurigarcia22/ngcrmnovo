@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { CheckSquare, Square, Calendar, User, Briefcase, Loader2, Clock } from "lucide-react";
-import { toggleTask, updateTask } from "@/app/actions";
+import { toggleTask, updateTask, getTenantId } from "@/app/actions";
 import DealModal from "@/components/DealModal";
 import { ColdLeadModal } from "@/components/cold-call/ColdLeadModal";
 import { Phone, Pencil, X } from "lucide-react";
@@ -37,7 +37,8 @@ export default function TasksPage() {
     }, []);
 
     async function fetchTeam() {
-        const { data } = await supabase.from('profiles').select('*').eq('is_active', true);
+        const tenantId = await getTenantId();
+        const { data } = await supabase.from('profiles').select('*').eq('is_active', true).eq('tenant_id', tenantId);
         if (data) setTeamMembers(data);
     }
 
@@ -73,6 +74,7 @@ export default function TasksPage() {
                     ultimo_resultado
                 )
             `)
+            .eq("tenant_id", await getTenantId())
             .eq("is_completed", false)
             .not("description", "ilike", "Reunião%")
             .order("due_date", { ascending: true });

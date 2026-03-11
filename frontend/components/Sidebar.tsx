@@ -57,7 +57,7 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
                     <Logo />
                     {open && (
                         <div className="flex flex-col animate-in fade-in zoom-in duration-300">
-                            <span className="text-sm font-extrabold text-slate-900 tracking-tight leading-none">
+                            <span className="text-sm font-extrabold text-slate-800 tracking-tight leading-none">
                                 CRM NG
                             </span>
                             <div className="flex items-center gap-1 mt-1">
@@ -175,8 +175,8 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
                 "group relative flex items-center rounded-xl transition-all duration-300 ease-out",
                 open ? "px-3 py-2.5" : "justify-center h-12 w-12 mx-auto",
                 isActive
-                    ? "bg-slate-900 text-white shadow-md shadow-slate-900/10"
-                    : "text-slate-500 hover:bg-slate-200/50 hover:text-slate-900 border border-transparent"
+                    ? "bg-indigo-50/50 text-indigo-700"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 border border-transparent"
             )}
             title={!open ? title : undefined}
         >
@@ -187,7 +187,7 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
                 <Icon
                     className={cn(
                         "h-5 w-5 transition-transform duration-300",
-                        isActive ? "text-white" : "text-slate-500 group-hover:text-slate-900 group-hover:scale-110"
+                        isActive ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-700 group-hover:scale-105"
                     )}
                     strokeWidth={isActive ? 2.5 : 2}
                 />
@@ -201,8 +201,8 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
             {open && (
                 <span
                     className={cn(
-                        "ml-3 text-sm font-semibold truncate transition-all duration-300 flex-1",
-                        isActive ? "text-white font-bold tracking-wide" : "text-slate-600 group-hover:text-slate-900"
+                        "ml-3 text-sm font-medium truncate transition-all duration-300 flex-1",
+                        isActive ? "text-indigo-800 font-bold" : "text-slate-600 group-hover:text-slate-800"
                     )}
                 >
                     {title}
@@ -212,7 +212,7 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
             {open && notifs && (
                 <span className={cn(
                     "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-extrabold",
-                    isActive ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700"
+                    isActive ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"
                 )}>
                     {notifs}
                 </span>

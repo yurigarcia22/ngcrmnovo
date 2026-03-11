@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Zap } from "lucide-react";
 import QuickReplyManager from "@/components/QuickReplyManager";
 import TagManager from "@/components/TagManager";
+import { getTenantId } from "@/app/actions";
 
 export const dynamic = 'force-dynamic';
 
@@ -11,14 +12,18 @@ export default async function NgZapPage() {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
+    const tenantId = await getTenantId();
+
     const { data: quickReplies } = await supabase
         .from("quick_replies")
         .select("*")
+        .eq("tenant_id", tenantId)
         .order("category", { ascending: true });
 
     const { data: tags } = await supabase
         .from("tags")
         .select("*")
+        .eq("tenant_id", tenantId)
         .order("name", { ascending: true });
 
     return (

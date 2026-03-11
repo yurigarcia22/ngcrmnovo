@@ -14,9 +14,12 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '1000');
     const offset = parseInt(searchParams.get('offset') || '0');
 
+    const tenantId = await getTenantId();
+
     let query = supabase
         .from('cold_leads')
-        .select('*', { count: 'exact' });
+        .select('*', { count: 'exact' })
+        .eq('tenant_id', tenantId);
 
     if (search) {
         query = query.or(`nome.ilike.%${search}%,telefone.ilike.%${search}%`);

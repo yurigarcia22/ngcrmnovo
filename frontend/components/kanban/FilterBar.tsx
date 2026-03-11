@@ -30,12 +30,12 @@ export default function FilterBar({
     return (
         <div className="flex items-center gap-2">
             {/* Search Bar */}
-            <div className="bg-gray-100 flex items-center px-3 py-1.5 rounded-md border border-gray-200 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-                <Search size={16} className="text-gray-400 mr-2" />
+            <div className="flex-1 min-w-[200px] bg-white flex items-center px-3 py-2 rounded-lg border border-slate-200 focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-100 transition-all shadow-sm">
+                <Search size={16} className="text-slate-400 mr-2 shrink-0" />
                 <input
                     type="text"
-                    placeholder="Pesquisar..."
-                    className="bg-transparent border-none outline-none text-sm text-gray-700 w-64 placeholder-gray-400"
+                    placeholder="Pesquisar leads, empresas ou contatos..."
+                    className="bg-transparent border-none outline-none text-sm text-slate-700 w-full placeholder-slate-400 font-medium"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -46,7 +46,7 @@ export default function FilterBar({
                 <select
                     value={filterTag}
                     onChange={(e) => setFilterTag(e.target.value)}
-                    className="appearance-none bg-white border border-gray-200 text-gray-700 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer min-w-[150px]"
+                    className="appearance-none bg-white border border-slate-200 text-slate-700 text-sm font-medium rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all cursor-pointer min-w-[160px] shadow-sm hover:border-slate-300"
                 >
                     <option value="all">Todas as Etiquetas</option>
                     {availableTags.map(tag => (
@@ -63,7 +63,7 @@ export default function FilterBar({
                 <select
                     value={filterDate}
                     onChange={(e) => setFilterDate(e.target.value)}
-                    className="appearance-none bg-white border border-gray-200 text-gray-700 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer min-w-[150px]"
+                    className="appearance-none bg-white border border-slate-200 text-slate-700 text-sm font-medium rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all cursor-pointer min-w-[160px] shadow-sm hover:border-slate-300"
                 >
                     <option value="all">Todo o período</option>
                     <option value="today">Hoje</option>
@@ -78,10 +78,10 @@ export default function FilterBar({
             {hasActiveFilters && (
                 <button
                     onClick={clearFilters}
-                    className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                    className="text-xs text-rose-500 hover:text-rose-700 font-semibold flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-100"
                 >
                     <X size={14} />
-                    Limpar
+                    Limpar Filtros
                 </button>
             )}
         </div>

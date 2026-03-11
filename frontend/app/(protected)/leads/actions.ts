@@ -46,11 +46,35 @@ export async function getBoardData(pipelineId?: string) {
                 .limit(1)
                 .single();
 
-            if (firstPipe) activePipelineId = firstPipe.id;
+            if (firstPipe) {
+                activePipelineId = firstPipe.id;
+            } else {
+                // AUTO-CREATE DEFAULT PIPELINE IF NONE EXISTS
+                const { data: newPipe, error: pipeErr } = await supabase
+                    .from("pipelines")
+                    .insert({ name: "Funil de Vendas", tenant_id: tenantId })
+                    .select("id")
+                    .single();
+
+                if (pipeErr) throw pipeErr;
+                activePipelineId = newPipe.id;
+
+                // Create Default Stages
+                const defaultStages = [
+                    { pipeline_id: activePipelineId, name: "Contato Feito", position: 1, color: "#cbd5e1", tenant_id: tenantId },
+                    { pipeline_id: activePipelineId, name: "Reunião Agendada", position: 2, color: "#fef08a", tenant_id: tenantId },
+                    { pipeline_id: activePipelineId, name: "Proposta Enviada", position: 3, color: "#fed7aa", tenant_id: tenantId },
+                    { pipeline_id: activePipelineId, name: "Em Negociação", position: 4, color: "#bfdbfe", tenant_id: tenantId },
+                    { pipeline_id: activePipelineId, name: "Perdido", position: 5, color: "#ef4444", tenant_id: tenantId },
+                    { pipeline_id: activePipelineId, name: "Ganho", position: 6, color: "#22c55e", tenant_id: tenantId }
+                ];
+
+                await supabase.from("stages").insert(defaultStages);
+            }
         }
 
         if (!activePipelineId) {
-            // Case where NO pipelines exist at all? Return empty
+            // Should not happen anymore due to auto-create, but fallback
             return { success: true, stages: [], deals: [], currentPipelineId: null };
         }
 

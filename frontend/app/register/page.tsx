@@ -49,6 +49,19 @@ export default function RegisterPage() {
 
                     <div>
                         <label className="block text-sm font-medium text-gray-400 mb-1">
+                            Nome da Empresa
+                        </label>
+                        <input
+                            name="company_name"
+                            type="text"
+                            required
+                            className="w-full bg-[#0F172A] border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                            placeholder="Sua Empresa"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">
                             Email
                         </label>
                         <input

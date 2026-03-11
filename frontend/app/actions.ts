@@ -560,6 +560,19 @@ export async function addDealMember(dealId: string, userId: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
+        // Verifica se o usuário já é o owner do deal
+        const { data: dealData, error: dealError } = await supabase
+            .from("deals")
+            .select("owner_id")
+            .eq("id", dealId)
+            .single();
+
+        if (dealError) throw dealError;
+
+        if (dealData?.owner_id === userId) {
+            return { success: false, error: "O usuário já é o titular desta oportunidade." };
+        }
+
         const { data, error } = await supabase
             .from("deal_members")
             .insert({
@@ -574,7 +587,7 @@ export async function addDealMember(dealId: string, userId: string) {
         return { success: true, data };
     } catch (error: any) {
         // Ignore unique constraint error (already member)
-        if (error.code === '23505') return { success: true, alreadyExists: true };
+        if (error.code === '23505') return { success: false, error: "Este usuário já é um participante desta oportunidade." };
         console.error("addDealMember Error:", error);
         return { success: false, error: error.message };
     }
