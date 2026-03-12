@@ -774,11 +774,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                                                     <Button
                                                         variant="outline"
-                                                        onClick={() => {
-                                                            handleResult('ligacao_feita');
-                                                            setIsFollowupMode(true);
-                                                            toast("Lembre-se de agendar o Follow-up!");
-                                                        }}
+                                                        onClick={() => handleResult('ligacao_feita')}
                                                         className="h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
                                                         disabled={loading}
                                                     >
@@ -789,10 +785,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                                 <div className="grid grid-cols-3 gap-2">
                                                     <Button
                                                         variant="outline"
-                                                        onClick={() => {
-                                                            handleResult('contato_realizado');
-                                                            setIsFollowupMode(true);
-                                                        }}
+                                                        onClick={() => handleResult('contato_realizado')}
                                                         className="h-10 border-slate-200 text-slate-700 hover:border-teal-300 hover:text-teal-600 hover:bg-teal-50 text-xs"
                                                         disabled={loading}
                                                     >
@@ -801,10 +794,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
                                                     <Button
                                                         variant="outline"
-                                                        onClick={() => {
-                                                            handleResult('contato_decisor');
-                                                            setIsFollowupMode(true);
-                                                        }}
+                                                        onClick={() => handleResult('contato_decisor')}
                                                         className="h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs font-bold"
                                                         disabled={loading}
                                                     >
