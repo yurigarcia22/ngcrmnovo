@@ -749,61 +749,77 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                 </div>
                             ) : (
                                 <div className="bg-white p-6 border-b border-slate-100 shadow-sm shrink-0">
-                                    <label className="text-sm font-bold text-slate-800 mb-3 flex justify-between items-center">
-                                        Ação Rápida
-                                    </label>
-                                    <div className="grid grid-cols-6 gap-3">
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => handleResult('numero_inexistente')}
-                                            className="col-span-2 h-10 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 text-xs"
-                                            disabled={loading}
-                                        >
-                                            <XCircle size={14} className="mr-2 text-red-500" /> Número Inexistente
-                                        </Button>
+                                            <label className="text-sm font-bold text-slate-800 mb-3 flex justify-between items-center">
+                                                Ação Rápida
+                                            </label>
+                                            <div className="space-y-2 mt-2">
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => handleResult('numero_inexistente')}
+                                                        className="h-10 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 text-xs"
+                                                        disabled={loading}
+                                                    >
+                                                        <XCircle size={14} className="mr-2 text-red-500 shrink-0" /> Número Inexistente
+                                                    </Button>
 
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => handleResult('sem_interesse')}
-                                            className="col-span-2 h-10 border-slate-200 text-slate-600 hover:border-orange-200 hover:text-orange-600 hover:bg-orange-50 text-xs"
-                                            disabled={loading}
-                                        >
-                                            <XCircle size={14} className="mr-2 text-orange-500" /> Sem Interesse
-                                        </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => handleResult('sem_interesse')}
+                                                        className="h-10 border-slate-200 text-slate-600 hover:border-orange-200 hover:text-orange-600 hover:bg-orange-50 text-xs"
+                                                        disabled={loading}
+                                                    >
+                                                        <XCircle size={14} className="mr-2 text-orange-500 shrink-0" /> Sem Interesse
+                                                    </Button>
 
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => {
-                                                handleResult('ligacao_feita');
-                                                setIsFollowupMode(true);
-                                                toast("Lembre-se de agendar o Follow-up!");
-                                            }}
-                                            className="col-span-2 h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
-                                            disabled={loading}
-                                        >
-                                            <Phone size={14} className="mr-2 text-blue-500" /> Ligação Feita
-                                        </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                            handleResult('ligacao_feita');
+                                                            setIsFollowupMode(true);
+                                                            toast("Lembre-se de agendar o Follow-up!");
+                                                        }}
+                                                        className="h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
+                                                        disabled={loading}
+                                                    >
+                                                        <Phone size={14} className="mr-2 text-blue-500 shrink-0" /> Ligação Feita
+                                                    </Button>
+                                                </div>
 
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => {
-                                                handleResult('contato_decisor');
-                                                setIsFollowupMode(true);
-                                            }}
-                                            className="col-span-3 h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs font-bold"
-                                            disabled={loading}
-                                        >
-                                            <Target size={14} className="mr-2 text-indigo-600" /> Contato com Decisor
-                                        </Button>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                            handleResult('contato_realizado');
+                                                            setIsFollowupMode(true);
+                                                        }}
+                                                        className="h-10 border-slate-200 text-slate-700 hover:border-teal-300 hover:text-teal-600 hover:bg-teal-50 text-xs"
+                                                        disabled={loading}
+                                                    >
+                                                        <CheckCircle size={14} className="mr-2 text-teal-500 shrink-0" /> Contato Realizado
+                                                    </Button>
 
-                                        <Button
-                                            onClick={() => setIsMeetingMode(true)}
-                                            className="col-span-3 h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200"
-                                            disabled={loading}
-                                        >
-                                            <Calendar size={14} className="mr-2" /> Reunião (Converter em Lead)
-                                        </Button>
-                                    </div>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                            handleResult('contato_decisor');
+                                                            setIsFollowupMode(true);
+                                                        }}
+                                                        className="h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs font-bold"
+                                                        disabled={loading}
+                                                    >
+                                                        <Target size={14} className="mr-2 text-indigo-600 shrink-0" /> Contato com Decisor
+                                                    </Button>
+
+                                                    <Button
+                                                        onClick={() => setIsMeetingMode(true)}
+                                                        className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200"
+                                                        disabled={loading}
+                                                    >
+                                                        <Calendar size={14} className="mr-2 shrink-0" /> Reunião (Converter em Lead)
+                                                    </Button>
+                                                </div>
+                                            </div>
                                 </div>
                             )}
 
