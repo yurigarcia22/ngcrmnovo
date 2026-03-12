@@ -293,6 +293,13 @@ export default function ColdCallPage() {
     ];
 
     // --- Optimized Navigation Logic ---
+    const handleLeadUpdate = useCallback((updatedLead: ColdLead) => {
+        setLeads(currentLeads => 
+            currentLeads.map(l => l.id === updatedLead.id ? updatedLead : l)
+        );
+        setSelectedLead(current => current?.id === updatedLead.id ? updatedLead : current);
+    }, []);
+
     const handleActionComplete = useCallback((updatedLead: ColdLead) => {
         setLeads(currentLeads => {
             const currentLeadIndex = currentLeads.findIndex(l => l.id === updatedLead.id);
@@ -613,6 +620,7 @@ export default function ColdCallPage() {
                     onNext={handleNextLead}
                     hasNext={hasNext()}
                     onActionComplete={handleActionComplete}
+                    onLeadUpdate={handleLeadUpdate}
                 />
             )}
 

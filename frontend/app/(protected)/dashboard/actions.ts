@@ -92,7 +92,8 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         // 9. Cold Activity Notes
         let coldActivityQuery = supabase
             .from("cold_lead_notes")
-            .select("content, created_by") // Added created_by for filter check if needed (though applied below)
+            .select("content, created_by, cold_leads!inner(tenant_id)")
+            .eq("cold_leads.tenant_id", tenantId)
             .ilike("content", "Interação Registrada:%");
 
         if (period !== "all") {
@@ -101,6 +102,8 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         if (userId && userId !== "all") {
             coldActivityQuery = coldActivityQuery.eq("created_by", userId);
         }
+
+        let tenantQuery = supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
 
         // Execute all in parallel
         const [
@@ -112,7 +115,8 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             { data: rawMsgs },
             { data: latestMessages },
             { count: coldLeadsCount },
-            { data: activityNotes }
+            { data: activityNotes },
+            { data: tenantData }
         ] = await Promise.all([
             leadsQuery,
             openValueQuery,
@@ -122,7 +126,8 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             msgQuery,
             latestMsgQuery,
             coldLeadsQuery,
-            coldActivityQuery
+            coldActivityQuery,
+            tenantQuery
         ]);
 
 
@@ -198,6 +203,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
 
 
         return {
+            tenantName: tenantData?.name || "Minha Empresa",
             totalLeads: totalLeads || 0,
             totalOpenValue,
             wonDeals: wonDeals || 0,
@@ -220,6 +226,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
     } catch (error: any) {
         console.error("getDashboardData Error:", error);
         return {
+            tenantName: "Minha Empresa",
             totalLeads: 0,
             totalOpenValue: 0,
             wonDeals: 0,

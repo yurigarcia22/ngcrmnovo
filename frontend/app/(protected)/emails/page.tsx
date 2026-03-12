@@ -15,6 +15,7 @@ export default function EmailInboxPage() {
     const [syncing, setSyncing] = useState(false);
     const [selectedMessage, setSelectedMessage] = useState<any>(null);
     const [showComposer, setShowComposer] = useState(false);
+    const [composerDefaultTo, setComposerDefaultTo] = useState('');
     const [search, setSearch] = useState('');
     const [filterAccount, setFilterAccount] = useState('');
     const [viewTab, setViewTab] = useState<'all' | 'inbox' | 'sent'>('all');
@@ -33,6 +34,16 @@ export default function EmailInboxPage() {
     };
 
     useEffect(() => { fetchData(); }, [search, filterAccount]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('compose') === 'true') {
+            setShowComposer(true);
+            const toStr = params.get('to');
+            if (toStr) setComposerDefaultTo(decodeURIComponent(toStr));
+            window.history.replaceState(null, '', '/emails');
+        }
+    }, []);
 
     const handleSync = async () => {
         setSyncing(true);
@@ -249,7 +260,7 @@ export default function EmailInboxPage() {
                 </div>
             </div>
 
-            <EmailComposer isOpen={showComposer} onClose={() => setShowComposer(false)} onSent={fetchData} />
+            <EmailComposer isOpen={showComposer} onClose={() => { setShowComposer(false); setComposerDefaultTo(''); }} onSent={fetchData} defaultTo={composerDefaultTo} />
         </div>
     );
 }

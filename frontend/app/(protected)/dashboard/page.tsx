@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { getDashboardData } from "@/app/(protected)/dashboard/actions";
 import { getTeamMembers } from "@/app/actions";
+import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
 import { DashboardHeader, DashboardFilterBar } from "./components/header";
 import { StatCard, MessagesCard } from "./components/cards";
 import { DealsStageChart } from "./components/radial-chart";
@@ -19,6 +20,9 @@ export default async function DashboardPage(props: {
   const startDate = searchParams.startDate as string | undefined;
   const endDate = searchParams.endDate as string | undefined;
 
+  const companyFetch = await getCompanyDetails();
+  const companyName = companyFetch.success ? companyFetch.name : "CRM";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-8 font-sans">
 
@@ -27,7 +31,7 @@ export default async function DashboardPage(props: {
         <DashboardHeader />
 
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">GRUPO NG</h1>
+          <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">{companyName}</h1>
           <p className="text-blue-200/60 font-medium">Visão Geral de Performance</p>
           <div className="mt-6 flex justify-center">
             <Suspense fallback={<div className="h-10 bg-white/10 rounded-full w-64 animate-pulse" />}>

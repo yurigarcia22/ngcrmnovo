@@ -54,6 +54,7 @@ export interface ColdLead {
     ultima_interacao?: string | null;
     ultimo_resultado?: string | null;
     notas?: string | null;
+    email?: string | null;
     custom_fields?: Record<string, any>;
 }
 
@@ -72,6 +73,7 @@ export interface ColdLeadInsert {
     ultima_interacao?: string | null;
     ultimo_resultado?: string | null;
     notas?: string | null;
+    email?: string | null;
     custom_fields?: Record<string, any>;
 }
 

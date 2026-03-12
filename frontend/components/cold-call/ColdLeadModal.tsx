@@ -4,7 +4,8 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
-import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
 import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup } from "@/app/actions";
 
 interface ColdLeadModalProps {
@@ -15,9 +16,11 @@ interface ColdLeadModalProps {
     onNext?: () => void;
     hasNext?: boolean;
     onActionComplete: (updatedLead: ColdLead) => void;
+    onLeadUpdate?: (updatedLead: ColdLead) => void;
 }
 
-export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasNext, onActionComplete }: ColdLeadModalProps) {
+export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasNext, onActionComplete, onLeadUpdate }: ColdLeadModalProps) {
+    const router = useRouter();
     const [currentNote, setCurrentNote] = useState("");
     const [notesHistory, setNotesHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
@@ -32,6 +35,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
 
     // Edit Mode State
     const [isEditing, setIsEditing] = useState(false);
+    const [localEmail, setLocalEmail] = useState(lead.email || "");
     const [editForm, setEditForm] = useState({
         nome: lead.nome || "",
         nicho: lead.nicho || "",
@@ -39,7 +43,8 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         responsavel_id: lead.responsavel_id || "",
         site_url: lead.site_url || "",
         instagram_url: lead.instagram_url || "",
-        google_meu_negocio_url: lead.google_meu_negocio_url || ""
+        google_meu_negocio_url: lead.google_meu_negocio_url || "",
+        email: lead.email || ""
     });
 
     // Follow-up State
@@ -95,6 +100,7 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
             setIsMeetingMode(false);
             setMeetingDate("");
             setIsEditing(false);
+            setLocalEmail(lead.email || "");
             setEditForm({
                 nome: lead.nome || "",
                 nicho: lead.nicho || "",
@@ -102,7 +108,8 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                 responsavel_id: lead.responsavel_id || "",
                 site_url: lead.site_url || "",
                 instagram_url: lead.instagram_url || "",
-                google_meu_negocio_url: lead.google_meu_negocio_url || ""
+                google_meu_negocio_url: lead.google_meu_negocio_url || "",
+                email: lead.email || ""
             });
             fetchPipelines();
             fetchNotes();
@@ -517,6 +524,94 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
                                         </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Email Box */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">E-mail</label>
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative flex items-center justify-between min-h-[64px]">
+                                    {isEditing ? (
+                                        <Input type="email" placeholder="Sem e-mail" value={editForm.email || ''} onChange={e => setEditForm({...editForm, email: e.target.value})} className="bg-white text-slate-900 w-full mr-10" />
+                                    ) : (
+                                        <div className="flex-1 flex items-center gap-2 mr-2 min-w-0">
+                                            {localEmail ? (
+                                                <div className="text-sm font-medium text-slate-800 overflow-hidden text-ellipsis whitespace-nowrap">
+                                                    {localEmail}
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2 w-full max-w-[280px]">
+                                                    <Input 
+                                                        type="email" 
+                                                        placeholder="Adicionar e-mail..." 
+                                                        className="bg-white text-slate-900 w-full h-8 text-xs font-semibold focus:ring-blue-500"
+                                                        value={editForm.email || ''}
+                                                        onChange={e => setEditForm({...editForm, email: e.target.value})}
+                                                    />
+                                                    <Button 
+                                                        size="sm" 
+                                                        className="h-8 bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 font-bold shrink-0 shadow-sm"
+                                                        onClick={async () => {
+                                                            if (!editForm.email) return;
+                                                            setLoading(true);
+                                                            try {
+                                                                const res = await fetch(`/api/cold-leads/${lead.id}`, {
+                                                                    method: 'PATCH',
+                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                    body: JSON.stringify({ email: editForm.email })
+                                                                });
+                                                                if (!res.ok) throw new Error("Falha ao salvar");
+                                                                const updated = await res.json();
+                                                                
+                                                                // Mutate local lead prop for instant UI update before parent re-renders
+                                                                lead.email = updated.email; 
+                                                                setLocalEmail(updated.email); // explicitly update local state to trigger render
+                                                                
+                                                                if (onLeadUpdate) {
+                                                                    onLeadUpdate(updated);
+                                                                } else {
+                                                                    // Fallback if not provided, but parent might navigate
+                                                                    onActionComplete(updated); 
+                                                                }
+                                                                
+                                                                toast.success("E-mail adicionado!");
+                                                            } catch (err) {
+                                                                toast.error("Erro ao salvar e-mail");
+                                                            } finally {
+                                                                setLoading(false);
+                                                            }
+                                                        }}
+                                                        disabled={loading || !editForm.email}
+                                                    >
+                                                        Salvar
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                                        {!isEditing && localEmail && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    router.push(`/emails?compose=true&to=${encodeURIComponent(localEmail)}`);
+                                                }}
+                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors"
+                                                title="Enviar E-mail"
+                                            >
+                                                <Mail className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                        {localEmail && !isEditing && (
+                                            <button
+                                              onClick={() => { navigator.clipboard.writeText(localEmail); toast.success("Copiado!"); }}
+                                              className="w-8 h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+                                              title="Copiar e-mail"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
