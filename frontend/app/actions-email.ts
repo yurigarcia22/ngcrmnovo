@@ -6,6 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { renderTemplate, extractVariables } from "@/lib/email-template-renderer";
 import nodemailer from "nodemailer";
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
 import { getTenantId } from "./actions";
 
 // --- Helper: get admin Supabase client ---
@@ -230,8 +232,6 @@ export async function testEmailConnection(id: string) {
         }
 
         // Test SMTP connection
-        // Port 465 = direct SSL (secure: true)
-        // Port 587 = STARTTLS (secure: false, TLS upgraded after connect)
         const useSecure = account.smtp_port === 465;
         const transporter = nodemailer.createTransport({
             host: account.smtp_host,
@@ -250,30 +250,57 @@ export async function testEmailConnection(id: string) {
 
         try {
             await transporter.verify();
-
-            await supabase.from("email_accounts").update({
-                connection_status: 'active',
-                last_connection_test_at: new Date().toISOString(),
-            }).eq("id", id);
-
-            await createEmailLog(tenantId, id, null, 'info', 'connection_test', 'success', null, 'Conexão SMTP verificada com sucesso.');
-
-            return { success: true, message: "Conexão SMTP verificada com sucesso!" };
         } catch (smtpError: any) {
             const errorCode = smtpError.code || 'SMTP_ERROR';
-            const errorMsg = smtpError.message || 'Erro desconhecido na conexão SMTP';
-
-            await supabase.from("email_accounts").update({
-                connection_status: errorMsg.includes('auth') || errorMsg.includes('credentials') ? 'invalid_credentials' : 'connection_error',
-                last_connection_test_at: new Date().toISOString(),
-            }).eq("id", id);
-
-            await createEmailLog(tenantId, id, null, 'error', 'connection_test', 'failure', errorCode, errorMsg);
-
-            return { success: false, error: errorMsg };
+            const errorMsg = smtpError.message || 'Erro de conexão SMTP';
+            await createEmailLog(tenantId, id, null, 'error', 'connection_test', 'failure', errorCode, `SMTP: ${errorMsg}`);
+            return { success: false, error: `SMTP: ${errorMsg}` };
         } finally {
             transporter.close();
         }
+
+        // Test IMAP connection
+        if (account.imap_host && account.imap_port) {
+            const imapClient = new ImapFlow({
+                host: account.imap_host,
+                port: account.imap_port,
+                secure: account.imap_secure,
+                auth: {
+                    user: account.username,
+                    pass: password,
+                },
+                logger: false,
+                clientInfo: {
+                    name: 'CRM-NG',
+                    version: '1.0.0'
+                },
+                connectionTimeout: 15000,
+                tls: { rejectUnauthorized: false },
+            } as any);
+
+            try {
+                await imapClient.connect();
+                await imapClient.logout();
+            } catch (imapError: any) {
+                const errorMsg = imapError.message || 'Erro de conexão IMAP';
+                console.error("IMAP Test Error:", imapError);
+                await createEmailLog(tenantId, id, null, 'error', 'connection_test', 'failure', imapError.code || 'IMAP_ERROR', `IMAP: ${errorMsg}`, {
+                    stack: imapError.stack,
+                    code: imapError.code,
+                    response: imapError.response
+                });
+                return { success: false, error: `SMTP OK, mas IMAP falhou: ${errorMsg}` };
+            }
+        }
+
+        await supabase.from("email_accounts").update({
+            connection_status: 'active',
+            last_connection_test_at: new Date().toISOString(),
+        }).eq("id", id);
+
+        await createEmailLog(tenantId, id, null, 'info', 'connection_test', 'success', null, 'Conexão SMTP e IMAP verificadas com sucesso.');
+
+        return { success: true, message: "Conexão SMTP e IMAP verificadas com sucesso!" };
     } catch (error: any) {
         console.error("testEmailConnection Error:", error);
         return { success: false, error: error.message };
@@ -644,6 +671,190 @@ export async function sendEmail(composerData: {
 // EMAIL MESSAGES — QUERY
 // ============================================================
 
+export async function syncEmailInbox(accountId?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = getAdminClient();
+
+        // Get accounts to sync
+        let query = supabase
+            .from("email_accounts")
+            .select("*")
+            .eq("tenant_id", tenantId)
+            .eq("is_active", true)
+            .is("deleted_at", null);
+
+        if (accountId) query = query.eq("id", accountId);
+
+        const { data: accounts, error: accError } = await query;
+        if (accError || !accounts || accounts.length === 0) {
+            return { success: false, error: "Nenhuma conta ativa encontrada." };
+        }
+
+        let totalNew = 0;
+        const errors: string[] = [];
+
+        for (const account of accounts) {
+            if (!account.imap_host || !account.imap_port) {
+                errors.push(`${account.name}: IMAP não configurado.`);
+                continue;
+            }
+
+            let password: string;
+            try {
+                password = decrypt(account.encrypted_password);
+            } catch {
+                errors.push(`${account.name}: Falha ao descriptografar credenciais.`);
+                continue;
+            }
+
+            const client = new ImapFlow({
+                host: account.imap_host,
+                port: account.imap_port,
+                secure: account.imap_secure,
+                auth: {
+                    user: account.username,
+                    pass: password,
+                },
+                logger: false,
+                clientInfo: {
+                    name: 'CRM-NG',
+                    version: '1.0.0'
+                },
+                connectionTimeout: 30000,
+                tls: {
+                    rejectUnauthorized: false,
+                },
+            } as any);
+
+            try {
+                await client.connect();
+
+                const lock = await client.getMailboxLock('INBOX');
+                try {
+                    const mailbox = client.mailbox;
+                    if (!mailbox || !mailbox.exists || mailbox.exists === 0) {
+                        // lock.release() is handled by finally block
+                        continue;
+                    }
+
+                    // Fetch last 30 messages using range to find recent messages
+                    const totalMessages = mailbox.exists;
+                    const startSeq = Math.max(1, totalMessages - 29);
+                    const range = `${startSeq}:*`;
+
+                    const messages: any[] = [];
+                    // Using fetch to get envelopes and UIDs
+                    for await (const msg of client.fetch(range, {
+                        envelope: true,
+                        uid: true,
+                    })) {
+                        messages.push(msg);
+                    }
+
+                    // Process messages in reverse (newest first)
+                    messages.reverse();
+
+                    for (const msg of messages) {
+                        try {
+                            const messageId = msg.envelope?.messageId || `imap-${account.id}-${msg.uid}`;
+
+                            // Check if already exists before downloading source
+                            const { data: existing } = await supabase
+                                .from("email_messages")
+                                .select("id")
+                                .eq("tenant_id", tenantId)
+                                .eq("external_message_id", messageId)
+                                .maybeSingle();
+
+                            if (existing) continue;
+
+                            // Download full source using UID instead of sequence number
+                            let source;
+                            try {
+                                const fullMsg: any = await client.fetchOne(`${msg.uid}`, { source: true }, { uid: true });
+                                if (fullMsg && fullMsg.source) {
+                                    source = fullMsg.source;
+                                }
+                            } catch (fetchErr: any) {
+                                console.error(`Failed to fetch source for UID ${msg.uid}:`, fetchErr.message);
+                                continue;
+                            }
+
+                            if (!source) continue;
+
+                            const parsed: any = await simpleParser(source as Buffer);
+
+                            const fromAddr = parsed.from?.value?.[0];
+                            const toAddrs = parsed.to
+                                ? (Array.isArray(parsed.to)
+                                    ? parsed.to.flatMap((t: any) => t.value.map((v: any) => v.address || ''))
+                                    : parsed.to.value.map((v: any) => v.address || ''))
+                                : [];
+
+                            const bodyHtml = parsed.html || undefined;
+                            const bodyText = parsed.text || undefined;
+                            const previewText = (bodyText || (typeof bodyHtml === 'string' ? bodyHtml.replace(/<[^>]*>/g, '') : '') || '').substring(0, 200);
+
+                            await supabase.from("email_messages").insert({
+                                tenant_id: tenantId,
+                                account_id: account.id,
+                                external_message_id: messageId,
+                                direction: 'inbound',
+                                message_type: parsed.inReplyTo ? 'reply' : 'manual',
+                                from_email: fromAddr?.address || '',
+                                from_name: fromAddr?.name || fromAddr?.address || '',
+                                to_emails: toAddrs.filter(Boolean),
+                                cc_emails: [],
+                                bcc_emails: [],
+                                subject: parsed.subject || '(Sem assunto)',
+                                body_html: typeof bodyHtml === 'string' ? bodyHtml : null,
+                                body_text: bodyText || null,
+                                preview_text: previewText,
+                                status: 'received',
+                                has_attachments: (parsed.attachments?.length || 0) > 0,
+                                received_at: parsed.date?.toISOString() || new Date().toISOString(),
+                                in_reply_to: parsed.inReplyTo || null,
+                            });
+
+                            totalNew++;
+                        } catch (parseErr: any) {
+                            console.error(`Error processing message UID ${msg.uid}:`, parseErr.message);
+                        }
+                    }
+                } finally {
+                    lock.release();
+                }
+
+                // Update last sync time
+                await supabase.from("email_accounts").update({
+                    last_sync_at: new Date().toISOString(),
+                    connection_status: 'active',
+                }).eq("id", account.id);
+
+                await createEmailLog(tenantId, account.id, null, 'info', 'imap_sync', 'success', null, `Sincronizados ${totalNew} novos e-mails.`);
+
+            } catch (imapError: any) {
+                const errorMsg = imapError.message || "Unknown IMAP error";
+                console.error(`IMAP sync error for ${account.name}:`, errorMsg);
+                errors.push(`${account.name}: ${errorMsg}`);
+                await createEmailLog(tenantId, account.id, null, 'error', 'imap_sync', 'failure', 'IMAP_ERROR', errorMsg);
+            } finally {
+                try { await client.logout(); } catch { }
+            }
+        }
+
+        return {
+            success: true,
+            data: { totalNew, errors },
+            message: totalNew > 0 ? `${totalNew} novo(s) e-mail(s) sincronizado(s)!` : 'Nenhum e-mail novo encontrado.',
+        };
+    } catch (error: any) {
+        console.error("syncEmailInbox Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function getEmailInbox(filters?: { account_id?: string; search?: string; page?: number; limit?: number }) {
     try {
         const tenantId = await getTenantId();
@@ -657,7 +868,7 @@ export async function getEmailInbox(filters?: { account_id?: string; search?: st
             .eq("tenant_id", tenantId)
             .eq("direction", "inbound")
             .is("deleted_at", null)
-            .order("received_at", { ascending: false })
+            .order("created_at", { ascending: false })
             .range(offset, offset + limit - 1);
 
         if (filters?.account_id) query = query.eq("account_id", filters.account_id);
