@@ -14,29 +14,41 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         const { period = "today", userId, startDate: customStart, endDate: customEnd } = filters || {};
 
         // Date Logic
-        const now = new Date();
-        let startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString(); // Default Today
-        let endDate = new Date().toISOString();
+        // Timezone Logic for BRT (UTC-3)
+        const nowUTC = new Date();
+        const offsetHours = -3;
+        const brT = new Date(nowUTC.getTime() + offsetHours * 3600 * 1000);
+
+        let sYear = brT.getUTCFullYear();
+        let sMonth = brT.getUTCMonth();
+        let sDay = brT.getUTCDate();
+        
+        // Default Today
+        let startDate = new Date(Date.UTC(sYear, sMonth, sDay, 3, 0, 0, 0)).toISOString(); 
+        let endDate = new Date(Date.UTC(sYear, sMonth, sDay, 26, 59, 59, 999)).toISOString();
 
         if (period === "yesterday") {
-            const yesterday = new Date(now);
-            yesterday.setDate(now.getDate() - 1);
-            startDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()).toISOString();
-            endDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59).toISOString();
+            const yesterdayBRT = new Date(brT);
+            yesterdayBRT.setUTCDate(brT.getUTCDate() - 1);
+            const yYear = yesterdayBRT.getUTCFullYear();
+            const yMonth = yesterdayBRT.getUTCMonth();
+            const yDay = yesterdayBRT.getUTCDate();
+            startDate = new Date(Date.UTC(yYear, yMonth, yDay, 3, 0, 0, 0)).toISOString();
+            endDate = new Date(Date.UTC(yYear, yMonth, yDay, 26, 59, 59, 999)).toISOString();
         } else if (period === "week") {
-            const weekStart = new Date(now);
-            weekStart.setDate(now.getDate() - 7);
-            startDate = weekStart.toISOString();
+            const weekStartBRT = new Date(brT);
+            weekStartBRT.setUTCDate(brT.getUTCDate() - 7);
+            startDate = new Date(Date.UTC(weekStartBRT.getUTCFullYear(), weekStartBRT.getUTCMonth(), weekStartBRT.getUTCDate(), 3, 0, 0, 0)).toISOString();
         } else if (period === "month") {
-            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-            startDate = monthStart.toISOString();
+            startDate = new Date(Date.UTC(sYear, sMonth, 1, 3, 0, 0, 0)).toISOString();
         } else if (period === "custom" && customStart && customEnd) {
-            const [sYear, sMonth, sDay] = customStart.split('-').map(Number);
+            const [cYear, cMonth, cDay] = customStart.split('-').map(Number);
             const [eYear, eMonth, eDay] = customEnd.split('-').map(Number);
-            startDate = new Date(sYear, sMonth - 1, sDay, 0, 0, 0).toISOString();
-            endDate = new Date(eYear, eMonth - 1, eDay, 23, 59, 59).toISOString();
+            startDate = new Date(Date.UTC(cYear, cMonth - 1, cDay, 3, 0, 0, 0)).toISOString();
+            endDate = new Date(Date.UTC(eYear, eMonth - 1, eDay, 26, 59, 59, 999)).toISOString();
         } else if (period === "all") {
             startDate = new Date(0).toISOString(); // Epoch
+            endDate = new Date(Date.UTC(sYear, sMonth, sDay, 26, 59, 59, 999)).toISOString();
         }
 
         // Helper to apply filters
