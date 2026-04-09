@@ -6,8 +6,9 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { toast } from "@/lib/toast";
+import { Loader2, Bell, Save } from "lucide-react";
 
 export default function NotificationSettingsPage() {
     const [loading, setLoading] = useState(true);
@@ -36,24 +37,45 @@ export default function NotificationSettingsPage() {
 
     const handleSave = async () => {
         setSaving(true);
-        // Ensure time format has seconds for Postgres time type if needed, or just HH:MM works if casted. 
-        // Postgres TIME usually accepts '09:00'.
         const res = await updateNotificationSettings(settings);
         if (res.success) {
-            toast.success("Configurações salvas!");
+            toast.success("Configuracoes salvas");
         } else {
-            toast.error("Erro ao salvar configurações");
+            toast.error("Erro ao salvar configuracoes");
         }
         setSaving(false);
     };
 
     if (loading) {
-        return <div className="p-8 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400" /></div>;
+        return (
+            <div className="max-w-3xl mx-auto">
+                <div className="h-10 w-60 skeleton mb-6" />
+                <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-6">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="flex items-center justify-between">
+                            <div className="space-y-2 flex-1">
+                                <div className="h-4 w-48 skeleton" />
+                                <div className="h-3 w-72 skeleton" />
+                            </div>
+                            <div className="h-6 w-11 skeleton" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
     }
 
     return (
-        <div className="max-w-2xl mx-auto p-6">
-            <h1 className="text-2xl font-bold text-slate-900 mb-6">Configuração de Notificações</h1>
+        <div className="max-w-3xl mx-auto">
+            <PageHeader
+                title="Notificacoes"
+                description="Configure como e quando voce quer ser avisado pelo CRM."
+                icon={<Bell className="w-5 h-5" />}
+                breadcrumbs={[
+                    { label: "Configuracoes", href: "/settings" },
+                    { label: "Notificacoes" },
+                ]}
+            />
 
             <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-8 shadow-sm">
 
@@ -125,10 +147,19 @@ export default function NotificationSettingsPage() {
                     </div>
                 </div>
 
-                <div className="pt-4 flex justify-end">
-                    <Button onClick={handleSave} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[120px]">
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                        Salvar
+                <div className="pt-4 flex justify-end border-t border-slate-100">
+                    <Button onClick={handleSave} disabled={saving} variant="success">
+                        {saving ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Salvando...
+                            </>
+                        ) : (
+                            <>
+                                <Save className="w-4 h-4" />
+                                Salvar alteracoes
+                            </>
+                        )}
                     </Button>
                 </div>
 

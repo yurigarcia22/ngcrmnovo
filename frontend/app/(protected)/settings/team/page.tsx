@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { getMembers, inviteMember, revokeInvite, removeMember, updateMemberRole } from "./actions";
 import { User, Plus, Mail, Shield, Clock, CheckCircle, Trash2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function TeamPage() {
     const [members, setMembers] = useState<any[]>([]);
@@ -15,6 +17,7 @@ export default function TeamPage() {
     const [currentUser, setCurrentUser] = useState<any>(null);
 
     const supabase = createClient();
+    const confirm = useConfirm();
 
     useEffect(() => {
         fetchData();
@@ -50,31 +53,43 @@ export default function TeamPage() {
             setInviteEmail("");
             setIsInviteModalOpen(false);
             fetchData();
-            alert("Convite enviado com sucesso!");
+            toast.success("Convite enviado com sucesso!");
         } else {
-            alert("Erro ao enviar convite: " + res.error);
+            toast.error("Erro ao enviar convite", res.error);
         }
     }
 
     async function handleRevoke(inviteId: string) {
-        if (!confirm("Tem certeza que deseja cancelar este convite?")) return;
+        const ok = await confirm({
+            title: "Cancelar convite?",
+            description: "O convidado nao podera mais usar este link.",
+            tone: "warning",
+            confirmText: "Cancelar convite",
+        });
+        if (!ok) return;
 
         const res = await revokeInvite(inviteId);
         if (res.success) {
             fetchData();
         } else {
-            alert("Erro ao cancelar convite: " + res.error);
+            toast.error("Erro ao cancelar convite", res.error);
         }
     }
 
     async function handleRemoveMember(userId: string) {
-        if (!confirm("TEM CERTEZA? Essa ação removerá o acesso deste usuário permanentemente.")) return;
+        const ok = await confirm({
+            title: "Remover membro?",
+            description: "Essa acao removera o acesso deste usuario permanentemente.",
+            tone: "warning",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
 
         const res = await removeMember(userId);
         if (res.success) {
             fetchData();
         } else {
-            alert("Erro ao remover membro: " + res.error);
+            toast.error("Erro ao remover membro", res.error);
         }
     }
 
@@ -83,7 +98,7 @@ export default function TeamPage() {
         if (res.success) {
             fetchData();
         } else {
-            alert("Erro ao atualizar função: " + res.error);
+            toast.error("Erro ao atualizar funcao", res.error);
         }
     }
 

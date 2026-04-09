@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
@@ -7,28 +7,30 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
 import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup } from "@/app/actions";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface ColdLeadModalProps {
     lead: ColdLead;
     isOpen: boolean;
     onClose: () => void;
     teamMembers: any[];
+    pipelines: any[];
     onNext?: () => void;
     hasNext?: boolean;
     onActionComplete: (updatedLead: ColdLead) => void;
     onLeadUpdate?: (updatedLead: ColdLead) => void;
 }
 
-export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasNext, onActionComplete, onLeadUpdate }: ColdLeadModalProps) {
+function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines, onNext, hasNext, onActionComplete, onLeadUpdate }: ColdLeadModalProps) {
     const router = useRouter();
+    const confirm = useConfirm();
     const [currentNote, setCurrentNote] = useState("");
     const [notesHistory, setNotesHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [isMeetingMode, setIsMeetingMode] = useState(false);
     const [meetingDate, setMeetingDate] = useState("");
 
-    // Pipelines for meeting
-    const [pipelines, setPipelines] = useState<any[]>([]);
+    // Pipelines for meeting (received as prop, fetched once by parent)
     const [selectedPipeline, setSelectedPipeline] = useState("");
     const [stages, setStages] = useState<any[]>([]);
     const [selectedStage, setSelectedStage] = useState("");
@@ -111,11 +113,21 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
                 google_meu_negocio_url: lead.google_meu_negocio_url || "",
                 email: lead.email || ""
             });
-            fetchPipelines();
-            fetchNotes();
-            fetchLeadFollowups();
+            // Run notes + lead followups in parallel (pipelines now comes from parent prop)
+            Promise.all([fetchNotes(), fetchLeadFollowups()]);
         }
     }, [isOpen, lead]);
+
+    // Sync selected pipeline/stage defaults from pipelines prop (first load or when prop arrives)
+    useEffect(() => {
+        if (pipelines.length > 0 && !selectedPipeline) {
+            setSelectedPipeline(pipelines[0].id);
+            setStages(pipelines[0].stages || []);
+            if (pipelines[0].stages?.length > 0) {
+                setSelectedStage(pipelines[0].stages[0].id);
+            }
+        }
+    }, [pipelines, selectedPipeline]);
 
     useEffect(() => {
         scrollToBottom();
@@ -130,21 +142,6 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         if (res.success) {
             setNotesHistory(res.data || []);
         }
-    }
-
-    async function fetchPipelines() {
-        try {
-            const res = await fetch('/api/crm/pipelines');
-            if (res.ok) {
-                const data = await res.json();
-                setPipelines(data);
-                if (data.length > 0) {
-                    setSelectedPipeline(data[0].id);
-                    setStages(data[0].stages || []);
-                    if (data[0].stages?.length > 0) setSelectedStage(data[0].stages[0].id);
-                }
-            }
-        } catch (e) { console.error(e) }
     }
 
     const handlePipelineChange = (pid: string) => {
@@ -311,7 +308,13 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
     };
 
     const handleDelete = async () => {
-        if (!confirm("Tem certeza que deseja EXCLUIR este lead permanentemente?")) return;
+        const ok = await confirm({
+            title: "Excluir este lead permanentemente?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
         setLoading(true);
         try {
             const res = await fetch(`/api/cold-leads/${lead.id}`, { method: 'DELETE' });
@@ -1076,3 +1079,5 @@ export function ColdLeadModal({ lead, isOpen, onClose, teamMembers, onNext, hasN
         </>
     );
 }
+
+export const ColdLeadModal = memo(ColdLeadModalComponent);

@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from "react";
 import { updateDeal, updateContact, deleteDeal, markAsLost, recoverDeal, addTagToDeal, removeTagFromDeal, getTeamMembers, getDealItems, upsertDealItems, addNote, getNotes, deleteNote, updateNote, checkDealHasMessages, addDealContact, removeDealContact, getDealContacts, rescheduleTask, updateDealContact } from "@/app/actions";
 import { useRouter } from "next/navigation";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { getFields } from "@/app/(protected)/settings/fields/actions";
@@ -194,6 +196,7 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
     const [isSaving, setIsSaving] = useState(false);
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
+    const confirm = useConfirm();
 
     async function handleAddNote() {
         if (!newNote.trim()) return;
@@ -203,13 +206,19 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
             setNewNote("");
             onNotesUpdate();
         } else {
-            alert("Erro ao adicionar nota.");
+            toast.error("Erro ao adicionar nota");
         }
         setIsSaving(false);
     }
 
     async function handleDeleteNote(id: string) {
-        if (!confirm("Excluir esta nota?")) return;
+        const ok = await confirm({
+            title: "Excluir esta nota?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
         const res = await deleteNote(id);
         if (res.success) onNotesUpdate();
     }
@@ -235,7 +244,7 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
             setEditContent("");
             onNotesUpdate();
         } else {
-            alert("Erro ao atualizar nota.");
+            toast.error("Erro ao atualizar nota");
         }
         setIsSaving(false);
     }
@@ -313,6 +322,7 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
 
 function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelines, initialItems, products, fields, lossReasons }: { deal: any, onClose: () => void, onUpdate?: () => void, availableTags: any[], teamMembers: any[], pipelines: any[], initialItems: any[], products: any[], fields: any[], lossReasons: any[] }) {
     const router = useRouter();
+    const confirm = useConfirm();
     const [name, setName] = useState(deal.contacts?.name || "");
     const [phone, setPhone] = useState(deal.contacts?.phone || "");
     const [value, setValue] = useState(deal.value || 0);
@@ -346,12 +356,18 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
             setIsAddingContact(false);
             if (onUpdate) onUpdate();
         } else {
-            alert("Erro ao salvar contato");
+            toast.error("Erro ao salvar contato");
         }
     }
 
     async function handleRemoveContact(id: string) {
-        if (!confirm("Remover contato?")) return;
+        const ok = await confirm({
+            title: "Remover contato?",
+            description: "O contato sera desvinculado deste negocio.",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         setContacts(contacts.filter(c => c.id !== id));
         await removeDealContact(id);
         if (onUpdate) onUpdate();
@@ -373,11 +389,11 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
         if (!newTaskDate) return;
         const res = await rescheduleTask(taskId, newTaskDate);
         if (res.success) {
-            alert("Reunião reagendada!");
+            toast.success("Reuniao reagendada");
             setReschedulingTaskId(null);
             if (onUpdate) onUpdate();
         } else {
-            alert("Erro ao reagendar reunião");
+            toast.error("Erro ao reagendar reuniao");
         }
     }
 
@@ -517,21 +533,27 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
 
             await upsertDealItems(deal.id, items);
 
-            alert("Salvo com sucesso!");
+            toast.success("Salvo com sucesso");
             if (onUpdate) {
                 await new Promise(resolve => setTimeout(resolve, 500));
                 await onUpdate();
             }
         } catch (error) {
             console.error("Error in handleSave:", error);
-            alert("Erro ao salvar");
+            toast.error("Erro ao salvar");
         } finally {
             setLoading(false);
         }
     }
 
     async function handleDelete() {
-        if (!confirm("Tem certeza que deseja excluir este lead?")) return;
+        const ok = await confirm({
+            title: "Excluir este lead?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
         setLoading(true);
         try {
             await deleteDeal(deal.id);
@@ -541,17 +563,23 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                 await onUpdate();
             }
         } catch (error) {
-            alert("Erro ao excluir");
+            toast.error("Erro ao excluir");
             setLoading(false);
         }
     }
 
     async function handleMarkAsLost() {
         if (!selectedLossReasonId) {
-            alert("Por favor, selecione um motivo de perda.");
+            toast.warning("Selecione um motivo de perda");
             return;
         }
-        if (!confirm("Confirmar que este negócio foi PERDIDO?")) return;
+        const ok = await confirm({
+            title: "Marcar este negocio como PERDIDO?",
+            description: "O negocio sera movido para o status perdido.",
+            tone: "warning",
+            confirmText: "Confirmar Perda",
+        });
+        if (!ok) return;
         setLoading(true);
         try {
             // Find name for legacy support
@@ -564,7 +592,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                 await onUpdate();
             }
         } catch (error) {
-            alert("Erro ao marcar como perdido");
+            toast.error("Erro ao marcar como perdido");
             setLoading(false);
         }
     }
@@ -579,19 +607,24 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
             await addTagToDeal(deal.id, tagId);
             if (onUpdate) onUpdate();
         } catch (error) {
-            alert("Erro ao adicionar tag");
+            toast.error("Erro ao adicionar tag");
             setLocalTags(deal.deal_tags || []);
         }
     }
 
     async function handleRemoveTag(tagId: string) {
-        if (!confirm("Remover esta tag?")) return;
+        const ok = await confirm({
+            title: "Remover esta tag?",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         setLocalTags(prev => prev.filter(dt => dt.tags?.id !== tagId));
         try {
             await removeTagFromDeal(deal.id, tagId);
             if (onUpdate) onUpdate();
         } catch (error) {
-            alert("Erro ao remover tag");
+            toast.error("Erro ao remover tag");
             setLocalTags(deal.deal_tags || []);
         }
     }
@@ -603,7 +636,10 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     // WhatsApp Logic
     async function handleWhatsApp() {
         const cleanPhone = phone.replace(/\D/g, "");
-        if (!cleanPhone) return alert("Telefone inválido");
+        if (!cleanPhone) {
+            toast.error("Telefone invalido");
+            return;
+        }
 
         // Check for internal chat
         const check = await checkDealHasMessages(deal.id);

@@ -4,6 +4,8 @@
 import { useState } from "react";
 import { createQuickReply, updateQuickReply, deleteQuickReply } from "../app/actions";
 import { Plus, Trash2, Zap, Search, Edit2, X, MessageSquare, Tag, Folder } from "lucide-react";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface QuickReply {
     id: string;
@@ -20,6 +22,7 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
     const [replies, setReplies] = useState(initialReplies);
     const [searchTerm, setSearchTerm] = useState("");
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const confirm = useConfirm();
 
     // Form State
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -67,7 +70,7 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
 
     async function handleSave() {
         if (!content.trim() || !category.trim()) {
-            alert("Conteúdo e Categoria são obrigatórios.");
+            toast.warning("Conteudo e Categoria sao obrigatorios");
             return;
         }
 
@@ -87,7 +90,7 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
 
                 const result = await updateQuickReply(editingId, formData);
                 if (!result.success) {
-                    alert("Erro ao atualizar: " + result.error);
+                    toast.error("Erro ao atualizar", result.error);
                     setReplies(replies); // Rollback
                 } else {
                     setIsModalOpen(false);
@@ -108,7 +111,7 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
                     // In real app, revalidate would fetch real data. 
                     // For now keeping optimistic data is okay or we rely on page refresh
                 } else {
-                    alert("Erro ao criar: " + result.error);
+                    toast.error("Erro ao criar", result.error);
                     setReplies(replies); // Rollback
                 }
             }
@@ -121,7 +124,13 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
     }
 
     async function handleDelete(id: string) {
-        if (!confirm("Tem certeza que deseja excluir esta resposta?")) return;
+        const ok = await confirm({
+            title: "Excluir esta resposta?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         setReplies(replies.filter(r => r.id !== id));
 
@@ -129,7 +138,7 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
             await deleteQuickReply(id);
         } catch (error) {
             console.error("Erro ao deletar:", error);
-            alert("Erro ao deletar.");
+            toast.error("Erro ao deletar");
         }
     }
 

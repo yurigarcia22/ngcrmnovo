@@ -1,5 +1,6 @@
 import { Tag } from "lucide-react";
 import TagManager from "@/components/TagManager";
+import { PageHeader } from "@/components/ui/page-header";
 import { createClient } from "@/utils/supabase/server";
 
 export default async function TagsSettingsPage() {
@@ -11,11 +12,15 @@ export default async function TagsSettingsPage() {
 
     return (
         <div className="max-w-6xl mx-auto">
-            <h1 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-                <Tag className="text-blue-600" />
-                Etiquetas
-            </h1>
-            <p className="text-gray-500 mb-8">Gerencie as etiquetas para organizar seus leads.</p>
+            <PageHeader
+                title="Etiquetas"
+                description="Gerencie as etiquetas usadas para organizar seus leads e negocios."
+                icon={<Tag className="w-5 h-5" />}
+                breadcrumbs={[
+                    { label: "Configuracoes", href: "/settings" },
+                    { label: "Etiquetas" },
+                ]}
+            />
 
             <TagManager initialTags={tags || []} />
         </div>

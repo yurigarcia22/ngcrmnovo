@@ -10,6 +10,7 @@ import { AddLeadModal } from '@/components/cold-call/AddLeadModal';
 import { StatusGroup } from '@/components/cold-call/StatusGroup';
 import { NichoSelector } from '@/components/cold-call/NichoSelector';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getMembers } from '@/app/(protected)/settings/team/actions';
 
 import { NotificationBell } from '@/components/notifications/NotificationBell';
@@ -20,10 +21,12 @@ import { FollowUpBoard } from '@/components/cold-call/FollowUpBoard';
 import { getColdCallFollowups, updateColdCallFollowup } from '@/app/actions';
 
 export default function ColdCallPage() {
+    const confirm = useConfirm();
     // Top-level Navigation State
     const [activeTab, setActiveTab] = useState<'cold-call' | 'follow-ups'>('cold-call');
     const [leads, setLeads] = useState<ColdLead[]>([]);
     const [followups, setFollowups] = useState<any[]>([]);
+    const [pipelines, setPipelines] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({
         search: '',
@@ -82,8 +85,10 @@ export default function ColdCallPage() {
     const fetchFollowupsData = useCallback(async () => {
         try {
             // Fetch ALL non-completed followups (pendente + atrasado)
-            const res = await getColdCallFollowups({ status: 'pendente' });
-            const resAtrasados = await getColdCallFollowups({ status: 'atrasado' });
+            const [res, resAtrasados] = await Promise.all([
+                getColdCallFollowups({ status: 'pendente' }),
+                getColdCallFollowups({ status: 'atrasado' }),
+            ]);
 
             let allFollowups: any[] = [];
             if (res.success && res.data) {
@@ -111,11 +116,23 @@ export default function ColdCallPage() {
         }
     }, []);
 
+    const fetchPipelinesOnce = useCallback(async () => {
+        try {
+            const res = await fetch('/api/crm/pipelines');
+            if (res.ok) {
+                const data = await res.json();
+                setPipelines(Array.isArray(data) ? data : []);
+            }
+        } catch (e) {
+            console.error('Failed to fetch pipelines', e);
+        }
+    }, []);
+
     useEffect(() => {
-        fetchLeads();
-        fetchMembers();
-        fetchFollowupsData();
-    }, [fetchLeads, fetchMembers, fetchFollowupsData]);
+        (async () => {
+            await Promise.all([fetchLeads(), fetchMembers(), fetchFollowupsData(), fetchPipelinesOnce()]);
+        })();
+    }, [fetchLeads, fetchMembers, fetchFollowupsData, fetchPipelinesOnce]);
 
     const handleCallClick = (lead: ColdLead) => {
         setSelectedLead(lead);
@@ -220,7 +237,13 @@ export default function ColdCallPage() {
 
     const handleBulkDelete = async () => {
         if (!selectedLeads.length) return;
-        if (!confirm(`Tem certeza que deseja excluir ${selectedLeads.length} leads permanentemente?`)) return;
+        const ok = await confirm({
+            title: "Excluir leads?",
+            description: `Tem certeza que deseja excluir ${selectedLeads.length} leads permanentemente?`,
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         const toastId = toast.loading('Excluindo leads...');
 
@@ -249,7 +272,13 @@ export default function ColdCallPage() {
     };
 
     const handleDeleteLead = useCallback(async (leadId: string) => {
-        if (!confirm('Excluir este lead permanentemente?')) return;
+        const ok = await confirm({
+            title: "Excluir lead?",
+            description: "Excluir este lead permanentemente?",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         // Optimistic update
         setLeads(prev => prev.filter(l => l.id !== leadId));
@@ -265,7 +294,7 @@ export default function ColdCallPage() {
             toast.error('Erro ao excluir lead');
             fetchLeads(); // Revert
         }
-    }, [fetchLeads]);
+    }, [fetchLeads, confirm]);
 
     // Group leads
     const groupedLeads: Record<ColdLeadStatus, ColdLead[]> = {
@@ -617,6 +646,7 @@ export default function ColdCallPage() {
                     isOpen={isModalOpen}
                     onClose={handleModalClose}
                     teamMembers={teamMembers}
+                    pipelines={pipelines}
                     onNext={handleNextLead}
                     hasNext={hasNext()}
                     onActionComplete={handleActionComplete}

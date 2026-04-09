@@ -66,7 +66,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         // Prepare Queries
 
         // 1. Total Leads
-        const leadsQuery = applyFilters(supabase.from("deals").select("*", { count: 'exact', head: true }), "created_at");
+        const leadsQuery = applyFilters(supabase.from("deals").select("id", { count: 'exact', head: true }), "created_at");
 
         // 2. Open Value
         const openValueQuery = applyFilters(supabase.from("deals").select("value").neq("status", "won").neq("status", "lost"), "created_at");
@@ -80,7 +80,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         const stageQuery = applyFilters(supabase.from("deals").select(`stage_id, stages (name)`).neq("status", "won").neq("status", "lost"), "created_at");
 
         // 5. Tasks
-        let tasksQuery = supabase.from("tasks").select("*", { count: 'exact', head: true }).neq("status", "completed").eq("tenant_id", tenantId);
+        let tasksQuery = supabase.from("tasks").select("id", { count: 'exact', head: true }).neq("status", "completed").eq("tenant_id", tenantId);
         if (userId && userId !== "all") tasksQuery = tasksQuery.eq("owner_id", userId);
 
         // 6. Messages (Conversations)
@@ -96,7 +96,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             .order("created_at", { ascending: false });
 
         // 8. Cold Leads
-        let coldLeadsQuery = supabase.from("cold_leads").select("*", { count: 'exact', head: true }).eq("tenant_id", tenantId);
+        let coldLeadsQuery = supabase.from("cold_leads").select("id", { count: 'exact', head: true }).eq("tenant_id", tenantId);
         if (period !== 'all') {
             coldLeadsQuery = coldLeadsQuery.gte("created_at", startDate).lte("created_at", endDate);
         }

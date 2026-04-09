@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import { getFields, saveField, deleteField } from "./actions";
 import { Plus, Trash2, Edit2, Check, X, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function FieldsPage() {
+    const confirm = useConfirm();
     const [fields, setFields] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
@@ -41,7 +44,13 @@ export default function FieldsPage() {
     }
 
     async function handleDelete(id: string) {
-        if (!confirm("Tem certeza que deseja apagar este campo? Os dados salvos nos deals não serão perdidos, mas o campo sumirá.")) return;
+        const ok = await confirm({
+            title: "Apagar este campo?",
+            description: "Os dados salvos nos deals nao serao perdidos, mas o campo sumira.",
+            tone: "danger",
+            confirmText: "Apagar",
+        });
+        if (!ok) return;
         await deleteField(id);
         loadFields();
     }
@@ -53,7 +62,7 @@ export default function FieldsPage() {
             setIsEditing(false);
             loadFields();
         } else {
-            alert("Erro ao salvar: " + res.error);
+            toast.error("Erro ao salvar", res.error);
         }
     }
 

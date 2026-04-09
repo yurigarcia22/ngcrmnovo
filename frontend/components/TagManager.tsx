@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { createTag, deleteTag, updateTag } from "../app/actions";
 import { Plus, Trash2, Tag as TagIcon, Loader2, Search, Edit2, X } from "lucide-react";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function TagManager({ initialTags }: { initialTags: any[] }) {
     const [tags, setTags] = useState(initialTags);
     const [searchTerm, setSearchTerm] = useState("");
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const confirm = useConfirm();
 
     // Create/Edit Form State
     const [editingTagId, setEditingTagId] = useState<string | null>(null);
@@ -47,7 +50,7 @@ export default function TagManager({ initialTags }: { initialTags: any[] }) {
 
                 const result = await updateTag(editingTagId, newTagName, newTagColor);
                 if (!result.success) {
-                    alert("Erro ao atualizar tag: " + result.error);
+                    toast.error("Erro ao atualizar tag", result.error);
                     setTags(tags); // Rollback
                 } else {
                     setIsCreateModalOpen(false);
@@ -72,7 +75,7 @@ export default function TagManager({ initialTags }: { initialTags: any[] }) {
                     setIsCreateModalOpen(false);
                     setNewTagName("");
                 } else {
-                    alert("Erro ao criar tag: " + result.error);
+                    toast.error("Erro ao criar tag", result.error);
                     setTags(tags);
                 }
             }
@@ -85,7 +88,13 @@ export default function TagManager({ initialTags }: { initialTags: any[] }) {
     }
 
     async function handleDeleteTag(id: string) {
-        if (!confirm("Tem certeza que deseja excluir esta tag?")) return;
+        const ok = await confirm({
+            title: "Excluir esta tag?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         // Optimistic UI
         setTags(tags.filter(t => t.id !== id));
@@ -94,7 +103,7 @@ export default function TagManager({ initialTags }: { initialTags: any[] }) {
             await deleteTag(id);
         } catch (error) {
             console.error("Erro ao deletar:", error);
-            alert("Erro ao deletar tag.");
+            toast.error("Erro ao deletar tag");
             // Rollback implementation would go here
         }
     }

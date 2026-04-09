@@ -2,8 +2,10 @@
 
 import { Building2, Save, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { toast } from "sonner";
-import { Button, Input } from "@/components/ui/simple-ui";
+import { toast } from "@/lib/toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/simple-ui";
+import { PageHeader } from "@/components/ui/page-header";
 import { getCompanyDetails, updateCompanyName } from "./actions";
 import { useRouter } from "next/navigation";
 
@@ -20,7 +22,7 @@ export default function CompanySettingsPage() {
             if (res.success && res.name) {
                 setName(res.name);
             } else {
-                toast.error("Erro ao carregar os dados da empresa.");
+                toast.error("Erro ao carregar dados da empresa");
             }
             setLoading(false);
         }
@@ -31,50 +33,65 @@ export default function CompanySettingsPage() {
         setSaving(true);
         const res = await updateCompanyName(name);
         if (res.success) {
-            toast.success("Nome da empresa atualizado com sucesso!");
-            router.refresh(); // To force refresh of layouts if any
+            toast.success("Nome da empresa atualizado");
+            router.refresh();
         } else {
-            toast.error(res.error || "Falha ao atualizar o nome da empresa.");
+            toast.error("Erro ao atualizar", res.error || undefined);
         }
         setSaving(false);
     };
 
     return (
         <div className="max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-                <Building2 className="text-blue-600" />
-                Configurações da Empresa
-            </h1>
-            <p className="text-gray-500 mb-8">Gerencie os dados da sua organização. O nome configurado aqui será utilizado em todo o sistema (como no Dashboard).</p>
+            <PageHeader
+                title="Empresa"
+                description="Configure os dados da sua organizacao. O nome sera exibido em todo o sistema."
+                icon={<Building2 className="w-5 h-5" />}
+                breadcrumbs={[
+                    { label: "Configuracoes", href: "/settings" },
+                    { label: "Empresa" },
+                ]}
+            />
 
-            <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-800 mb-6 border-b pb-4">Identidade da Empresa</h3>
-                
+            <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm">
+                <h3 className="text-base font-bold text-slate-800 mb-5 pb-3 border-b border-slate-100">Identidade da Empresa</h3>
+
                 {loading ? (
-                    <div className="flex justify-center items-center py-10">
-                        <Loader2 className="animate-spin text-blue-500 w-8 h-8" />
+                    <div className="max-w-md space-y-6">
+                        <div className="space-y-2">
+                            <div className="h-4 w-32 skeleton" />
+                            <div className="h-11 w-full skeleton" />
+                            <div className="h-3 w-64 skeleton" />
+                        </div>
+                        <div className="h-11 w-40 skeleton" />
                     </div>
                 ) : (
                     <div className="max-w-md space-y-6">
                         <div className="space-y-2">
-                            <label className="text-sm font-semibold text-slate-700">Nome da Empresa</label>
-                            <Input 
+                            <label htmlFor="company-name" className="text-sm font-semibold text-slate-700">
+                                Nome da Empresa
+                            </label>
+                            <Input
+                                id="company-name"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 placeholder="Ex: Acumens Corp"
-                                className="w-full text-sm h-11 bg-slate-50 focus:bg-white"
+                                className="w-full text-sm h-11"
                             />
-                            <p className="text-xs text-slate-500 mt-1">Este nome será exibido no Dashboard e em relatórios.</p>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Este nome sera exibido no Dashboard e em relatorios.
+                            </p>
                         </div>
 
-                        <div className="pt-4">
-                            <Button 
-                                onClick={handleSave} 
+                        <div>
+                            <Button
+                                onClick={handleSave}
                                 disabled={saving || !name.trim()}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 h-11 w-full sm:w-auto flex items-center gap-2"
+                                variant="default"
+                                size="lg"
                             >
-                                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                                Salvar Alterações
+                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                Salvar alteracoes
                             </Button>
                         </div>
                     </div>

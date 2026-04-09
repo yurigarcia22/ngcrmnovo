@@ -4,9 +4,12 @@ import { useRef, useEffect, useState } from "react";
 import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle } from "lucide-react";
 import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember } from "@/app/actions";
 import { useRouter } from "next/navigation";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function DealInfoSidebar({ deal, teamMembers, pipelines, availableTags, products = [], dealItems = [], lossReasons = [] }: any) {
     const router = useRouter();
+    const confirm = useConfirm();
     const [contact, setContact] = useState(deal.contacts || null);
     const [company, setCompany] = useState(deal.companies || null);
     const [dealValue, setDealValue] = useState(deal.value);
@@ -54,7 +57,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             router.refresh();
         } else {
             setDealValue(oldVal); // Revert
-            alert("Erro ao atualizar valor");
+            toast.error("Erro ao atualizar valor");
         }
         setLoadingField(null);
     }
@@ -74,13 +77,13 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             router.refresh();
         } else {
             setContact({ ...contact, [field]: oldVal }); // Revert
-            alert(`Erro ao atualizar ${field}`);
+            toast.error(`Erro ao atualizar ${field}`);
         }
         setLoadingField(null);
     }
 
     async function handleCreateContact() {
-        if (!newContactData.name) { alert("Nome é obrigatório"); return; }
+        if (!newContactData.name) { toast.warning("Nome e obrigatorio"); return; }
         setLoadingField('create_contact');
 
         const res = await createContactForDeal(deal.id, newContactData);
@@ -93,13 +96,13 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             setTempEmail(res.data.email);
             router.refresh();
         } else {
-            alert("Erro ao criar contato: " + res.error);
+            toast.error("Erro ao criar contato", res.error);
         }
         setLoadingField(null);
     }
 
     async function handleCreateCompany() {
-        if (!newCompanyName) { alert("Nome da empresa é obrigatório"); return; }
+        if (!newCompanyName) { toast.warning("Nome da empresa e obrigatorio"); return; }
         setLoadingField('create_company');
 
         const res = await createCompanyForDeal(deal.id, newCompanyName);
@@ -109,7 +112,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             setIsAddingCompany(false);
             router.refresh();
         } else {
-            alert("Erro ao criar empresa: " + res.error);
+            toast.error("Erro ao criar empresa", res.error);
         }
         setLoadingField(null);
     }
@@ -149,7 +152,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                 await updateDeal(deal.id, { value: newValue });
             }
         } else {
-            alert("Erro ao salvar produtos");
+            toast.error("Erro ao salvar produtos");
             setItems(items); // Rollback
         }
     }
@@ -186,7 +189,12 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     }
 
     async function handleTagRemove(tagId: string, tagName: string) {
-        if (!confirm("Remover etiqueta?")) return;
+        const ok = await confirm({
+            title: "Remover etiqueta?",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         const res = await removeTagFromDeal(deal.id, tagId);
         if (res.success) {
             await logSystemActivity(deal.id, `Removeu a etiqueta "${tagName}"`);
@@ -214,7 +222,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             deal.owner_id = selectedOwner; // Optimistic update
             router.refresh();
         } else {
-            alert("Erro ao atualizar responsável");
+            toast.error("Erro ao atualizar responsavel");
             setSelectedOwner(deal.owner_id); // Revert
         }
         setEditingOwner(false);
@@ -233,12 +241,18 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             await logSystemActivity(deal.id, `Adicionou responsável: ${newMemberName}`);
             router.refresh();
         } else {
-            alert("Erro ao adicionar membro: " + res.error);
+            toast.error("Erro ao adicionar membro", res.error);
         }
     }
 
     async function handleRemoveMember(memberId: string, memberName: string) {
-        if (!confirm(`Remover ${memberName}?`)) return;
+        const ok = await confirm({
+            title: `Remover ${memberName}?`,
+            description: "O membro sera desvinculado deste negocio.",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         setMembers(members.filter((m: any) => m.id !== memberId));
         await removeDealMember(memberId);
         await logSystemActivity(deal.id, `Removeu responsável: ${memberName}`);
@@ -288,7 +302,13 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     }
 
     async function handleRemoveContact(id: string) {
-        if (!confirm("Remover este contato?")) return;
+        const ok = await confirm({
+            title: "Remover este contato?",
+            description: "O contato sera desvinculado deste negocio.",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         setContacts(contacts.filter((c: any) => c.id !== id));
         await removeDealContact(id);
         await logSystemActivity(deal.id, `Removeu um contato secundário`);
@@ -316,7 +336,12 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
     async function handleCompleteTask() {
         if (!nextTask) return;
-        if (!confirm("Concluir esta reunião?")) return;
+        const ok = await confirm({
+            title: "Concluir esta reuniao?",
+            tone: "default",
+            confirmText: "Concluir",
+        });
+        if (!ok) return;
 
         await completeTask(nextTask.id);
 
@@ -559,7 +584,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         await logSystemActivity(deal.id, `Atualizou o motivo de perda para "${reasonName || "Nenhum"}"`);
                                         router.refresh();
                                     } else {
-                                        alert("Erro ao atualizar motivo de perda");
+                                        toast.error("Erro ao atualizar motivo de perda");
                                     }
                                 }}
                             >

@@ -1,5 +1,5 @@
 import { Draggable } from "@hello-pangea/dnd";
-import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase } from "lucide-react";
+import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
     DropdownMenu,
@@ -10,6 +10,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { markAsWon, markAsLost, deleteDeal } from "@/app/actions";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { toast } from "@/lib/toast";
 import confetti from "canvas-confetti";
 
 interface KanbanCardProps {
@@ -24,6 +26,7 @@ interface KanbanCardProps {
 
 export default function KanbanCard({ deal, index, fields, onClick, isSelectionMode, isSelected, onToggleSelection }: KanbanCardProps) {
     const router = useRouter();
+    const confirm = useConfirm();
 
     const handleMarkAsWon = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -42,20 +45,45 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
         }, 250);
 
-        await markAsWon(deal.id);
+        const res = await markAsWon(deal.id);
+        if (res?.success === false) {
+            toast.error("Erro ao marcar como ganho", res.error);
+        } else {
+            toast.success("Negocio marcado como ganho!");
+        }
     };
 
     const handleMarkAsLost = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (confirm("Marcar lead como PERDIDO?")) {
-            await markAsLost(deal.id);
+        const ok = await confirm({
+            title: "Marcar lead como perdido?",
+            description: "O negocio sera movido para a coluna de perdidos.",
+            tone: "warning",
+            confirmText: "Marcar como perdido",
+        });
+        if (!ok) return;
+        const res = await markAsLost(deal.id);
+        if (res?.success === false) {
+            toast.error("Erro ao marcar como perdido", res.error);
+        } else {
+            toast.success("Negocio marcado como perdido");
         }
     };
 
     const handleDelete = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (confirm("Tem certeza que deseja EXCLUIR este lead? Esta ação é irreversível.")) {
-            await deleteDeal(deal.id);
+        const ok = await confirm({
+            title: "Excluir este lead?",
+            description: "Esta acao e irreversivel. Todas as informacoes vinculadas serao perdidas.",
+            tone: "danger",
+            confirmText: "Excluir definitivamente",
+        });
+        if (!ok) return;
+        const res = await deleteDeal(deal.id);
+        if (res?.success === false) {
+            toast.error("Erro ao excluir", res.error);
+        } else {
+            toast.success("Lead excluido");
         }
     };
 
@@ -85,16 +113,20 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                     className={`
                         group relative w-full mb-3 rounded-2xl p-5 cursor-pointer transition-all duration-300
                         bg-white border shadow-sm
-                        ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/10' : 'border-gray-200 hover:shadow-lg hover:translate-y-[-2px] hover:border-blue-300'}
-                        ${snapshot.isDragging ? "shadow-2xl ring-2 ring-blue-500 rotate-2 scale-105 z-50 z-[999]" : ""}
+                        ${isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20' : 'border-slate-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-indigo-300'}
+                        ${snapshot.isDragging ? "shadow-2xl ring-2 ring-indigo-500 rotate-1 scale-[1.02] z-[999]" : ""}
                         ${deal.status === 'lost' ? 'opacity-60 grayscale' : ''}
                     `}
                 >
                     {/* Selection Checkbox Overlay */}
                     {isSelectionMode && (
                         <div className="absolute top-4 right-4 z-20">
-                            <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
-                                {isSelected && <User size={12} className="text-white" />}
+                            <div
+                                role="checkbox"
+                                aria-checked={isSelected}
+                                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}
+                            >
+                                {isSelected && <Check size={12} strokeWidth={3} className="text-white" />}
                             </div>
                         </div>
                     )}

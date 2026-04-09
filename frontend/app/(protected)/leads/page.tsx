@@ -19,10 +19,13 @@ import FilterBar from "@/components/kanban/FilterBar";
 import { DragDropContext, Draggable } from "@hello-pangea/dnd";
 import { StrictModeDroppable } from "@/components/StrictModeDroppable";
 import KanbanCard from "@/components/KanbanCard";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function LeadsPage() {
     // Inicializa o cliente Supabase usando o utilitário do projeto (@supabase/ssr)
     const supabase = createClient();
+    const confirm = useConfirm();
     const [pipelines, setPipelines] = useState<any[]>([]);
     const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
 
@@ -72,7 +75,7 @@ export default function LeadsPage() {
         }
     }, [selectedPipelineId]);
 
-    // Realtime & Polling
+    // Realtime (polling removido - redundante com subscription)
     useEffect(() => {
         const channel = supabase
             .channel('crm-updates')
@@ -88,13 +91,8 @@ export default function LeadsPage() {
                 console.log("Status da conexão Realtime (Leads):", status);
             });
 
-        const interval = setInterval(() => {
-            if (selectedPipelineId) loadBoard(selectedPipelineId);
-        }, 5000);
-
         return () => {
             supabase.removeChannel(channel);
-            clearInterval(interval);
         }
     }, [selectedPipelineId]);
 
@@ -244,7 +242,7 @@ export default function LeadsPage() {
 
         } catch (error: any) {
             console.error("Falha ao mover card:", error);
-            alert("Erro ao mover: " + (error.message || "Erro desconhecido"));
+            toast.error("Erro ao mover", error.message || "Erro desconhecido");
             setDeals(oldDeals); // Rollback em caso de erro
         }
     };
@@ -274,7 +272,13 @@ export default function LeadsPage() {
 
     const handleBulkDelete = async () => {
         if (!selectedDeals.length) return;
-        if (!confirm(`Tem certeza que deseja excluir ${selectedDeals.length} oportunidades? Esta ação é irreversível.`)) return;
+        const ok = await confirm({
+            title: "Excluir oportunidades?",
+            description: `Tem certeza que deseja excluir ${selectedDeals.length} oportunidades? Esta acao e irreversivel.`,
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         try {
             const res = await deleteDeals(selectedDeals);
@@ -283,7 +287,7 @@ export default function LeadsPage() {
                 setSelectedDeals([]);
                 setIsSelectionMode(false);
             } else {
-                alert("Erro ao excluir: " + res.error);
+                toast.error("Erro ao excluir", res.error);
             }
         } catch (err) {
             console.error(err);
@@ -301,7 +305,7 @@ export default function LeadsPage() {
                 setIsSelectionMode(false);
                 setShowBulkOwnerSelect(false);
             } else {
-                alert("Erro ao alterar: " + res.error);
+                toast.error("Erro ao alterar", res.error);
             }
         } catch (err) {
             console.error(err);
@@ -320,7 +324,7 @@ export default function LeadsPage() {
             // Check if any failed critically
             const failed = results.filter(r => !r.success);
             if (failed.length > 0) {
-                alert("Erro parcial ao adicionar membro a alguns leads.");
+                toast.error("Erro parcial ao adicionar membro a alguns leads");
             }
 
             fetchData();
@@ -334,7 +338,13 @@ export default function LeadsPage() {
 
     const handleBulkRecover = async () => {
         if (!selectedDeals.length) return;
-        if (!confirm(`Tem certeza que deseja reabrir ${selectedDeals.length} leads perdidos?`)) return;
+        const ok = await confirm({
+            title: "Reabrir leads?",
+            description: `Tem certeza que deseja reabrir ${selectedDeals.length} leads perdidos?`,
+            tone: "warning",
+            confirmText: "Reabrir",
+        });
+        if (!ok) return;
 
         try {
             const res = await updateDeals(selectedDeals, {
@@ -349,7 +359,7 @@ export default function LeadsPage() {
                 setSelectedDeals([]);
                 setIsSelectionMode(false);
             } else {
-                alert("Erro ao reabrir leads: " + res.error);
+                toast.error("Erro ao reabrir leads", res.error);
             }
         } catch (err) {
             console.error(err);

@@ -1,20 +1,176 @@
 @import "tailwindcss";
 
+/* ========================================
+   DESIGN TOKENS - CRM NG
+   ======================================== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Base */
+  --background: #f0f2f5;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+
+  /* Brand */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-soft: #eef2ff;
+  --primary-foreground: #ffffff;
+
+  /* Semantic */
+  --success: #10b981;
+  --success-soft: #d1fae5;
+  --warning: #f59e0b;
+  --warning-soft: #fef3c7;
+  --danger: #ef4444;
+  --danger-soft: #fee2e2;
+  --info: #3b82f6;
+  --info-soft: #dbeafe;
+
+  /* Neutrals */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --muted: #64748b;
+  --muted-foreground: #94a3b8;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow: 0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.08);
+
+  /* shadcn compat (aliases) */
+  --ring: var(--primary);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --input: var(--border);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-input: var(--input);
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "rlig" 1, "calt" 1;
 }
 
+/* ========================================
+   SCROLLBAR
+   ======================================== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ========================================
+   ANIMATIONS (tailwindcss-animate polyfill)
+   ======================================== */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes zoom-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-in { animation: fade-in 200ms ease-out; }
+.fade-in { animation: fade-in 200ms ease-out; }
+.fade-in-up { animation: fade-in-up 300ms ease-out; }
+.zoom-in { animation: zoom-in 200ms ease-out; }
+.duration-200 { animation-duration: 200ms; }
+.duration-300 { animation-duration: 300ms; }
+
+/* Skeleton loader */
+.skeleton {
+  background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ========================================
+   ACCESSIBILITY
+   ======================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ========================================
+   UTILS
+   ======================================== */
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }

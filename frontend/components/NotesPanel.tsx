@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { X, Save, Loader2, StickyNote } from "lucide-react";
 import { addNote } from "../app/actions";
+import { toast } from "@/lib/toast";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,11 +50,11 @@ export default function NotesPanel({ dealId, onClose }: NotesPanelProps) {
                 setNewNote("");
                 fetchNotes(); // Recarrega lista
             } else {
-                alert("Erro ao salvar nota: " + result.error);
+                toast.error("Erro ao salvar nota", result.error);
             }
         } catch (error) {
             console.error("Erro ao salvar nota:", error);
-            alert("Erro inesperado.");
+            toast.error("Erro inesperado");
         } finally {
             setLoading(false);
         }

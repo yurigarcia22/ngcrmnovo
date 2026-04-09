@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ColdLead, ColdLeadStatus } from '@/types/cold-lead';
 import { Button, Badge } from '@/components/ui/simple-ui';
 import {
@@ -31,6 +31,11 @@ interface StatusGroupProps {
 
 export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusChange, selectedLeads = [], onToggleSelection, isSelectionMode = false, onDeleteClick, followupLeadIds }: StatusGroupProps) {
     const [isExpanded, setIsExpanded] = useState(true);
+    const [visibleCount, setVisibleCount] = useState(30);
+
+    useEffect(() => {
+        setVisibleCount(30);
+    }, [leads.length]); // reseta quando o numero total muda (filtro mudou)
 
     const statusLabels: Record<ColdLeadStatus, string> = {
         'novo_lead': 'NOVO LEAD',
@@ -101,7 +106,7 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
             {/* Group Body */}
             {isExpanded && (
                 <div className="space-y-1 pl-2">
-                    {leads.map(lead => {
+                    {leads.slice(0, visibleCount).map(lead => {
                         const isSelected = selectedLeads.includes(lead.id);
                         return (
                             <div
@@ -228,6 +233,14 @@ export function StatusGroup({ status, leads, colorClass, onCallClick, onStatusCh
                         <div className="py-2 pl-10 text-xs text-slate-400 italic">
                             Nenhum lead nesta etapa.
                         </div>
+                    )}
+                    {leads.length > visibleCount && (
+                        <button
+                            onClick={() => setVisibleCount(v => v + 30)}
+                            className="w-full py-3 text-xs font-semibold text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-dashed border-slate-200 hover:border-indigo-300 mt-2"
+                        >
+                            Carregar mais ({leads.length - visibleCount} restantes)
+                        </button>
                     )}
                 </div>
             )}

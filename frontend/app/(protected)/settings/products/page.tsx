@@ -3,8 +3,11 @@
 import { useState, useEffect } from "react";
 import { getProducts, createProduct, updateProduct, deleteProduct } from "./actions";
 import { Plus, Search, Edit2, Trash2, Package, Loader2 } from "lucide-react";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function ProductsPage() {
+    const confirm = useConfirm();
     const [products, setProducts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
@@ -44,22 +47,28 @@ export default function ProductsPage() {
             setIsModalOpen(false);
             setEditingProduct(null);
             fetchProducts();
-            alert(editingProduct ? "Produto atualizado!" : "Produto criado!");
+            toast.success(editingProduct ? "Produto atualizado!" : "Produto criado!");
         } else {
-            alert("Erro: " + res.error);
+            toast.error("Erro", res.error);
         }
 
         setActionLoading(false);
     }
 
     async function handleDelete(id: string) {
-        if (!confirm("Excluir este produto?")) return;
+        const ok = await confirm({
+            title: "Excluir produto?",
+            description: "Essa acao nao pode ser desfeita.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         const res = await deleteProduct(id);
         if (res.success) {
             fetchProducts();
         } else {
-            alert("Erro ao excluir: " + res.error);
+            toast.error("Erro ao excluir", res.error);
         }
     }
 

@@ -5,8 +5,11 @@ import ChatWindow from '@/components/ChatWindow';
 import { createClient } from '@/utils/supabase/client';
 import { Search, MessageSquare, User, Tag, Calendar, ChevronRight, Filter, Phone, Plus, AlertTriangle, Trash2, Pencil, X, Check } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { toast } from '@/lib/toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export default function ChatPage() {
+    const confirm = useConfirm();
     const [conversations, setConversations] = useState<any[]>([]);
     const [selectedDeal, setSelectedDeal] = useState<any>(null);
     const [search, setSearch] = useState("");
@@ -153,11 +156,11 @@ export default function ChatPage() {
 
         const res = await promoteToLead(selectedDeal.id, promoteTitle || selectedDeal.title || "Novo Lead", promoteValue, promoteDate);
         if (res.success) {
-            alert("Lead criado com sucesso!");
+            toast.success("Lead criado com sucesso!");
             loadConversations();
             router.refresh();
         } else {
-            alert("Erro ao criar lead: " + res.error);
+            toast.error("Erro ao criar lead", res.error);
         }
         setIsPromoting(false);
         setPromoteTitle("");
@@ -173,9 +176,15 @@ export default function ChatPage() {
 
         if (check.success && check.deals && check.deals.length > 0) {
             const dealNames = check.deals.map((d: any) => `• ${d.title} (${d.stages?.name || 'Sem Etapa'})`).join('\n');
-            const confirmMsg = `Este contato já possui negócio(s) em aberto:\n\n${dealNames}\n\nDeseja criar um NOVO lead mesmo assim?`;
+            const confirmMsg = `Este contato ja possui negocio(s) em aberto:\n\n${dealNames}\n\nDeseja criar um NOVO lead mesmo assim?`;
 
-            if (!confirm(confirmMsg)) {
+            const ok = await confirm({
+                title: "Contato ja possui negocios",
+                description: confirmMsg,
+                tone: "warning",
+                confirmText: "Criar novo lead",
+            });
+            if (!ok) {
                 return;
             }
         }
@@ -192,7 +201,7 @@ export default function ChatPage() {
             setIsEditingContact(false);
             loadConversations(); // Refresh list to show new name immediately
         } else {
-            alert("Erro ao atualizar nome: " + res.error);
+            toast.error("Erro ao atualizar nome", res.error);
         }
     }
 
@@ -201,12 +210,12 @@ export default function ChatPage() {
 
         const res = await deleteContact(selectedDeal.contacts.id, deleteWithDeal);
         if (res.success) {
-            alert("Contato excluído com sucesso.");
+            toast.success("Contato excluido com sucesso");
             setSelectedDeal(null);
             setShowDeleteModal(false);
             loadConversations();
         } else {
-            alert("Erro ao excluir contato: " + res.error);
+            toast.error("Erro ao excluir contato", res.error);
         }
     }
 

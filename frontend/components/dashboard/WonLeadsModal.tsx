@@ -7,6 +7,7 @@ import { getWonDealsDetails } from "@/app/(protected)/dashboard/actions";
 import { updateDeal, deleteDeal } from "@/app/actions";
 import { toast } from "sonner";
 import { Trash2, Pencil, Check, X } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface WonLeadsModalProps {
     isOpen: boolean;
@@ -19,6 +20,7 @@ interface WonLeadsModalProps {
 }
 
 export function WonLeadsModal({ isOpen, onClose, period, userId, startDate, endDate, onDataChanged }: WonLeadsModalProps) {
+    const confirm = useConfirm();
     const [deals, setDeals] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
 
@@ -76,7 +78,13 @@ export function WonLeadsModal({ isOpen, onClose, period, userId, startDate, endD
     };
 
     const handleDelete = async (dealId: string) => {
-        if (!confirm("Tem certeza que deseja excluir esta venda/negócio?")) return;
+        const ok = await confirm({
+            title: "Excluir esta venda?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         const toastId = toast.loading("Excluindo...");
         const res = await deleteDeal(dealId);

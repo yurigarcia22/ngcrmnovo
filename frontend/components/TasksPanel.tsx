@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { X, CalendarCheck, Loader2, Plus, Trash2, CheckSquare, Square, Calendar, Clock } from "lucide-react";
 import { createTask, toggleTask, deleteTask } from "../app/actions";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,6 +23,7 @@ export default function TasksPanel({ dealId, onClose }: TasksPanelProps) {
     const [showCustomDate, setShowCustomDate] = useState(false);
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(true);
+    const confirm = useConfirm();
 
     useEffect(() => {
         fetchTasks();
@@ -50,7 +53,7 @@ export default function TasksPanel({ dealId, onClose }: TasksPanelProps) {
                 setShowCustomDate(false);
                 fetchTasks();
             } else {
-                alert("Erro ao criar tarefa: " + result.error);
+                toast.error("Erro ao criar tarefa", result.error);
             }
         } catch (error) {
             console.error("Erro ao criar tarefa:", error);
@@ -65,20 +68,26 @@ export default function TasksPanel({ dealId, onClose }: TasksPanelProps) {
 
         const result = await toggleTask(taskId, !currentStatus);
         if (!result.success) {
-            alert("Erro ao atualizar tarefa");
+            toast.error("Erro ao atualizar tarefa");
             fetchTasks(); // Revert
         }
     }
 
     async function handleDelete(taskId: string) {
-        if (!confirm("Excluir tarefa?")) return;
+        const ok = await confirm({
+            title: "Excluir tarefa?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         // Optimistic Update
         setTasks(prev => prev.filter(t => t.id !== taskId));
 
         const result = await deleteTask(taskId);
         if (!result.success) {
-            alert("Erro ao excluir tarefa");
+            toast.error("Erro ao excluir tarefa");
             fetchTasks(); // Revert
         }
     }

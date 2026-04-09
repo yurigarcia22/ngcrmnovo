@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Loader2, Send, MessageSquare, FileText, Activity } from "lucide-react";
 import { addNote, sendMessage } from "@/app/actions";
 import { createClient } from "@/utils/supabase/client";
+import { toast } from "@/lib/toast";
 
 // Types
 type TimelineItem = {
@@ -121,7 +122,7 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
             res = await addNote(dealId, newContent);
         } else {
             if (!contactPhone || !contactId) {
-                alert("Este negócio não tem um contato com telefone vinculado.");
+                toast.error("Este negocio nao tem um contato com telefone vinculado");
                 setItems(prev => prev.filter(i => i.id !== tempItem.id));
                 setSaving(false);
                 return;
@@ -137,7 +138,7 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
             // or we filter out temp items when real ones come in (complex to match).
             // Let's rely on Realtime adding the real one.
         } else {
-            alert("Erro ao enviar: " + (res.error || "Erro desconhecido"));
+            toast.error("Erro ao enviar", res.error || "Erro desconhecido");
             setItems(prev => prev.filter(i => i.id !== tempItem.id));
         }
         setSaving(false);

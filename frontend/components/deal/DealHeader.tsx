@@ -5,9 +5,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { updateDeal, logSystemActivity, deleteDeal } from "@/app/actions";
 import { useRouter } from "next/navigation";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function DealHeader({ deal, pipelines }: any) {
     const router = useRouter();
+    const confirm = useConfirm();
     const currentPipeline = pipelines.find((p: any) => p.stages.some((s: any) => s.id === deal.stage_id));
     const currentStage = currentPipeline?.stages.find((s: any) => s.id === deal.stage_id);
 
@@ -28,7 +31,7 @@ export default function DealHeader({ deal, pipelines }: any) {
             await logSystemActivity(deal.id, `Moveu o negócio para a etapa "${stageName}"`);
             router.refresh();
         } else {
-            alert("Erro ao mover negócio.");
+            toast.error("Erro ao mover negocio");
         }
         setLoading(false);
     }
@@ -42,19 +45,25 @@ export default function DealHeader({ deal, pipelines }: any) {
             setIsEditing(false);
             router.refresh();
         } else {
-            alert("Erro ao salvar título.");
+            toast.error("Erro ao salvar titulo");
         }
         setLoading(false);
     }
 
     async function handleDelete() {
-        if (!confirm("Tem certeza que deseja excluir este negócio?")) return;
+        const ok = await confirm({
+            title: "Excluir este negocio?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
         setLoading(true);
         const res = await deleteDeal(deal.id);
         if (res.success) {
             router.push("/leads"); // Redirect directly
         } else {
-            alert("Erro ao excluir negócio.");
+            toast.error("Erro ao excluir negocio");
             setLoading(false);
         }
     }

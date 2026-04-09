@@ -10,10 +10,12 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Button, Input } from "@/components/ui/simple-ui";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DragDropContext, Draggable, DropResult } from "@hello-pangea/dnd";
 import { StrictModeDroppable } from "@/components/StrictModeDroppable";
 
 export default function PipelinesPage() {
+    const confirm = useConfirm();
     const [pipelines, setPipelines] = useState<any[]>([]);
     const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
     const [stages, setStages] = useState<any[]>([]);
@@ -80,7 +82,13 @@ export default function PipelinesPage() {
 
     async function handleDeletePipeline(id: string, e: React.MouseEvent) {
         e.stopPropagation();
-        if (!confirm("Tem certeza? Todos os negócios neste funil serão perdidos ou ficarão órfãos.")) return;
+        const ok = await confirm({
+            title: "Excluir funil?",
+            description: "Todos os negocios neste funil serao perdidos ou ficarao orfaos.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
 
         const res = await deletePipeline(id);
         if (res.success) {
@@ -118,7 +126,13 @@ export default function PipelinesPage() {
     }
 
     async function handleDeleteStage(stageId: string) {
-        if (!confirm("Remover etapa?")) return;
+        const ok = await confirm({
+            title: "Remover etapa?",
+            description: "Essa acao nao pode ser desfeita.",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         const res = await deleteStage(stageId);
         if (res.success) {
             loadStages(selectedPipelineId!);

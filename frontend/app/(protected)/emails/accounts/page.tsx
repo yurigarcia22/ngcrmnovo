@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Loader2, RefreshCw, Mail, FileText, Send, Settings, Inbox, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getEmailAccounts, createEmailAccount, updateEmailAccount, deleteEmailAccount, testEmailConnection, setDefaultEmailAccount } from '@/app/actions-email';
@@ -10,6 +11,7 @@ import { EmailAccountCard } from '@/components/email/EmailAccountCard';
 import { EmailAccountForm } from '@/components/email/EmailAccountForm';
 
 export default function EmailAccountsPage() {
+    const confirm = useConfirm();
     const [accounts, setAccounts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -57,7 +59,13 @@ export default function EmailAccountsPage() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Tem certeza que deseja remover esta conta?')) return;
+        const ok = await confirm({
+            title: "Remover conta?",
+            description: "Tem certeza que deseja remover esta conta?",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         const res = await deleteEmailAccount(id);
         if (res.success) {
             toast.success('Conta removida.');

@@ -3,11 +3,13 @@
 import { useState, useEffect } from 'react';
 import { Loader2, Send, ArrowUpRight, ArrowDownLeft, Clock, Search, Mail, Plus, RefreshCw, Trash2, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getEmailSent, getEmailInbox, getEmailAccounts, deleteEmailMessage, syncEmailInbox } from '@/app/actions-email';
 import { EmailComposer } from '@/components/email/EmailComposer';
 import { EmailSubNav } from './accounts/page';
 
 export default function EmailInboxPage() {
+    const confirm = useConfirm();
     const [inboxMessages, setInboxMessages] = useState<any[]>([]);
     const [sentMessages, setSentMessages] = useState<any[]>([]);
     const [accounts, setAccounts] = useState<any[]>([]);
@@ -63,7 +65,13 @@ export default function EmailInboxPage() {
 
     const handleDelete = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        if (!confirm('Excluir este e-mail?')) return;
+        const ok = await confirm({
+            title: "Excluir e-mail?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
         const res = await deleteEmailMessage(id);
         if (res.success) {
             toast.success('E-mail excluído.');

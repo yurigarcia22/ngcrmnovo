@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client";
 import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic } from "lucide-react";
 import NotesPanel from "./NotesPanel";
 import TasksPanel from "./TasksPanel";
+import { toast } from "@/lib/toast";
 
 interface ChatWindowProps {
     deal: any;
@@ -93,7 +94,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         const file = event.target.files?.[0];
         if (!file || !deal.contacts?.phone) return;
         if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-            alert("Apenas imagens e PDFs são permitidos.");
+            toast.warning("Apenas imagens e PDFs sao permitidos");
             return;
         }
 

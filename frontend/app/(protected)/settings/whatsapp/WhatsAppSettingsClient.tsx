@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { setupInstance, deleteInstance, refreshInstanceStatus } from "./actions";
 import { Loader2, Smartphone, Plus, Trash2, User, RefreshCw, X, QrCode as QrIcon } from "lucide-react";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useRouter } from "next/navigation";
 
 interface Instance {
@@ -38,6 +39,7 @@ export default function WhatsAppSettingsClient({
     const [instances, setInstances] = useState<Instance[]>(initialInstances);
     const [loading, setLoading] = useState(false);
     const router = useRouter();
+    const confirm = useConfirm();
 
     // Modal de Adicionar
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -111,7 +113,13 @@ export default function WhatsAppSettingsClient({
     }
 
     async function handleDelete(instanceName: string) {
-        if (!confirm("Tem certeza que deseja remover esta conexão?")) return;
+        const ok = await confirm({
+            title: "Remover conexao?",
+            description: "Essa acao desconectara este numero do WhatsApp.",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         setLoading(true);
         try {
             await deleteInstance(instanceName);

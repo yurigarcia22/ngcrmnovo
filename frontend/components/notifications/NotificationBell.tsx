@@ -2,19 +2,31 @@
 
 import { useNotifications } from "./NotificationProvider";
 import { Bell } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function NotificationBell() {
     const { unreadCount, setIsOpen } = useNotifications();
+    const hasUnread = unreadCount > 0;
 
     return (
         <button
+            type="button"
             onClick={() => setIsOpen(true)}
-            className={`relative p-2 rounded-full transition-colors ${unreadCount > 0 ? 'text-red-500 animate-bounce' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            aria-label={hasUnread ? `${unreadCount} notificacoes nao lidas` : "Notificacoes"}
+            className={cn(
+                "relative p-2 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                hasUnread
+                    ? "text-indigo-600 hover:bg-indigo-50"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            )}
         >
-            <Bell size={20} />
-            {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border border-white dark:border-slate-900">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+            <Bell size={20} strokeWidth={2} />
+            {hasUnread && (
+                <span
+                    aria-hidden="true"
+                    className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white shadow-sm"
+                >
+                    {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
             )}
         </button>

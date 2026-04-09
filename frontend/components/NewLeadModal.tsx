@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { X, Save, Loader2 } from "lucide-react";
 import { createLead } from "@/app/actions";
+import { toast } from "@/lib/toast";
 
 interface NewLeadModalProps {
     isOpen: boolean;
@@ -41,12 +42,15 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
             setPhone("");
             setValue("");
         } else {
-            alert("Erro ao criar lead: " + result.error);
+            toast.error("Erro ao criar lead", result.error);
         }
     }
 
     async function handleImport() {
-        if (!importFile) return alert("Selecione um arquivo Excel");
+        if (!importFile) {
+            toast.warning("Selecione um arquivo Excel");
+            return;
+        }
         setLoading(true);
         setImportResult(null);
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Loader2, Search, FileText, Copy, Archive, Trash2, MoreVertical, Eye } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getEmailTemplates, createEmailTemplate, updateEmailTemplate, duplicateEmailTemplate, archiveEmailTemplate, deleteEmailTemplate } from '@/app/actions-email';
 import { EmailTemplateEditor } from '@/components/email/EmailTemplateEditor';
 import { EmailSubNav } from '../accounts/page';
@@ -21,6 +22,7 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function EmailTemplatesPage() {
+    const confirm = useConfirm();
     const [templates, setTemplates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [showEditor, setShowEditor] = useState(false);
@@ -73,7 +75,13 @@ export default function EmailTemplatesPage() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Remover este template permanentemente?')) return;
+        const ok = await confirm({
+            title: "Remover template?",
+            description: "Remover este template permanentemente?",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         const res = await deleteEmailTemplate(id);
         if (res.success) {
             toast.success('Template removido.');

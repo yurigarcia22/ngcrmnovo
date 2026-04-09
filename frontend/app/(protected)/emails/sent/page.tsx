@@ -6,8 +6,10 @@ import { EmailComposer } from '@/components/email/EmailComposer';
 import { EmailSubNav } from '../accounts/page';
 import { Loader2, Search, ArrowUpRight, Clock, Mail, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export default function EmailSentPage() {
+    const confirm = useConfirm();
     const [messages, setMessages] = useState<any[]>([]);
     const [accounts, setAccounts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -38,7 +40,13 @@ export default function EmailSentPage() {
 
     const handleDelete = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        if (!confirm('Excluir este e-mail?')) return;
+        const ok = await confirm({
+            title: "Excluir e-mail?",
+            description: "Esta acao e irreversivel.",
+            tone: "danger",
+            confirmText: "Excluir",
+        });
+        if (!ok) return;
         const res = await deleteEmailMessage(id);
         if (res.success) {
             toast.success('E-mail excluído.');

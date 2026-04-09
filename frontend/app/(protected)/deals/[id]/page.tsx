@@ -8,7 +8,8 @@ import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions"
 import DealInfoSidebar from "@/components/deal/DealInfoSidebar";
 import DealTimeline from "@/components/deal/DealTimeline";
 import DealHeader from "@/components/deal/DealHeader";
-import { ArrowLeft, MoreHorizontal } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ArrowLeft, MoreHorizontal, SearchX } from "lucide-react";
 import Link from "next/link";
 
 export default async function DealPage({ params }: { params: { id: string } }) {
@@ -40,7 +41,27 @@ export default async function DealPage({ params }: { params: { id: string } }) {
     ]);
 
     if (!dealRes.success || !dealRes.data) {
-        return <div className="p-10 text-center">Negócio não encontrado.</div>;
+        return (
+            <div className="flex items-center justify-center min-h-screen p-6">
+                <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-sm">
+                    <EmptyState
+                        icon={SearchX}
+                        title="Negocio nao encontrado"
+                        description="O negocio que voce esta procurando nao existe ou foi removido."
+                        action={
+                            <Link
+                                href="/leads"
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                            >
+                                <ArrowLeft className="w-4 h-4" />
+                                Voltar para Leads
+                            </Link>
+                        }
+                        size="lg"
+                    />
+                </div>
+            </div>
+        );
     }
 
     const deal = dealRes.data;

@@ -3,9 +3,11 @@ import { useState, useEffect } from "react";
 import { AlertOctagon, Plus, Trash2, Pencil, Save, X, Loader2 } from "lucide-react";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { getLossReasons, createLossReason, deleteLossReason, updateLossReason } from "./actions";
 
 export default function LossReasonsSettingsPage() {
+    const confirm = useConfirm();
     const [reasons, setReasons] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [newItemName, setNewItemName] = useState("");
@@ -48,7 +50,13 @@ export default function LossReasonsSettingsPage() {
     }
 
     async function handleDelete(id: string) {
-        if (!confirm("Tem certeza? Isso pode afetar negócios que usam este motivo.")) return;
+        const ok = await confirm({
+            title: "Remover motivo de perda?",
+            description: "Isso pode afetar negocios que usam este motivo.",
+            tone: "danger",
+            confirmText: "Remover",
+        });
+        if (!ok) return;
         // TODO: Check usage before delete? Or rely on DB constraints (set null or restrict)? 
         // For now, let's assume simple delete.
         const res = await deleteLossReason(id);

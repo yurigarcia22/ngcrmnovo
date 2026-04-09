@@ -2,6 +2,7 @@ import { createClient } from "@/utils/supabase/server";
 import { User, Mail, Phone, Lock, Save } from "lucide-react";
 import { updateProfile } from "./actions";
 import PasswordUpdateForm from "./PasswordUpdateForm";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default async function ProfilePage() {
     const supabase = await createClient();
@@ -24,10 +25,17 @@ export default async function ProfilePage() {
 
     return (
         <div className="max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold text-gray-800 mb-2">Meu Perfil</h1>
-            <p className="text-gray-500 mb-8">Gerencie suas informações pessoais e de login.</p>
+            <PageHeader
+                title="Meu Perfil"
+                description="Gerencie suas informacoes pessoais e credenciais de acesso."
+                icon={<User className="w-5 h-5" />}
+                breadcrumbs={[
+                    { label: "Configuracoes", href: "/settings" },
+                    { label: "Meu Perfil" },
+                ]}
+            />
 
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-8 border-b border-gray-100 flex items-center gap-6">
                     <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center text-3xl font-bold text-blue-600 border-4 border-white shadow-lg">
                         {profile?.full_name?.[0]?.toUpperCase() || <User size={40} />}
