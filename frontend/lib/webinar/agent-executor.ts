@@ -3,7 +3,7 @@
  * Esta funcao roda no servidor e atualiza Supabase + Evolution.
  */
 
-import { createClient } from "@/utils/supabase/server";
+import { createServiceClient } from "@/utils/supabase/service";
 import {
   pickInstance,
   sendTextViaEvolution,
@@ -20,7 +20,7 @@ export async function executeAgentTools(args: {
   toolCalls: AgentToolCall[];
   reasoning?: string;
 }): Promise<ExecutionResult> {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const result: ExecutionResult = { ok: true, executed: [] };
 
   // Carrega lead + campaign uma vez

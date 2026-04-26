@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createServiceClient } from "@/utils/supabase/service";
 import { runAgent } from "@/lib/webinar/gemini-agent";
 import { executeAgentTools } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     const phone = jidToPhone(remoteJid);
     const phones = phoneVariations(phone);
 
-    const supabase = await createClient();
+    const supabase = createServiceClient();
 
     // Encontra o lead. Pode haver multiplas campanhas com mesmo numero, pega a mais recente ativa.
     const { data: leads } = await supabase

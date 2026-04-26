@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createServiceClient } from "@/utils/supabase/service";
 import {
   pickInstance,
   sendTextViaEvolution,
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function runDispatch() {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const startedAt = new Date();
 
   try {
