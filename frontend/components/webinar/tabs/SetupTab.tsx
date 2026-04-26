@@ -59,7 +59,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
     setLoadingInstances(true);
     const r = await listAvailableInstances();
     if (r.success) setInstances(r.data ?? []);
-    else toast.error(`Falha listando instances: ${r.error}`);
+    else toast.error(`Falha listando instâncias: ${r.error}`);
     setLoadingInstances(false);
   }
 
@@ -118,7 +118,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
       return;
     }
     toast.success(
-      `Campanha iniciada. Cadencia ${result.cadence}, ${result.scheduled} mensagens agendadas.`,
+      `Campanha iniciada. Cadência ${result.cadence}, ${result.scheduled} mensagens agendadas.`,
     );
     router.refresh();
   }
@@ -130,14 +130,14 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
       toast.error(`Erro: ${result.error}`);
       return;
     }
-    toast.success("Campanha excluida");
+    toast.success("Campanha excluída");
     router.push("/webinar");
   }
 
   return (
     <div className="max-w-3xl space-y-6">
       <Card className="p-6 space-y-6">
-        <Section title="Identificacao">
+        <Section title="Identificação">
           <Field label="Nome interno">
             <Input value={form.name} onChange={update("name")} />
           </Field>
@@ -145,10 +145,10 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
             <Input
               value={form.theme}
               onChange={update("theme")}
-              placeholder="4 Pilares Para Seu Petshop e Clinica..."
+              placeholder="4 Pilares Para Seu Petshop e Clínica..."
             />
           </Field>
-          <Field label="Descricao">
+          <Field label="Descrição">
             <textarea
               value={form.description}
               onChange={update("description")}
@@ -176,12 +176,12 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
           </Field>
         </Section>
 
-        <Section title="Oferta pos-webinar">
-          <Field label="Descricao da oferta">
+        <Section title="Oferta pós-webinar">
+          <Field label="Descrição da oferta">
             <Input
               value={form.offer_description}
               onChange={update("offer_description")}
-              placeholder="Call de diagnostico gratuito 30 min"
+              placeholder="Call de diagnóstico gratuito 30 min"
             />
           </Field>
           <Field label="Link Cal.com">
@@ -194,11 +194,11 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
           </Field>
         </Section>
 
-        <Section title="Disparo (multi-instance, rotacao anti-ban)">
+        <Section title="Disparo (multi-instance, rotação anti-ban)">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-500">
-                Marca quais instances vao participar da campanha. Sao rotacionadas aleatoriamente em cada disparo.
+                Marca quais instâncias vão participar da campanha. São rotacionadas aleatoriamente em cada disparo.
               </p>
               <button
                 type="button"
@@ -212,11 +212,11 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
 
             {loadingInstances ? (
               <div className="text-center py-6 text-sm text-slate-400">
-                Carregando instances do Evolution...
+                Carregando instâncias do Evolution...
               </div>
             ) : instances.length === 0 ? (
               <div className="text-center py-6 text-sm text-slate-400">
-                Nenhuma instance encontrada no Evolution.
+                Nenhuma instância encontrada no Evolution.
               </div>
             ) : (
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-72 overflow-y-auto">
@@ -255,7 +255,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
                         </div>
                         {(inst.profileName || inst.ownerJid) && (
                           <div className="text-[11px] text-slate-500 truncate">
-                            {inst.profileName ?? "—"}
+                            {inst.profileName ?? "-"}
                             {inst.ownerJid && ` (${inst.ownerJid.split("@")[0]})`}
                           </div>
                         )}
@@ -268,25 +268,25 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
 
             {selectedInstances.size > 0 && (
               <p className="text-xs text-slate-500">
-                {selectedInstances.size} instance(s) selecionada(s) pra rotacao.
+                {selectedInstances.size} instância(s) selecionada(s) pra rotação.
               </p>
             )}
           </div>
         </Section>
 
-        <Section title="Prospeccao">
+        <Section title="Prospecção">
           <Field label="Nicho">
             <Input
               value={form.target_nicho}
               onChange={update("target_nicho")}
-              placeholder="petshop e clinica veterinaria"
+              placeholder="petshop e clínica veterinária"
             />
           </Field>
-          <Field label="Cidades" hint="Separadas por virgula">
+          <Field label="Cidades" hint="Separadas por vírgula">
             <Input
               value={form.target_cities}
               onChange={update("target_cities")}
-              placeholder="sao paulo, campinas, santos"
+              placeholder="são paulo, campinas, santos"
             />
           </Field>
         </Section>
@@ -301,7 +301,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
               disabled={saving}
               variant="outline"
             >
-              {saving ? "Salvando..." : "Salvar alteracoes"}
+              {saving ? "Salvando..." : "Salvar alterações"}
             </Button>
             <Button
               onClick={handleStart}

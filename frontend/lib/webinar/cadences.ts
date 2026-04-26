@@ -1,83 +1,69 @@
 /**
- * Cadencias adaptativas de webinar com OPT-IN + NUTRICAO.
+ * Cadências adaptativas de webinar com OPT-IN + NUTRIÇÃO.
  *
  * Filosofia:
- *   1. Convite inicial NUNCA tem link Meet. So pergunta se quer participar.
+ *   1. Convite inicial NUNCA tem link Meet. Só pergunta se quer participar.
  *      Status do lead muda pra `pending_optin`.
- *   2. Apenas leads `opted_in` (que aceitaram via agente Gemini) recebem nutricao + lembretes.
- *   3. Nutricao = conteudo de valor preparando o lead pra absorver melhor o webinar.
- *   4. Lembretes = D-1, 1h antes, 10min antes (so com Meet link).
- *
- * Steps tem 2 modos de agendamento:
- *   - byOffset: dia_offset + hora absoluta (ex: D-7 as 10h)
- *   - byEvent: minutos antes do evento (ex: 60 min antes)
- *
- * Cada step pode declarar:
- *   - requireStatus: so dispara se lead estiver nesse status (ex: opted_in)
- *   - setStatusAfterSend: muda status do lead apos envio (ex: pending_optin apos convite)
+ *   2. Apenas leads `opted_in` (que aceitaram via agente Gemini) recebem nutrição + lembretes.
+ *   3. Nutrição = conteúdo de valor preparando o lead pra absorver melhor o webinar.
+ *   4. Lembretes = D-1, 1h antes, 10min antes (só com Meet link).
  */
 
 import type { WebinarFunnelStatus } from "@/types/webinar";
 
 export type CadenceStep = {
-  /** label visivel no funil */
   label: string;
-  /** template da mensagem com variaveis: {empresa} {tema} {data} {hora} {meet_link} {cal_link} */
   template: string;
-  /** quando disparar */
   schedule:
     | { type: "byOffset"; dayOffset: number; hour: number; minute?: number }
     | { type: "byEvent"; minutesBefore: number };
-  /** se definido, so dispara se lead estiver neste status */
   requireStatus?: WebinarFunnelStatus;
-  /** se definido, muda lead pra este status apos envio bem-sucedido */
   setStatusAfterSend?: WebinarFunnelStatus;
-  /** label da etapa (convite | nutricao | lembrete) pra agrupar visualmente */
   category: "convite" | "nutricao" | "lembrete" | "fallback";
 };
 
 export type CadenceProfile = "LONGA" | "MEDIA" | "CURTA" | "URGENTE" | "FINAL";
 
 export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
-  // 7+ dias ate o evento — convite + 2 nutricoes + 3 lembretes
+  // 7+ dias até o evento — convite + 2 nutrições + 3 lembretes
   LONGA: [
     {
       category: "convite",
       label: "Convite (opt-in)",
       template:
-        "Oi {empresa}, tudo bem? Vou rodar um webinar pratico essa semana: \"{tema}\".\n\nVai ser direto, conteudo aplicavel sem encheção. Tem interesse em participar?\n\nSe topar, te mando os detalhes e o link.",
+        "Oi {empresa}, tudo bem? Vou rodar um webinar prático essa semana: \"{tema}\".\n\nVai ser direto, conteúdo aplicável sem enrolação. Tem interesse em participar?\n\nSe topar, te mando os detalhes e o link.",
       schedule: { type: "byOffset", dayOffset: -7, hour: 10 },
       setStatusAfterSend: "pending_optin",
     },
     {
       category: "fallback",
-      label: "Reforco D-5 (sem resposta)",
+      label: "Reforço D-5 (sem resposta)",
       template:
-        "{empresa}, voltando aqui. Reforço o convite pro webinar \"{tema}\" dia {data} as {hora}. Vale a pena pra quem quer estruturar marketing pra performance. Topa?",
+        "{empresa}, voltando aqui. Reforço o convite pro webinar \"{tema}\" dia {data} às {hora}. Vale a pena pra quem quer estruturar marketing pra performance. Topa?",
       schedule: { type: "byOffset", dayOffset: -5, hour: 14 },
       requireStatus: "pending_optin",
     },
     {
       category: "nutricao",
-      label: "Nutricao 1 (D-3)",
+      label: "Nutrição 1 (D-3)",
       template:
-        "{empresa}, pra ja ir aquecendo: a gente vai abrir o jogo sobre os 4 pilares que separam quem so faz marketing de quem realmente vende.\n\nNao e formula magica, e operacao bem feita. Te vejo dia {data}.",
+        "{empresa}, pra já ir aquecendo: a gente vai abrir o jogo sobre os 4 pilares que separam quem só faz marketing de quem realmente vende.\n\nNão é fórmula mágica, é operação bem feita. Te vejo dia {data}.",
       schedule: { type: "byOffset", dayOffset: -3, hour: 14 },
       requireStatus: "opted_in",
     },
     {
       category: "nutricao",
-      label: "Nutricao 2 (D-2)",
+      label: "Nutrição 2 (D-2)",
       template:
-        "{empresa}, mais um teaser: a maioria das empresas perde dinheiro NAO no trafego, mas no que vem antes (oferta, copy, posicionamento) e no que vem depois (atendimento, fechamento).\n\nNo webinar a gente abre os 4 pontos onde vc provavelmente esta sangrando. Dia {data} as {hora}.",
+        "{empresa}, mais um teaser: a maioria das empresas perde dinheiro NÃO no tráfego, mas no que vem antes (oferta, copy, posicionamento) e no que vem depois (atendimento, fechamento).\n\nNo webinar a gente abre os 4 pontos onde você provavelmente está sangrando. Dia {data} às {hora}.",
       schedule: { type: "byOffset", dayOffset: -2, hour: 14 },
       requireStatus: "opted_in",
     },
     {
       category: "lembrete",
-      label: "Vespera + Link",
+      label: "Véspera + Link",
       template:
-        "{empresa}, o webinar e amanha as {hora}.\n\nLink Meet: {meet_link}\n\nSalva ai pra nao esquecer. Te espero.",
+        "{empresa}, o webinar é amanhã às {hora}.\n\nLink Meet: {meet_link}\n\nSalva aí pra não esquecer. Te espero.",
       schedule: { type: "byOffset", dayOffset: -1, hour: 18 },
       requireStatus: "opted_in",
     },
@@ -85,7 +71,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "1h antes",
       template:
-        "{empresa}, em 1 hora comecamos.\n\nLink: {meet_link}",
+        "{empresa}, em 1 hora começamos.\n\nLink: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 60 },
       requireStatus: "opted_in",
     },
@@ -93,35 +79,35 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "10 min antes",
       template:
-        "{empresa}, ta comecando agora.\n\nEntra: {meet_link}",
+        "{empresa}, está começando agora.\n\nEntra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "opted_in",
     },
   ],
 
-  // 3-7 dias — convite + 1 nutricao + 3 lembretes
+  // 3-7 dias — convite + 1 nutrição + 3 lembretes
   MEDIA: [
     {
       category: "convite",
       label: "Convite (opt-in)",
       template:
-        "Oi {empresa}, tudo bem? Vou rodar um webinar essa semana: \"{tema}\".\n\nDireto ao ponto, conteudo aplicavel. Acontece dia {data} as {hora}. Topa participar?",
+        "Oi {empresa}, tudo bem? Vou rodar um webinar essa semana: \"{tema}\".\n\nDireto ao ponto, conteúdo aplicável. Acontece dia {data} às {hora}. Topa participar?",
       schedule: { type: "byOffset", dayOffset: -3, hour: 10 },
       setStatusAfterSend: "pending_optin",
     },
     {
       category: "nutricao",
-      label: "Nutricao (D-2)",
+      label: "Nutrição (D-2)",
       template:
-        "{empresa}, pra ja ir aquecendo: a maioria das empresas perde dinheiro nao no trafego, e sim na oferta + atendimento. No webinar a gente abre os 4 pilares que mudam o jogo. Dia {data} as {hora}.",
+        "{empresa}, pra já ir aquecendo: a maioria das empresas perde dinheiro não no tráfego, e sim na oferta + atendimento. No webinar a gente abre os 4 pilares que mudam o jogo. Dia {data} às {hora}.",
       schedule: { type: "byOffset", dayOffset: -2, hour: 14 },
       requireStatus: "opted_in",
     },
     {
       category: "lembrete",
-      label: "Vespera + Link",
+      label: "Véspera + Link",
       template:
-        "{empresa}, o webinar \"{tema}\" e amanha as {hora}.\n\nLink: {meet_link}",
+        "{empresa}, o webinar \"{tema}\" é amanhã às {hora}.\n\nLink: {meet_link}",
       schedule: { type: "byOffset", dayOffset: -1, hour: 18 },
       requireStatus: "opted_in",
     },
@@ -129,7 +115,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "1h antes",
       template:
-        "{empresa}, em 1 hora comecamos. Link: {meet_link}",
+        "{empresa}, em 1 hora começamos. Link: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 60 },
       requireStatus: "opted_in",
     },
@@ -137,19 +123,19 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "10 min antes",
       template:
-        "{empresa}, ta comecando agora. Entra: {meet_link}",
+        "{empresa}, está começando agora. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "opted_in",
     },
   ],
 
-  // 1-3 dias — convite + 2 lembretes (sem nutricao, sem tempo)
+  // 1-3 dias — convite + 2 lembretes (sem nutrição, sem tempo)
   CURTA: [
     {
       category: "convite",
       label: "Convite urgente (opt-in)",
       template:
-        "Oi {empresa}, vou rodar um webinar amanha as {hora}: \"{tema}\". 30 min, conteudo aplicavel. Topa participar?",
+        "Oi {empresa}, vou rodar um webinar amanhã às {hora}: \"{tema}\". 30 min, conteúdo aplicável. Topa participar?",
       schedule: { type: "byOffset", dayOffset: -1, hour: 10 },
       setStatusAfterSend: "pending_optin",
     },
@@ -157,7 +143,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "1h antes",
       template:
-        "{empresa}, em 1 hora comecamos o webinar. Link: {meet_link}",
+        "{empresa}, em 1 hora começamos o webinar. Link: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 60 },
       requireStatus: "opted_in",
     },
@@ -165,7 +151,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "10 min antes",
       template:
-        "{empresa}, ta comecando agora. Entra: {meet_link}",
+        "{empresa}, está começando agora. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "opted_in",
     },
@@ -177,7 +163,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "convite",
       label: "Convite hoje",
       template:
-        "Oi {empresa}, vou rodar um webinar hoje as {hora}: \"{tema}\". Direto, 30 min. Topa entrar? Se sim te mando o link na hora.",
+        "Oi {empresa}, vou rodar um webinar hoje às {hora}: \"{tema}\". Direto, 30 min. Topa entrar? Se sim te mando o link na hora.",
       schedule: { type: "byOffset", dayOffset: 0, hour: 9 },
       setStatusAfterSend: "pending_optin",
     },
@@ -185,7 +171,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "lembrete",
       label: "10 min antes",
       template:
-        "{empresa}, ta comecando agora. Entra: {meet_link}",
+        "{empresa}, está começando agora. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "opted_in",
     },
@@ -197,7 +183,7 @@ export const CADENCES: Record<CadenceProfile, CadenceStep[]> = {
       category: "convite",
       label: "Last call",
       template:
-        "Oi {empresa}, ta comecando agora um webinar rapido sobre \"{tema}\". Se topar entrar, link: {meet_link}",
+        "Oi {empresa}, está começando agora um webinar rápido sobre \"{tema}\". Se topar entrar, link: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 15 },
       setStatusAfterSend: "pending_optin",
     },

@@ -32,7 +32,7 @@ export default function NewCampaignPage() {
     e.preventDefault();
 
     if (!form.name.trim()) {
-      toast.error("Nome interno da campanha e obrigatorio");
+      toast.error("Nome interno da campanha é obrigatório");
       return;
     }
 
@@ -81,14 +81,14 @@ export default function NewCampaignPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Nova Campanha</h1>
           <p className="text-sm text-slate-500">
-            Cria a estrutura agora. Tema, leads e cadencia podem ficar pra depois.
+            Cria a estrutura agora. Tema, leads e cadência podem ficar pra depois.
           </p>
         </div>
       </div>
 
       <Card className="p-6 max-w-3xl">
         <form onSubmit={handleSubmit} className="space-y-6">
-          <Section title="Identificacao" subtitle="Como tu vai chamar essa campanha">
+          <Section title="Identificação" subtitle="Como tu vai chamar essa campanha">
             <Field label="Nome interno *" hint="Ex: Petshop SP - Maio/2026">
               <Input
                 value={form.name}
@@ -102,15 +102,15 @@ export default function NewCampaignPage() {
               <Input
                 value={form.theme}
                 onChange={update("theme")}
-                placeholder="4 Pilares Para Seu Petshop e Clinica Faturarem Mais"
+                placeholder="4 Pilares Para Seu Petshop e Clínica Faturarem Mais"
               />
             </Field>
 
-            <Field label="Descricao interna" hint="Notas internas, objetivos">
+            <Field label="Descrição interna" hint="Notas internas, objetivos">
               <textarea
                 value={form.description}
                 onChange={update("description")}
-                placeholder="Objetivos, observacoes..."
+                placeholder="Objetivos, observações..."
                 rows={3}
                 className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
               />
@@ -139,16 +139,16 @@ export default function NewCampaignPage() {
             </Field>
           </Section>
 
-          <Section title="Oferta pos-webinar" subtitle="O que oferece no fim do evento">
-            <Field label="Descricao da oferta" hint="Ex: call de diagnostico de 30 min">
+          <Section title="Oferta pós-webinar" subtitle="O que oferece no fim do evento">
+            <Field label="Descrição da oferta" hint="Ex: call de diagnóstico de 30 min">
               <Input
                 value={form.offer_description}
                 onChange={update("offer_description")}
-                placeholder="Call de diagnostico gratuito de 30 minutos"
+                placeholder="Call de diagnóstico gratuito de 30 minutos"
               />
             </Field>
 
-            <Field label="Link Cal.com" hint="Pra leads agendarem o diagnostico">
+            <Field label="Link Cal.com" hint="Pra leads agendarem o diagnóstico">
               <Input
                 type="url"
                 value={form.cal_link}
@@ -171,23 +171,23 @@ export default function NewCampaignPage() {
             </Field>
           </Section>
 
-          <Section title="Prospeccao" subtitle="Configuracao do scraper">
-            <Field label="Nicho" hint="Ex: petshop e clinica veterinaria">
+          <Section title="Prospecção" subtitle="Configuração do scraper">
+            <Field label="Nicho" hint="Ex: petshop e clínica veterinária">
               <Input
                 value={form.target_nicho}
                 onChange={update("target_nicho")}
-                placeholder="petshop e clinica veterinaria"
+                placeholder="petshop e clínica veterinária"
               />
             </Field>
 
             <Field
               label="Cidades"
-              hint="Separa por virgula. Ex: sao paulo, campinas, santos"
+              hint="Separa por vírgula. Ex: são paulo, campinas, santos"
             >
               <Input
                 value={form.target_cities}
                 onChange={update("target_cities")}
-                placeholder="sao paulo, campinas, santos"
+                placeholder="são paulo, campinas, santos"
               />
             </Field>
           </Section>

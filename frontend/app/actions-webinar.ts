@@ -220,13 +220,13 @@ function renderInviteMessage(lead: any, campaign: any): string {
         hour: "2-digit",
         minute: "2-digit",
       })
-    : "em breve (data sera confirmada)";
-  const link = campaign.meet_link ?? "(link sera enviado em breve)";
+    : "em breve (data será confirmada)";
+  const link = campaign.meet_link ?? "(link será enviado em breve)";
   const oferta = campaign.offer_description
-    ? `\n\nApos o evento: ${campaign.offer_description}`
+    ? `\n\nApós o evento: ${campaign.offer_description}`
     : "";
 
-  return `Oi, ${empresa}\n\nVou rodar um webinar: "${tema}".\n\nData: ${date}\nLink: ${link}${oferta}\n\nConfirma sua presenca?`;
+  return `Oi, ${empresa}\n\nVou rodar um webinar: "${tema}".\n\nData: ${date}\nLink: ${link}${oferta}\n\nConfirma sua presença?`;
 }
 
 export async function sendTestMessageToLead(leadId: string): Promise<{
@@ -244,10 +244,10 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
       .single();
 
     if (leadErr) throw leadErr;
-    if (!lead) throw new Error("Lead nao encontrado");
+    if (!lead) throw new Error("Lead não encontrado");
 
     const campaign = (lead as any).webinar_campaigns;
-    if (!campaign) throw new Error("Campanha nao encontrada");
+    if (!campaign) throw new Error("Campanha não encontrada");
     if (!campaign.instance_name) {
       throw new Error("Configura uma instance Evolution na aba Setup primeiro");
     }
@@ -260,7 +260,7 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
     });
     if (!instance) {
       throw new Error(
-        "Nenhuma instance Evolution disponivel. Configura na aba Setup.",
+        "Nenhuma instance Evolution disponível. Configura na aba Setup.",
       );
     }
 
@@ -312,7 +312,7 @@ export async function startCampaign(campaignId: string): Promise<{
       .eq("id", campaignId)
       .single();
     if (cErr) throw cErr;
-    if (!campaign) throw new Error("Campanha nao encontrada");
+    if (!campaign) throw new Error("Campanha não encontrada");
 
     if (!campaign.event_date) {
       throw new Error(
@@ -351,7 +351,7 @@ export async function startCampaign(campaignId: string): Promise<{
       .in("funnel_status", ["scraped", "enriched"]);
     if (lErr) throw lErr;
     if (!leads || leads.length === 0) {
-      throw new Error("Nenhum lead apto pra cadencia (status scraped/enriched)");
+      throw new Error("Nenhum lead apto pra cadência (status scraped/enriched)");
     }
 
     const dataFmt = eventDate.toLocaleDateString("pt-BR", {

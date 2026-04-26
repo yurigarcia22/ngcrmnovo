@@ -118,7 +118,7 @@ async function CampaignsList() {
         </h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
           Cria a primeira campanha pra prospectar empresas, enviar convites, gerenciar
-          cadencia automatica e visualizar o funil em tempo real.
+          cadência automática e visualizar o funil em tempo real.
         </p>
         <Link href="/webinar/new">
           <Button className="bg-slate-900 text-white hover:bg-slate-800">
@@ -146,7 +146,7 @@ export default function WebinarPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Webinar</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Campanhas de prospeccao automatizada com cadencia e funil em tempo real.
+            Campanhas de prospecção automatizada com cadência e funil em tempo real.
           </p>
         </div>
         <Link href="/webinar/new">

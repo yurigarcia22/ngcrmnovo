@@ -12,7 +12,7 @@ const FUNNEL_STAGES = [
   { key: "replied", label: "Responderam", color: "bg-purple-400" },
   { key: "confirmed", label: "Confirmaram", color: "bg-fuchsia-400" },
   { key: "attended", label: "Presentes", color: "bg-emerald-400" },
-  { key: "converted", label: "Diagnostico", color: "bg-emerald-600" },
+  { key: "converted", label: "Diagnóstico", color: "bg-emerald-600" },
 ];
 
 export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
@@ -26,7 +26,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
           <div>
             <h2 className="text-sm font-bold text-slate-800">Funil em tempo real</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Visualizacao das metricas e movimentacao dos leads pelo funil. Atualizado em
+              Visualização das métricas e movimentação dos leads pelo funil. Atualizado em
               tempo real via Realtime do Supabase quando estiver ativo.
             </p>
           </div>
@@ -39,7 +39,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
           <Stat label="Presentes" value={campaign.total_attended} />
           <Stat label="Convertidos" value={campaign.total_converted} accent="emerald" />
           <Stat
-            label="Taxa de presenca"
+            label="Taxa de presença"
             value={
               campaign.total_confirmed > 0
                 ? `${Math.round((campaign.total_attended / campaign.total_confirmed) * 100)}%`
@@ -47,7 +47,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
             }
           />
           <Stat
-            label="Taxa de conversao"
+            label="Taxa de conversão"
             value={
               campaign.total_invited > 0
                 ? `${Math.round((campaign.total_converted / campaign.total_invited) * 100)}%`
@@ -64,7 +64,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
       </Card>
 
       <Card className="p-6">
-        <h2 className="text-sm font-bold text-slate-800 mb-4">Visualizacao do funil</h2>
+        <h2 className="text-sm font-bold text-slate-800 mb-4">Visualização do funil</h2>
         <div className="space-y-2">
           {FUNNEL_STAGES.map((stage) => (
             <div key={stage.key} className="flex items-center gap-3">
@@ -82,7 +82,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
 
         <div className="mt-6 pt-4 border-t border-slate-100">
           <p className="text-xs text-slate-400 italic">
-            Funil interativo com kanban e atualizacao em tempo real disponivel na Fase 5.
+            Funil interativo com kanban e atualização em tempo real disponível na Fase 5.
           </p>
         </div>
       </Card>

@@ -13,7 +13,7 @@ type TabKey = "setup" | "leads" | "cadence" | "funnel";
 const TABS: { key: TabKey; label: string; icon: any }[] = [
   { key: "setup", label: "Setup", icon: Settings2 },
   { key: "leads", label: "Leads", icon: Users },
-  { key: "cadence", label: "Cadencia", icon: Calendar },
+  { key: "cadence", label: "Cadência", icon: Calendar },
   { key: "funnel", label: "Funil", icon: BarChart3 },
 ];
 

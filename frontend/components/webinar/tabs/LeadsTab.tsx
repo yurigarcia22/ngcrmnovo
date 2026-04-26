@@ -55,7 +55,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
   return (
     <div className="space-y-6 max-w-5xl">
       <Card className="p-6">
-        <h2 className="text-sm font-bold text-slate-800 mb-1">Acoes</h2>
+        <h2 className="text-sm font-bold text-slate-800 mb-1">Ações</h2>
         <p className="text-xs text-slate-500 mb-4">
           Construa a base de leads dessa campanha de 3 jeitos
         </p>
@@ -65,20 +65,20 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
             icon={Search}
             title="Extrair via scraper"
             description="Usa nicho e cidades pra buscar empresas no Google Maps"
-            cta="Disponivel na Fase 2"
+            cta="Disponível na Fase 2"
             disabled
           />
           <ActionCard
             icon={Sparkles}
             title="Enriquecer com IA"
-            description="Classifica leads (hot/warm/cold) e gera angulo de abordagem"
-            cta="Disponivel na Fase 3"
+            description="Classifica leads (hot/warm/cold) e gera ângulo de abordagem"
+            cta="Disponível na Fase 3"
             disabled
           />
           <ActionCard
             icon={UserPlus}
             title="Adicionar manualmente"
-            description="Cola um numero individual pra teste ou complemento"
+            description="Cola um número individual pra teste ou complemento"
             cta="Adicionar lead"
             onClick={() => setShowAddModal(true)}
           />
@@ -109,7 +109,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                   <th className="pb-2 font-semibold text-slate-600">Empresa</th>
                   <th className="pb-2 font-semibold text-slate-600">Telefone</th>
                   <th className="pb-2 font-semibold text-slate-600">Status</th>
-                  <th className="pb-2 font-semibold text-slate-600 text-right">Acoes</th>
+                  <th className="pb-2 font-semibold text-slate-600 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,7 +172,7 @@ function AddLeadModal({
 
   async function handleSave() {
     if (!form.phone.trim()) {
-      toast.error("Telefone e obrigatorio");
+      toast.error("Telefone é obrigatório");
       return;
     }
     setSaving(true);
@@ -221,7 +221,7 @@ function AddLeadModal({
             <Input
               value={form.company_name}
               onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-              placeholder="Petshop Cao Feliz"
+              placeholder="Petshop Cão Feliz"
             />
           </div>
 
