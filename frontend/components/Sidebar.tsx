@@ -16,7 +16,8 @@ import {
     Phone,
     Briefcase,
     Zap,
-    Mail
+    Mail,
+    Megaphone
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
@@ -107,6 +108,13 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
                     title="Cold Call"
                     href="/cold-call"
                     isActive={pathname.startsWith("/cold-call")}
+                    open={open}
+                />
+                <Option
+                    Icon={Megaphone}
+                    title="Webinar"
+                    href="/webinar"
+                    isActive={pathname.startsWith("/webinar")}
                     open={open}
                 />
 
