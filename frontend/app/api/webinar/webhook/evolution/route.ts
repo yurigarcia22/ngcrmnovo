@@ -82,11 +82,17 @@ export async function POST(req: NextRequest) {
       message?.conversation ??
       message?.extendedTextMessage?.text ??
       message?.imageMessage?.caption ??
+      message?.videoMessage?.caption ??
       "";
 
-    if (!text) {
+    const isAudio = !!(message?.audioMessage || message?.pttMessage);
+
+    if (!text && !isAudio) {
       return NextResponse.json({ ok: true, ignored: "no_text_in_message" });
     }
+
+    // Audio/voz: injeta mensagem sinalizada pro agente pedir pra digitar
+    const effectiveText = text || "[lead enviou áudio — não consigo ouvir, precisa pedir pra digitar]";
 
     const phone = jidToPhone(effectiveJid);
     const phones = phoneVariations(phone);
@@ -129,7 +135,7 @@ export async function POST(req: NextRequest) {
       scheduled_at: new Date().toISOString(),
       status: "replied",
       direction: "inbound",
-      sent_text: text,
+      sent_text: effectiveText,
       sent_at: new Date().toISOString(),
       evolution_message_id: messageId ?? null,
       instance_used: instanceName ?? null,
