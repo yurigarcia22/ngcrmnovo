@@ -91,7 +91,7 @@ export function CadenceTab({ campaign }: { campaign: WebinarCampaign }) {
           <div>
             <h2 className="text-base font-bold text-slate-900">Cadência da campanha</h2>
             <p className="text-xs text-slate-500 mt-1">
-              A cadência tem 2 fases. A primeira é conversacional (agente Gemini conduz). A segunda é fixa, adaptativa por tempo até o evento.
+              A cadência tem 2 fases. A primeira é conversacional (agente IA conduz). A segunda é fixa, adaptativa por tempo até o evento.
             </p>
           </div>
         </div>
@@ -119,7 +119,7 @@ export function CadenceTab({ campaign }: { campaign: WebinarCampaign }) {
               Fase 1 — Abordagem inicial (conversacional)
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Cron dispara UMA saudação variada por turno do dia (manhã/tarde/noite, 4-6 variações cada). Quando o lead responde, o agente Gemini conduz toda a qualificação até confirmar (com nome + email/telefone).
+              Cron dispara UMA saudação variada por turno do dia (manhã/tarde/noite, 4-6 variações cada). Quando o lead responde, o agente IA conduz toda a qualificação até confirmar (com nome + email/telefone).
             </p>
           </div>
         </div>

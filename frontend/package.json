@@ -11,7 +11,6 @@
     "check-theme": "node ../scripts/audit-theme.js ."
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@hello-pangea/dnd": "^18.0.1",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",

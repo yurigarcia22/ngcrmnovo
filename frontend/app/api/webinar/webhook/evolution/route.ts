@@ -5,7 +5,7 @@
  *   1. Valida evento, extrai JID/phone
  *   2. Checa idempotência, busca lead, salva inbound
  *   3. Retorna 200 imediatamente (< 200ms) — Evolution não timeout
- *   4. Roda agente Gemini em background (Node.js event loop mantém vivo)
+ *   4. Roda agente OpenAI em background (Node.js event loop mantém vivo)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -103,11 +103,11 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
   try {
     console.log("[webhook evolution] [bg] iniciando agente lead=" + campaignLeadId);
 
-    // Timeout de 25s no Gemini — se travar, dispara fallback
+    // Timeout de 25s no OpenAI — se travar, dispara fallback
     const decision = await Promise.race([
       runAgent(ctx),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("gemini_timeout_25s")), 25_000),
+        setTimeout(() => reject(new Error("openai_timeout_25s")), 25_000),
       ),
     ]);
 

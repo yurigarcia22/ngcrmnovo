@@ -111,7 +111,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
   async function handleStart() {
     if (
       !confirm(
-        `Iniciar campanha "${campaign.name}"? Vai disparar a saudação inicial pra todos os leads (status scraped/enriched).\n\nO agente Gemini conduz a conversa daí em diante até confirmar a presença.`,
+        `Iniciar campanha "${campaign.name}"? Vai disparar a saudação inicial pra todos os leads (status scraped/enriched).\n\nO agente IA conduz a conversa daí em diante até confirmar a presença.`,
       )
     )
       return;

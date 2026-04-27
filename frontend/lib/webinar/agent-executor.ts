@@ -17,7 +17,7 @@ import {
   renderTemplate,
   getFirstName,
 } from "./cadences";
-import type { AgentToolCall } from "./gemini-agent";
+import type { AgentToolCall } from "./agent-types";
 
 export type ExecutionResult = {
   ok: boolean;

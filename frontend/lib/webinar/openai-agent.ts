@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { buildSystemPrompt, AGENT_TOOLS, type AgentContext } from "./agent-prompt";
-import type { AgentToolCall, AgentDecision } from "./gemini-agent";
+import type { AgentToolCall, AgentDecision } from "./agent-types";
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY ?? "";
 // gpt-4o-mini: rapido, barato, function calling robusto.
