@@ -48,11 +48,12 @@ function phoneVariations(phone: string): string[] {
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("[webhook evolution] >>> RECEBIDO POST <<<");
     const body = await req.json();
 
     // Evolution v2 manda em formato { event, instance, data }
     const event = body?.event ?? body?.event_type;
-    console.log("[webhook evolution] recebido event=" + event);
+    console.log("[webhook evolution] recebido event=" + event + " instance=" + (body?.instance ?? "(sem instance)"));
     if (event !== "messages.upsert" && event !== "MESSAGES_UPSERT") {
       console.log("[webhook evolution] ignorando event=" + event);
       return NextResponse.json({ ok: true, ignored: event });
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
     const key = data?.key ?? {};
     const fromMe = key?.fromMe ?? false;
     if (fromMe) {
+      console.log("[webhook evolution] ignorando: fromMe=true jid=" + (key?.remoteJid ?? "?"));
       return NextResponse.json({ ok: true, ignored: "fromMe" });
     }
 
@@ -225,6 +227,12 @@ export async function POST(req: NextRequest) {
       "[webhook evolution] executor: " +
         exec.executed.map((e) => e.tool + "=" + e.result).join(","),
     );
+
+    // Atualiza last_interaction_at para ordering correto em leads com mesmo telefone
+    await supabase
+      .from("webinar_campaign_leads")
+      .update({ last_interaction_at: new Date().toISOString() })
+      .eq("id", lead.id);
 
     return NextResponse.json({
       ok: true,

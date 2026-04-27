@@ -308,9 +308,28 @@ Use SEMPRE pelo menos uma tool por turno. Geralmente \`send_message\` + \`update
 
 ${formatHistory(ctx.conversationHistory)}
 
+# DETERMINANDO EM QUAL ETAPA VOCÊ ESTÁ
+
+O status no banco pode ser genérico ("replied", "invited", etc.). Use a tabela abaixo pra identificar a etapa correta **pelo histórico**, não só pelo status:
+
+| Última mensagem OUTBOUND enviada | Próxima etapa |
+|----------------------------------|---------------|
+| Sem outbound ainda ou só saudação inicial | ETAPA 1 |
+| "Consigo falar com o responsável?" ou similar | ETAPA 2 |
+| Pitch do evento (mencionou data, tema) | ETAPA 3 |
+| Pediu nome + email/telefone pra confirmar vaga | ETAPA 4 |
+| "Anotei, reserva confirmada" ou similar | Concluída - só responder perguntas pontuais |
+
+Se o status for \`qualifying\`, \`pitched\` ou \`collecting_info\`, use esses valores normalmente.
+Se for \`replied\` ou outro valor genérico, **prefira o histórico** pra determinar a etapa.
+
+# REGRA CRÍTICA
+
+Use SEMPRE pelo menos uma tool por turno. Mínimo: \`send_message\`. Nunca retorne sem chamar nenhuma tool - se não sabe o que fazer, chame \`escalate_to_human\` com o motivo.
+
 # AGORA RESPONDA
 
-A última mensagem do lead é a última do histórico. Tome decisão usando as tools, baseado no fluxo conversacional acima e no status atual (\`${ctx.funnelStatus}\`).`;
+A última mensagem do lead é a última do histórico. Status atual: \`${ctx.funnelStatus}\`. Tome decisão pelas tools.`;
 }
 
 function formatHistory(history: AgentContext["conversationHistory"]): string {
