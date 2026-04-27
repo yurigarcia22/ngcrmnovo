@@ -262,6 +262,46 @@ export async function executeAgentTools(args: {
             result: "ok",
             detail: call.args.reason,
           });
+
+          // Notifica o diretor via WhatsApp
+          try {
+            const lastInbound = [...(lead as any).webinar_messages ?? []]
+              .reverse()
+              .find((m: any) => m.direction === "inbound");
+
+            // Busca última mensagem inbound direto do banco (lead não vem com messages)
+            const { data: lastMsgs } = await supabase
+              .from("webinar_messages")
+              .select("sent_text")
+              .eq("campaign_lead_id", args.campaignLeadId)
+              .eq("direction", "inbound")
+              .order("created_at", { ascending: false })
+              .limit(1);
+
+            const ultimaMsg = lastMsgs?.[0]?.sent_text ?? "(sem texto)";
+            const empresa = lead.company_name ?? "desconhecida";
+            const telefone = lead.phone ?? "";
+
+            const notifText =
+              `*Escalado para humano* — Webinar\n\n` +
+              `Empresa: ${empresa}\n` +
+              `Telefone: ${telefone}\n` +
+              `Ultima mensagem do lead: "${ultimaMsg}"\n\n` +
+              `Motivo: ${call.args.reason}`;
+
+            const pickedNotif = await pickInstance({
+              instance_names: campaign.instance_names,
+              instance_name: campaign.instance_name,
+              preferredInstance: lead.last_instance_used ?? null,
+            });
+
+            if (pickedNotif) {
+              await sendTextViaEvolution(pickedNotif.name, "5537999577862", notifText);
+            }
+          } catch (notifErr: any) {
+            console.error("[agent-executor] falha ao notificar diretor:", notifErr?.message);
+          }
+
           break;
         }
 
