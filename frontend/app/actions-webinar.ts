@@ -832,7 +832,9 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
       throw new Error("Configura uma instance Evolution na aba Setup primeiro");
     }
 
-    const message = renderInviteMessage(lead, campaign);
+    // Saudação variada (manhã/tarde/noite) — mesmo gatilho da Fase 1.
+    // O agente Gemini assume a partir da primeira resposta do lead.
+    const message = pickInitialGreeting(new Date());
 
     const picked = await pickInstance({
       instance_names: campaign.instance_names,
@@ -855,7 +857,7 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
     await supabase
       .from("webinar_campaign_leads")
       .update({
-        funnel_status: "invited",
+        funnel_status: "pending_response",
         last_instance_used: picked.name,
       })
       .eq("id", leadId);
@@ -865,16 +867,13 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
       scheduled_at: new Date().toISOString(),
       status: "sent",
       direction: "outbound",
+      category: "initial_outreach",
       sent_text: message,
       sent_at: new Date().toISOString(),
       evolution_message_id: evoResult.messageId ?? null,
       instance_used: picked.name,
+      ai_metadata: { phase: "initial_outreach", source: "manual_trigger" },
     });
-
-    await supabase
-      .from("webinar_campaigns")
-      .update({ total_invited: (campaign.total_invited ?? 0) + 1 })
-      .eq("id", campaign.id);
 
     revalidatePath(`/webinar/${campaign.id}`);
     return { success: true, sentText: message };

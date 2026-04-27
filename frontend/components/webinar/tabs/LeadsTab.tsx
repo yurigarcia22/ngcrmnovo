@@ -247,9 +247,10 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                         disabled={pending}
                         onClick={() => handleSend(lead)}
                         className="text-xs"
+                        title="Manda saudação variada e ativa o agente Gemini quando o lead responder"
                       >
                         <Send className="w-3 h-3 mr-1" />
-                        Disparar mensagem
+                        Iniciar conversa
                       </Button>
                     </td>
                   </tr>
