@@ -1,31 +1,44 @@
 /**
- * Cron de dispatch — envia mensagens da cadencia que estao pending e ja venceram.
+ * Cron de dispatch — envia mensagens pending que já venceram.
  *
- * Configurar como Vercel Cron: vercel.json com schedule "* /5 * * * *" (a cada 5 min)
- * Ou chamar manualmente: GET /api/webinar/cron/dispatch
+ * Diferenciação por categoria:
+ *   - initial_outreach: jitter de 3 a 7 minutos entre cada lead (anti-ban).
+ *   - reminder/nutricao/post_event: dispara em rajada respeitando scheduled_at.
+ *   - agent_reply: timer humano curto (5-30s).
  *
- * Algoritmo:
- *   1. Busca webinar_messages WHERE status='pending' AND scheduled_at <= now() (limit 50)
- *   2. Pra cada: pickInstance + send + update status
- *   3. Atualiza lead.funnel_status conforme o caso
+ * Configurar como Vercel Cron: GET /api/webinar/cron/dispatch
+ * Schedule sugerido: a cada 1-2 minutos.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
-import {
-  pickInstance,
-  sendTextViaEvolution,
-} from "@/lib/webinar/evolution";
+import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
 
 export const dynamic = "force-dynamic";
 
 const BATCH_SIZE = 30;
 
-export async function GET(req: NextRequest) {
-  return runDispatch();
+// Jitter por categoria (segundos)
+const JITTER_BY_CATEGORY: Record<string, { min: number; max: number }> = {
+  initial_outreach: { min: 180, max: 420 }, // 3 a 7 min
+  reminder: { min: 5, max: 20 }, // 5 a 20s
+  nutricao: { min: 5, max: 20 },
+  post_event: { min: 5, max: 20 },
+  agent_reply: { min: 5, max: 30 },
+};
+
+function randInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-export async function POST(req: NextRequest) {
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+export async function GET(_req: NextRequest) {
+  return runDispatch();
+}
+export async function POST(_req: NextRequest) {
   return runDispatch();
 }
 
@@ -42,6 +55,7 @@ async function runDispatch() {
         campaign_lead_id,
         sent_text,
         scheduled_at,
+        category,
         ai_metadata,
         webinar_campaign_leads!inner (
           id,
@@ -69,19 +83,30 @@ async function runDispatch() {
       id: string;
       ok: boolean;
       instance?: string;
+      category?: string;
+      delay_ms?: number;
       error?: string;
     }> = [];
 
     for (const row of rows ?? []) {
       const lead = (row as any).webinar_campaign_leads;
       const campaign = lead?.webinar_campaigns;
+      const category: string = (row as any).category ?? "initial_outreach";
 
       if (!campaign || campaign.status !== "active") {
         await supabase
           .from("webinar_messages")
-          .update({ status: "cancelled", error_message: "campaign not active" })
+          .update({
+            status: "cancelled",
+            error_message: "campanha não ativa",
+          })
           .eq("id", row.id);
-        results.push({ id: row.id, ok: false, error: "campaign not active" });
+        results.push({
+          id: row.id,
+          ok: false,
+          error: "campanha não ativa",
+          category,
+        });
         continue;
       }
 
@@ -92,9 +117,17 @@ async function runDispatch() {
       if (!instance) {
         await supabase
           .from("webinar_messages")
-          .update({ status: "failed", error_message: "no instance available" })
+          .update({
+            status: "failed",
+            error_message: "nenhuma instance disponível",
+          })
           .eq("id", row.id);
-        results.push({ id: row.id, ok: false, error: "no instance" });
+        results.push({
+          id: row.id,
+          ok: false,
+          error: "sem instance",
+          category,
+        });
         continue;
       }
 
@@ -117,12 +150,12 @@ async function runDispatch() {
           id: row.id,
           ok: false,
           instance,
+          category,
           error: evoRes.error,
         });
         continue;
       }
 
-      // Sucesso
       await supabase
         .from("webinar_messages")
         .update({
@@ -133,23 +166,36 @@ async function runDispatch() {
         })
         .eq("id", row.id);
 
-      // Avanca status do lead se ainda estiver scraped/enriched
-      if (
-        lead.funnel_status === "scraped" ||
-        lead.funnel_status === "enriched"
-      ) {
-        await supabase
-          .from("webinar_campaign_leads")
-          .update({ funnel_status: "invited" })
-          .eq("id", lead.id);
-
-        await supabase.rpc("noop_or_increment_invited", {}).catch(() => {});
+      // Avança status do lead se for primeira saudação
+      if (category === "initial_outreach") {
+        if (
+          lead.funnel_status === "scraped" ||
+          lead.funnel_status === "enriched"
+        ) {
+          await supabase
+            .from("webinar_campaign_leads")
+            .update({ funnel_status: "pending_response" })
+            .eq("id", lead.id);
+        }
       }
 
-      results.push({ id: row.id, ok: true, instance });
+      // Jitter humano DEPOIS do envio antes do próximo lead da mesma rodada
+      const jitter = JITTER_BY_CATEGORY[category] ?? JITTER_BY_CATEGORY.reminder;
+      const delaySec = randInt(jitter.min, jitter.max);
+      results.push({
+        id: row.id,
+        ok: true,
+        instance,
+        category,
+        delay_ms: delaySec * 1000,
+      });
 
-      // Pequena pausa entre mensagens pra nao floodar (anti-ban basico)
-      await new Promise((r) => setTimeout(r, 1500));
+      // Aguarda jitter antes da próxima mensagem (anti-ban)
+      // Só faz delay se ainda há mais mensagens pra processar
+      const remaining = (rows ?? []).indexOf(row) < (rows?.length ?? 0) - 1;
+      if (remaining) {
+        await sleep(delaySec * 1000);
+      }
     }
 
     return NextResponse.json({

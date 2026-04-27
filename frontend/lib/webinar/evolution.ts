@@ -1,6 +1,16 @@
 /**
- * Cliente Evolution API + rotacao de instances anti-ban.
+ * Cliente Evolution API + rotação balanceada de instâncias (anti-ban).
+ *
+ * pickInstance v2: round-robin balanceado.
+ *   - Filtra instâncias ativas no Evolution
+ *   - Filtra as candidates da campanha
+ *   - Conta uso recente (últimas 60 min) por instance
+ *   - Pega top 3 menos usadas, sorteia entre elas (jitter pra evitar previsibilidade)
+ *
+ * Disparo com retry exponencial (2s/5s/15s) em erros transitórios.
  */
+
+import { createServiceClient } from "@/utils/supabase/service";
 
 const EVO_URL = (process.env.EVOLUTION_API_URL ?? "").replace(/\/$/, "");
 const EVO_TOKEN = process.env.EVOLUTION_API_TOKEN ?? "";
@@ -15,7 +25,7 @@ export type EvolutionInstance = {
 
 async function evoFetch(path: string, init?: RequestInit) {
   if (!EVO_URL || !EVO_TOKEN) {
-    throw new Error("EVOLUTION_API_URL/TOKEN nao configurados");
+    throw new Error("EVOLUTION_API_URL/TOKEN não configurados");
   }
   return fetch(`${EVO_URL}${path}`, {
     ...init,
@@ -42,14 +52,10 @@ export async function listEvolutionInstances(): Promise<EvolutionInstance[]> {
 }
 
 /**
- * Escolhe uma instance disponivel da campanha (rotacao anti-ban).
+ * Round-robin balanceado: pega instâncias ativas, ordena pelas menos usadas
+ * recentemente, pega top 3 e sorteia entre elas.
  *
- * Algoritmo:
- *   1. Filtra instances do campaign que estao "open" no Evolution
- *   2. Se nenhuma open, usa a `instance_name` legacy se estiver open
- *   3. Sorteia aleatoriamente entre as disponiveis
- *
- * Retorna null se nenhuma instance disponivel.
+ * Por que top 3 e não a menos usada? Pra adicionar jitter/imprevisibilidade.
  */
 export async function pickInstance(args: {
   instance_names?: string[] | null;
@@ -64,33 +70,61 @@ export async function pickInstance(args: {
   if (args.instance_name && args.instance_name.trim()) {
     candidates.add(args.instance_name.trim());
   }
-
   if (candidates.size === 0) return null;
 
+  // Filtra as conectadas
   let live: EvolutionInstance[] = [];
   try {
     live = await listEvolutionInstances();
   } catch {
-    // Se Evolution falhar, ainda tenta uma aleatoria das candidates
     const arr = Array.from(candidates);
     return arr[Math.floor(Math.random() * arr.length)];
   }
 
-  const open = live.filter(
-    (i) => i.connectionStatus === "open" && candidates.has(i.name),
-  );
+  const open = live
+    .filter((i) => i.connectionStatus === "open" && candidates.has(i.name))
+    .map((i) => i.name);
+
   if (open.length === 0) {
-    // Fallback: pega qualquer das candidates (pode ser que Evolution liste estranho)
     const arr = Array.from(candidates);
     return arr[Math.floor(Math.random() * arr.length)];
   }
+  if (open.length === 1) return open[0];
 
-  return open[Math.floor(Math.random() * open.length)].name;
+  // Conta uso recente (60 min) por instance
+  const supabase = createServiceClient();
+  const sixtyMinAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+  const usage = new Map<string, number>();
+  for (const name of open) usage.set(name, 0);
+
+  try {
+    const { data } = await supabase
+      .from("webinar_messages")
+      .select("instance_used")
+      .gte("sent_at", sixtyMinAgo)
+      .in("instance_used", open)
+      .eq("status", "sent");
+
+    if (data) {
+      for (const row of data as any[]) {
+        const name = row.instance_used;
+        if (name) usage.set(name, (usage.get(name) ?? 0) + 1);
+      }
+    }
+  } catch {
+    // Ignora erro de query, segue com uso=0 pra todos
+  }
+
+  // Ordena pelas menos usadas
+  const sorted = open.sort((a, b) => (usage.get(a) ?? 0) - (usage.get(b) ?? 0));
+  // Pega top 3 (ou todas se menor)
+  const top = sorted.slice(0, Math.min(3, sorted.length));
+  return top[Math.floor(Math.random() * top.length)];
 }
 
 /**
  * Envia texto com retry e backoff exponencial.
- * Backoff: 0s -> 2s -> 5s -> 15s. 3 retries no maximo.
+ * Backoff: 0s -> 2s -> 5s -> 15s. 3 retries no máximo.
  */
 export async function sendTextViaEvolution(
   instanceName: string,
@@ -117,11 +151,10 @@ export async function sendTextViaEvolution(
       const body = await res.text();
       if (!res.ok) {
         lastError = `Evolution ${res.status}: ${body.slice(0, 200)}`;
-        // 4xx (bad request) NAO faz retry — erro de payload, nao de rede
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           return { ok: false, error: lastError, attempts: attempt + 1 };
         }
-        continue; // 5xx ou 429 — tenta de novo
+        continue;
       }
       let json: any = {};
       try {

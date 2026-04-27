@@ -10,9 +10,7 @@ import type {
   WebinarStatus,
 } from "@/types/webinar";
 import {
-  CADENCES,
-  pickCadence,
-  scheduleSteps,
+  pickInitialGreeting,
   renderTemplate,
 } from "@/lib/webinar/cadences";
 import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
@@ -295,12 +293,16 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
   }
 }
 
-// ─── Start campaign (adaptive cadence) ───────────────────────────────────────
+// ─── Start campaign (Fase 1 conversacional) ──────────────────────────────────
+//
+// Cria UMA mensagem inicial pendente por lead (saudação variada, anti-ban).
+// O agente Gemini conduz toda a conversa daí em diante via webhook, e quando
+// coleta os dados do responsável (collect_responsible_info), agenda
+// automaticamente a Fase 2 (cadência de lembretes adaptativa).
 
 export async function startCampaign(campaignId: string): Promise<{
   success: boolean;
   scheduled?: number;
-  cadence?: string;
   error?: string;
 }> {
   try {
@@ -332,59 +334,30 @@ export async function startCampaign(campaignId: string): Promise<{
       );
     }
 
-    const eventDate = new Date(campaign.event_date);
-    const now = new Date();
-    const cadenceProfile = pickCadence(eventDate, now);
-    const steps = CADENCES[cadenceProfile];
-    const scheduledSteps = scheduleSteps(steps, eventDate, now);
-
-    if (scheduledSteps.length === 0) {
-      throw new Error(
-        "Evento ja passou. Nenhum step de cadencia possivel.",
-      );
-    }
-
     const { data: leads, error: lErr } = await supabase
       .from("webinar_campaign_leads")
-      .select("id, phone, company_name, funnel_status")
+      .select("id, phone, funnel_status")
       .eq("campaign_id", campaignId)
       .in("funnel_status", ["scraped", "enriched"]);
     if (lErr) throw lErr;
     if (!leads || leads.length === 0) {
-      throw new Error("Nenhum lead apto pra cadência (status scraped/enriched)");
+      throw new Error(
+        "Nenhum lead apto pra abordagem inicial (status scraped/enriched)",
+      );
     }
 
-    const dataFmt = eventDate.toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "long",
-    });
-    const horaFmt = eventDate.toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    const rowsToInsert: any[] = [];
-    for (const lead of leads) {
-      const empresa = lead.company_name ?? "tudo bem";
-      for (const { step, scheduledAt } of scheduledSteps) {
-        const text = renderTemplate(step.template, {
-          empresa,
-          tema: campaign.theme,
-          data: dataFmt,
-          hora: horaFmt,
-          meet_link: campaign.meet_link ?? "",
-          cal_link: campaign.cal_link ?? "",
-        });
-        rowsToInsert.push({
-          campaign_lead_id: lead.id,
-          scheduled_at: scheduledAt.toISOString(),
-          status: "pending",
-          direction: "outbound",
-          sent_text: text,
-          ai_metadata: { cadence: cadenceProfile, step_label: step.label },
-        });
-      }
-    }
+    // Cria UMA mensagem inicial pendente por lead.
+    // scheduled_at = agora (cron pega no próximo tick e dispara com jitter de 3 a 7 min)
+    const now = new Date();
+    const rowsToInsert = leads.map((lead) => ({
+      campaign_lead_id: lead.id,
+      scheduled_at: now.toISOString(),
+      status: "pending",
+      direction: "outbound",
+      category: "initial_outreach",
+      sent_text: pickInitialGreeting(now),
+      ai_metadata: { phase: "initial_outreach" },
+    }));
 
     const { error: insErr } = await supabase
       .from("webinar_messages")
@@ -398,11 +371,7 @@ export async function startCampaign(campaignId: string): Promise<{
 
     revalidatePath(`/webinar/${campaignId}`);
 
-    return {
-      success: true,
-      scheduled: rowsToInsert.length,
-      cadence: cadenceProfile,
-    };
+    return { success: true, scheduled: rowsToInsert.length };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }

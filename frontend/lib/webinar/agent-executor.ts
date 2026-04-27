@@ -1,13 +1,22 @@
 /**
  * Executa as tool calls retornadas pelo agente Gemini.
- * Esta funcao roda no servidor e atualiza Supabase + Evolution.
+ * Roda no servidor, atualiza Supabase + Evolution.
+ *
+ * Tool especial: collect_responsible_info — quando salva nome + (email OU phone),
+ * automaticamente:
+ *   1. Move lead pra status `confirmed`.
+ *   2. Agenda cadência de lembretes (Fase 2) baseada em quanto falta pro evento.
  */
 
 import { createServiceClient } from "@/utils/supabase/service";
+import { pickInstance, sendTextViaEvolution } from "./evolution";
 import {
-  pickInstance,
-  sendTextViaEvolution,
-} from "./evolution";
+  REMINDER_PROFILES,
+  pickReminderProfile,
+  scheduleReminderSteps,
+  renderTemplate,
+  getFirstName,
+} from "./cadences";
 import type { AgentToolCall } from "./gemini-agent";
 
 export type ExecutionResult = {
@@ -23,7 +32,6 @@ export async function executeAgentTools(args: {
   const supabase = createServiceClient();
   const result: ExecutionResult = { ok: true, executed: [] };
 
-  // Carrega lead + campaign uma vez
   const { data: lead, error: leadErr } = await supabase
     .from("webinar_campaign_leads")
     .select("*, webinar_campaigns(*)")
@@ -34,7 +42,11 @@ export async function executeAgentTools(args: {
     return {
       ok: false,
       executed: [
-        { tool: "_load", result: "error", detail: leadErr?.message ?? "lead nao encontrado" },
+        {
+          tool: "_load",
+          result: "error",
+          detail: leadErr?.message ?? "lead não encontrado",
+        },
       ],
     };
   }
@@ -50,7 +62,7 @@ export async function executeAgentTools(args: {
             result.executed.push({
               tool: "send_message",
               result: "error",
-              detail: "text vazio",
+              detail: "texto vazio",
             });
             continue;
           }
@@ -63,7 +75,7 @@ export async function executeAgentTools(args: {
             result.executed.push({
               tool: "send_message",
               result: "error",
-              detail: "sem instance",
+              detail: "sem instance disponível",
             });
             continue;
           }
@@ -87,6 +99,7 @@ export async function executeAgentTools(args: {
             scheduled_at: new Date().toISOString(),
             status: "sent",
             direction: "outbound",
+            category: "agent_reply",
             sent_text: text,
             sent_at: new Date().toISOString(),
             ai_generated: true,
@@ -113,6 +126,58 @@ export async function executeAgentTools(args: {
           break;
         }
 
+        case "collect_responsible_info": {
+          const { name, email, phone } = call.args;
+          if (!name) {
+            result.executed.push({
+              tool: "collect_responsible_info",
+              result: "error",
+              detail: "name é obrigatório",
+            });
+            continue;
+          }
+
+          const updates: any = { responsible_name: name };
+          if (email) updates.responsible_email = email;
+          if (phone) updates.responsible_direct_phone = phone;
+
+          // Se tem nome + (email OU phone), confirma e agenda cadência
+          const isComplete = !!name && (!!email || !!phone);
+          if (isComplete) {
+            updates.funnel_status = "confirmed";
+          }
+
+          await supabase
+            .from("webinar_campaign_leads")
+            .update(updates)
+            .eq("id", args.campaignLeadId);
+
+          result.executed.push({
+            tool: "collect_responsible_info",
+            result: "ok",
+            detail: `name=${name}${email ? ", email=" + email : ""}${phone ? ", phone=" + phone : ""}${isComplete ? " (confirmed)" : ""}`,
+          });
+
+          if (isComplete) {
+            // Agenda cadência de lembretes
+            try {
+              await scheduleReminderCadenceForLead(supabase, lead, campaign);
+              result.executed.push({
+                tool: "_schedule_reminders",
+                result: "ok",
+              });
+            } catch (e: any) {
+              result.executed.push({
+                tool: "_schedule_reminders",
+                result: "error",
+                detail: e?.message,
+              });
+            }
+          }
+
+          break;
+        }
+
         case "schedule_followup": {
           const { hours_from_now, content } = call.args;
           const at = new Date(Date.now() + hours_from_now * 3600_000);
@@ -121,6 +186,7 @@ export async function executeAgentTools(args: {
             scheduled_at: at.toISOString(),
             status: "pending",
             direction: "outbound",
+            category: "agent_reply",
             sent_text: content,
             ai_generated: true,
             ai_metadata: { type: "followup_scheduled_by_agent" },
@@ -138,7 +204,6 @@ export async function executeAgentTools(args: {
             .from("webinar_campaign_leads")
             .update({
               funnel_status: "escalated",
-              loss_reason: null,
               notes: `[ESCALATED] ${call.args.reason}`,
             })
             .eq("id", args.campaignLeadId);
@@ -183,4 +248,64 @@ export async function executeAgentTools(args: {
   }
 
   return result;
+}
+
+/**
+ * Agenda os steps da cadência de lembretes baseado em quanto falta pro evento.
+ * Chamada automaticamente quando lead vira `confirmed`.
+ */
+async function scheduleReminderCadenceForLead(
+  supabase: ReturnType<typeof createServiceClient>,
+  lead: any,
+  campaign: any,
+) {
+  if (!campaign.event_date) {
+    throw new Error("campanha sem event_date — não dá pra agendar lembretes");
+  }
+  if (!campaign.theme) {
+    throw new Error("campanha sem tema — não dá pra renderizar templates");
+  }
+
+  const eventDate = new Date(campaign.event_date);
+  const confirmedAt = new Date();
+  const profile = pickReminderProfile(eventDate, confirmedAt);
+  const steps = REMINDER_PROFILES[profile];
+  const scheduled = scheduleReminderSteps(steps, eventDate, confirmedAt);
+
+  if (scheduled.length === 0) return;
+
+  const dataFmt = eventDate.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+  });
+  const horaFmt = eventDate.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const primeiroNome = getFirstName(lead.responsible_name);
+  const empresa = lead.company_name ?? "tua clínica";
+
+  const rows = scheduled.map(({ step, scheduledAt }) => ({
+    campaign_lead_id: lead.id,
+    scheduled_at: scheduledAt.toISOString(),
+    status: "pending",
+    direction: "outbound",
+    category: step.category,
+    sent_text: renderTemplate(step.template, {
+      primeiro_nome: primeiroNome,
+      empresa,
+      tema: campaign.theme,
+      data: dataFmt,
+      hora: horaFmt,
+      meet_link: campaign.meet_link ?? "",
+      cal_link: campaign.cal_link ?? "",
+    }),
+    ai_metadata: {
+      reminder_profile: profile,
+      step_label: step.label,
+      branch: step.branch ?? null,
+    },
+  }));
+
+  await supabase.from("webinar_messages").insert(rows);
 }

@@ -109,7 +109,12 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
   }
 
   async function handleStart() {
-    if (!confirm(`Iniciar campanha "${campaign.name}"? Vai criar mensagens agendadas pra todos os leads.`)) return;
+    if (
+      !confirm(
+        `Iniciar campanha "${campaign.name}"? Vai disparar a saudação inicial pra todos os leads (status scraped/enriched).\n\nO agente Gemini conduz a conversa daí em diante até confirmar a presença.`,
+      )
+    )
+      return;
     setSaving(true);
     const result = await startCampaign(campaign.id);
     setSaving(false);
@@ -118,7 +123,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
       return;
     }
     toast.success(
-      `Campanha iniciada. Cadência ${result.cadence}, ${result.scheduled} mensagens agendadas.`,
+      `Campanha ativada. ${result.scheduled} saudações iniciais agendadas (cron dispara com jitter 3-7 min entre cada).`,
     );
     router.refresh();
   }
