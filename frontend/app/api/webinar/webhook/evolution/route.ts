@@ -52,7 +52,9 @@ export async function POST(req: NextRequest) {
 
     // Evolution v2 manda em formato { event, instance, data }
     const event = body?.event ?? body?.event_type;
+    console.log("[webhook evolution] recebido event=" + event);
     if (event !== "messages.upsert" && event !== "MESSAGES_UPSERT") {
+      console.log("[webhook evolution] ignorando event=" + event);
       return NextResponse.json({ ok: true, ignored: event });
     }
 
@@ -70,7 +72,10 @@ export async function POST(req: NextRequest) {
     const messageId: string | undefined = key?.id;
     const instanceName: string = body?.instance ?? data?.instance ?? "";
 
+    console.log("[webhook evolution] jid=" + effectiveJid + " msgId=" + messageId + " instance=" + instanceName);
+
     if (!effectiveJid) {
+      console.log("[webhook evolution] ignorando: sem jid");
       return NextResponse.json({
         ok: false,
         error: "no remoteJid nor senderPn",
@@ -78,6 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     const message = data?.message ?? {};
+    const msgKeys = Object.keys(message);
     const text =
       message?.conversation ??
       message?.extendedTextMessage?.text ??
@@ -87,8 +93,11 @@ export async function POST(req: NextRequest) {
 
     const isAudio = !!(message?.audioMessage || message?.pttMessage);
 
+    console.log("[webhook evolution] tipos de msg=" + msgKeys.join(",") + " text=" + (text ? text.slice(0, 40) : "(vazio)") + " isAudio=" + isAudio);
+
     if (!text && !isAudio) {
-      return NextResponse.json({ ok: true, ignored: "no_text_in_message" });
+      console.log("[webhook evolution] ignorando: sem texto (tipo desconhecido)");
+      return NextResponse.json({ ok: true, ignored: "no_text_in_message", msgTypes: msgKeys });
     }
 
     // Audio/voz: injeta mensagem sinalizada pro agente pedir pra digitar
@@ -100,8 +109,6 @@ export async function POST(req: NextRequest) {
     const supabase = createServiceClient();
 
     // Idempotência: se já processamos essa msg do Evolution, ignora silenciosamente.
-    // Evolution faz retry quando webhook demora a responder; o ack vai chegar várias vezes
-    // pra mesma mensagem com o mesmo evolution_message_id.
     if (messageId) {
       const { data: dup } = await supabase
         .from("webinar_messages")
@@ -109,6 +116,7 @@ export async function POST(req: NextRequest) {
         .eq("evolution_message_id", messageId)
         .limit(1);
       if (dup && dup.length > 0) {
+        console.log("[webhook evolution] ignorando: duplicate msgId=" + messageId);
         return NextResponse.json({ ok: true, ignored: "duplicate_message" });
       }
     }
@@ -122,6 +130,7 @@ export async function POST(req: NextRequest) {
 
     const lead = leads?.[0] as any;
     if (!lead) {
+      console.log("[webhook evolution] ignorando: lead_not_found phones=" + phones.join(","));
       return NextResponse.json({
         ok: true,
         ignored: "lead_not_found",
