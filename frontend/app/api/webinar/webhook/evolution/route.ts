@@ -13,6 +13,7 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { runAgent } from "@/lib/webinar/gemini-agent";
 import { executeAgentTools } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
+import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -38,11 +39,71 @@ function phoneVariations(phone: string): string[] {
   return Array.from(variations);
 }
 
-async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
+const FALLBACK_MESSAGE =
+  "Isso foge um pouco do que consigo responder por políticas da empresa. Mas se tiver dúvida sobre o evento, pode perguntar à vontade.";
+
+const ERROR_FALLBACK_MESSAGE =
+  "Tô com uma instabilidade aqui, me dá um minuto que eu volto.";
+
+async function sendEmergencyFallback(
+  campaignLeadId: string,
+  text: string,
+): Promise<void> {
   const supabase = createServiceClient();
   try {
+    const { data: lead } = await supabase
+      .from("webinar_campaign_leads")
+      .select("*, webinar_campaigns(*)")
+      .eq("id", campaignLeadId)
+      .single();
+    if (!lead) return;
+    const campaign = (lead as any).webinar_campaigns;
+    const picked = await pickInstance({
+      instance_names: campaign?.instance_names,
+      instance_name: campaign?.instance_name,
+      preferredInstance: lead.last_instance_used ?? null,
+    });
+    if (!picked) return;
+    const evoRes = await sendTextViaEvolution(picked.name, lead.phone, text);
+    if (evoRes.ok) {
+      await supabase.from("webinar_messages").insert({
+        campaign_lead_id: campaignLeadId,
+        scheduled_at: new Date().toISOString(),
+        status: "sent",
+        direction: "outbound",
+        category: "agent_reply",
+        sent_text: text,
+        sent_at: new Date().toISOString(),
+        ai_generated: true,
+        ai_metadata: { type: "emergency_fallback" },
+        evolution_message_id: evoRes.messageId ?? null,
+        instance_used: picked.name,
+      });
+      await supabase
+        .from("webinar_campaign_leads")
+        .update({ last_instance_used: picked.name })
+        .eq("id", campaignLeadId);
+    }
+  } catch (fallbackErr: any) {
+    console.error("[webhook evolution] [bg] EMERGENCY FALLBACK falhou:", fallbackErr?.message);
+  }
+}
+
+async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
+  const supabase = createServiceClient();
+  let decisionMade = false;
+  try {
     console.log("[webhook evolution] [bg] iniciando agente lead=" + campaignLeadId);
-    const decision = await runAgent(ctx);
+
+    // Timeout de 25s no Gemini — se travar, dispara fallback
+    const decision = await Promise.race([
+      runAgent(ctx),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("gemini_timeout_25s")), 25_000),
+      ),
+    ]);
+
+    decisionMade = true;
     console.log(
       "[webhook evolution] [bg] agente decidiu " +
         decision.toolCalls.length +
@@ -55,9 +116,7 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
       decision.toolCalls = [
         {
           name: "send_message",
-          args: {
-            text: "Isso foge um pouco do que consigo responder por políticas da empresa. Mas se tiver dúvida sobre o evento, pode perguntar à vontade.",
-          },
+          args: { text: FALLBACK_MESSAGE },
         },
       ];
     }
@@ -72,12 +131,27 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
         exec.executed.map((e) => e.tool + "=" + e.result).join(","),
     );
 
+    // Verifica se ALGUMA send_message foi enviada com sucesso
+    const sentOk = exec.executed.some(
+      (e) => (e.tool === "send_message" || e.tool === "_auto_confirmation") && e.result === "ok",
+    );
+    if (!sentOk) {
+      console.warn("[webhook evolution] [bg] nenhum send_message ok — disparando emergency fallback");
+      await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+    }
+
     await supabase
       .from("webinar_campaign_leads")
       .update({ last_interaction_at: new Date().toISOString() })
       .eq("id", campaignLeadId);
   } catch (e: any) {
     console.error("[webhook evolution] [bg] erro no agente:", e?.message, e?.stack);
+    // Catch-all final: sempre envia algo pro lead
+    if (!decisionMade) {
+      await sendEmergencyFallback(campaignLeadId, ERROR_FALLBACK_MESSAGE);
+    } else {
+      await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+    }
   }
 }
 
