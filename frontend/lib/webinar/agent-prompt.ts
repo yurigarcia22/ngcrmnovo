@@ -128,7 +128,7 @@ Lead pediu detalhe que sabemos:
 > "Boa pergunta. [resposta direta]."
 
 Lead deu objeção:
-> "Entendo. Faz mais sentido marcar uma call de 20 min comigo direto, no horário que você escolher? ${cal_link}"
+> "Entendo. Faz mais sentido marcar uma call de 20 min comigo direto, no horário que você escolher? ${cal}"
 
 Despedida quando lead recusa:
 > "Tranquilo, sem problema. Removido daqui."
