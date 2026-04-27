@@ -4,12 +4,23 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button, Input } from "@/components/ui/simple-ui";
-import { Search, Sparkles, UserPlus, Send, X, Trash2 } from "lucide-react";
+import {
+  Search,
+  Sparkles,
+  UserPlus,
+  Send,
+  X,
+  Trash2,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   addLeadManually,
   listCampaignLeads,
   sendTestMessageToLead,
+  startCampaignScraping,
+  pollCampaignScraping,
 } from "@/app/actions-webinar";
 import {
   WEBINAR_FUNNEL_LABELS,
@@ -22,7 +33,13 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
   const [leads, setLeads] = useState<WebinarCampaignLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showScrapeModal, setShowScrapeModal] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [scrapeStatus, setScrapeStatus] = useState<
+    "idle" | "queued" | "running" | "done" | "error"
+  >("idle");
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [scrapeStarting, setScrapeStarting] = useState(false);
 
   async function loadLeads() {
     setLoading(true);
@@ -38,6 +55,71 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
   useEffect(() => {
     loadLeads();
   }, [campaign.id]);
+
+  // Polling do scraping enquanto job tá ativo
+  useEffect(() => {
+    if (!campaign.scraping_job_id) {
+      setScrapeStatus("idle");
+      return;
+    }
+    if (campaign.scraping_finished_at) {
+      setScrapeStatus(campaign.scraping_error ? "error" : "done");
+      setScrapeError(campaign.scraping_error ?? null);
+      return;
+    }
+    setScrapeStatus("running");
+    let cancelled = false;
+    async function loop() {
+      while (!cancelled) {
+        const r = await pollCampaignScraping(campaign.id);
+        if (cancelled) return;
+        if (!r.success) {
+          setScrapeStatus("error");
+          setScrapeError(r.error ?? "erro");
+          return;
+        }
+        if (r.status === "done") {
+          setScrapeStatus("done");
+          toast.success(
+            `Scraping finalizado: ${r.inserted ?? 0} leads novos (${r.total ?? 0} encontrados)`,
+          );
+          loadLeads();
+          router.refresh();
+          return;
+        }
+        if (r.status === "error") {
+          setScrapeStatus("error");
+          setScrapeError(r.error ?? "erro");
+          toast.error(`Scraping falhou: ${r.error}`);
+          return;
+        }
+        if (r.status === "idle") {
+          setScrapeStatus("idle");
+          return;
+        }
+        setScrapeStatus(r.status ?? "running");
+        await new Promise((res) => setTimeout(res, 8000));
+      }
+    }
+    loop();
+    return () => {
+      cancelled = true;
+    };
+  }, [campaign.id, campaign.scraping_job_id, campaign.scraping_finished_at, campaign.scraping_error, router]);
+
+  async function handleStartScraping(maxPerCity: number) {
+    setScrapeStarting(true);
+    const r = await startCampaignScraping(campaign.id, maxPerCity);
+    setScrapeStarting(false);
+    if (!r.success) {
+      toast.error(`Erro: ${r.error}`);
+      return;
+    }
+    toast.success("Scraping iniciado. Pode levar de 1 a 5 minutos por cidade.");
+    setShowScrapeModal(false);
+    setScrapeStatus("queued");
+    router.refresh();
+  }
 
   function handleSend(lead: WebinarCampaignLead) {
     startTransition(async () => {
@@ -65,8 +147,13 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
             icon={Search}
             title="Extrair via scraper"
             description="Usa nicho e cidades pra buscar empresas no Google Maps"
-            cta="Disponível na Fase 2"
-            disabled
+            cta={
+              scrapeStatus === "running" || scrapeStatus === "queued"
+                ? "Rodando..."
+                : "Buscar leads"
+            }
+            disabled={scrapeStatus === "running" || scrapeStatus === "queued"}
+            onClick={() => setShowScrapeModal(true)}
           />
           <ActionCard
             icon={Sparkles}
@@ -83,6 +170,35 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
             onClick={() => setShowAddModal(true)}
           />
         </div>
+
+        {(scrapeStatus === "running" || scrapeStatus === "queued") && (
+          <div className="mt-4 p-3 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center gap-3">
+            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-indigo-900">
+                Scraping em andamento
+              </p>
+              <p className="text-[11px] text-indigo-700">
+                Buscando "{campaign.target_nicho}" em{" "}
+                {campaign.target_cities?.length ?? 0} cidade(s). Isso leva de 1
+                a 5 minutos por cidade. A página atualiza sozinha quando
+                terminar.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {scrapeStatus === "error" && scrapeError && (
+          <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-100 flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-rose-900">
+                Scraping falhou
+              </p>
+              <p className="text-[11px] text-rose-700">{scrapeError}</p>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card className="p-6">
@@ -154,6 +270,102 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
           }}
         />
       )}
+
+      {showScrapeModal && (
+        <ScrapeModal
+          campaign={campaign}
+          starting={scrapeStarting}
+          onClose={() => setShowScrapeModal(false)}
+          onConfirm={handleStartScraping}
+        />
+      )}
+    </div>
+  );
+}
+
+function ScrapeModal({
+  campaign,
+  starting,
+  onClose,
+  onConfirm,
+}: {
+  campaign: WebinarCampaign;
+  starting: boolean;
+  onClose: () => void;
+  onConfirm: (maxPerCity: number) => void;
+}) {
+  const [maxPerCity, setMaxPerCity] = useState(100);
+  const cidades = campaign.target_cities ?? [];
+  const cidadesLabel =
+    cidades.length === 0
+      ? "(nenhuma — define em Setup)"
+      : cidades.join(", ");
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-900">
+            Buscar leads no Google Maps
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-600 space-y-2">
+          <div>
+            <span className="font-semibold text-slate-800">Nicho:</span>{" "}
+            {campaign.target_nicho ?? (
+              <span className="text-rose-600 italic">não definido</span>
+            )}
+          </div>
+          <div>
+            <span className="font-semibold text-slate-800">Cidades:</span>{" "}
+            {cidadesLabel}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-slate-700">
+            Máximo de leads por cidade
+          </label>
+          <Input
+            type="number"
+            min={10}
+            max={500}
+            value={maxPerCity}
+            onChange={(e) => setMaxPerCity(Number(e.target.value) || 100)}
+          />
+          <p className="text-[11px] text-slate-400">
+            Ex: 100 leads × {cidades.length || 1} cidade(s) ={" "}
+            {(maxPerCity * (cidades.length || 1)).toLocaleString("pt-BR")} leads
+            no total. Tempo estimado: ~1-5 min por cidade.
+          </p>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-[11px] text-amber-800">
+          O scraper roda no Easypanel e pode ser bloqueado pelo Google se
+          rodar muito seguido. Se acontecer, espera ~30 min e tenta de novo.
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => onConfirm(maxPerCity)}
+            disabled={
+              starting ||
+              !campaign.target_nicho ||
+              cidades.length === 0
+            }
+            className="bg-slate-900 text-white hover:bg-slate-800"
+          >
+            {starting ? "Iniciando..." : "Iniciar scraping"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

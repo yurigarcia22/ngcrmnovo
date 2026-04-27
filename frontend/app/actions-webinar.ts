@@ -14,6 +14,11 @@ import {
   renderTemplate,
 } from "@/lib/webinar/cadences";
 import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
+import {
+  startScrape,
+  getScrapeJob,
+  normalizeBrazilianPhone,
+} from "@/lib/webinar/scraper";
 
 async function getTenantId(): Promise<string | null> {
   const supabase = await createClient();
@@ -536,6 +541,220 @@ export async function pushConfirmedLeadToCrm(
 
     revalidatePath(`/webinar/${lead.campaign_id}`);
     return { success: true, deal_id: newDeal.id };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+// ─── Scraping (Google Maps via ng-scraper-google) ────────────────────────────
+
+/**
+ * Dispara um job de scraping no ng-scraper-google.
+ * Usa target_nicho + target_cities da campanha.
+ * Salva o job_id pra poder pollar depois.
+ */
+export async function startCampaignScraping(
+  campaignId: string,
+  maxPerCity = 100,
+): Promise<{ success: boolean; job_id?: string; error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    const { data: campaign, error: cErr } = await supabase
+      .from("webinar_campaigns")
+      .select("*")
+      .eq("id", campaignId)
+      .single();
+    if (cErr || !campaign) {
+      return { success: false, error: cErr?.message ?? "Campanha não encontrada" };
+    }
+
+    if (!campaign.target_nicho) {
+      return {
+        success: false,
+        error: "Define o nicho (target_nicho) na aba Setup antes de buscar leads",
+      };
+    }
+    if (!campaign.target_cities || campaign.target_cities.length === 0) {
+      return {
+        success: false,
+        error: "Adiciona pelo menos uma cidade na aba Setup",
+      };
+    }
+    if (campaign.scraping_job_id) {
+      // Tem um job já. Só permite re-disparar se o anterior já tá done/error.
+      const cur = await getScrapeJob(campaign.scraping_job_id);
+      if (
+        cur.ok &&
+        cur.job?.status &&
+        (cur.job.status === "queued" || cur.job.status === "running")
+      ) {
+        return {
+          success: false,
+          error: "Já tem um scraping rodando pra essa campanha. Aguarda terminar.",
+        };
+      }
+    }
+
+    const r = await startScrape({
+      nicho: campaign.target_nicho,
+      cidades: campaign.target_cities,
+      max_per_city: maxPerCity,
+    });
+    if (!r.ok || !r.job_id) {
+      return { success: false, error: r.error ?? "Falha ao chamar scraper" };
+    }
+
+    await supabase
+      .from("webinar_campaigns")
+      .update({
+        scraping_job_id: r.job_id,
+        scraping_started_at: new Date().toISOString(),
+        scraping_finished_at: null,
+        scraping_max_per_city: maxPerCity,
+        scraping_error: null,
+        status: "scraping",
+      })
+      .eq("id", campaignId);
+
+    revalidatePath(`/webinar/${campaignId}`);
+    return { success: true, job_id: r.job_id };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+/**
+ * Verifica o status do job de scraping da campanha.
+ * Quando o job tá `done`, insere os leads coletados em webinar_campaign_leads
+ * (deduplicando por phone) e marca campanha como `ready`.
+ *
+ * Retorna o estado atual pra UI mostrar progresso.
+ */
+export async function pollCampaignScraping(campaignId: string): Promise<{
+  success: boolean;
+  status?: "idle" | "queued" | "running" | "done" | "error";
+  inserted?: number;
+  total?: number;
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const { data: campaign, error: cErr } = await supabase
+      .from("webinar_campaigns")
+      .select("*")
+      .eq("id", campaignId)
+      .single();
+    if (cErr || !campaign) {
+      return { success: false, error: cErr?.message ?? "Campanha não encontrada" };
+    }
+
+    if (!campaign.scraping_job_id) {
+      return { success: true, status: "idle" };
+    }
+
+    // Se já foi finalizado antes, só retorna o estado salvo
+    if (campaign.scraping_finished_at) {
+      return {
+        success: true,
+        status: campaign.scraping_error ? "error" : "done",
+        error: campaign.scraping_error ?? undefined,
+      };
+    }
+
+    const r = await getScrapeJob(campaign.scraping_job_id);
+    if (!r.ok || !r.job) {
+      return { success: false, error: r.error ?? "Job não encontrado no scraper" };
+    }
+
+    if (r.job.status === "queued" || r.job.status === "running") {
+      return { success: true, status: r.job.status };
+    }
+
+    if (r.job.status === "error") {
+      await supabase
+        .from("webinar_campaigns")
+        .update({
+          scraping_finished_at: new Date().toISOString(),
+          scraping_error: r.job.error ?? "erro desconhecido",
+          status: "draft",
+        })
+        .eq("id", campaignId);
+      return {
+        success: true,
+        status: "error",
+        error: r.job.error ?? "erro desconhecido",
+      };
+    }
+
+    // status === "done" — insere leads
+    const companies = r.job.result?.companies ?? [];
+    let inserted = 0;
+
+    if (companies.length > 0) {
+      // Pega telefones já existentes pra deduplicar
+      const { data: existingLeads } = await supabase
+        .from("webinar_campaign_leads")
+        .select("phone")
+        .eq("campaign_id", campaignId);
+      const existingPhones = new Set(
+        (existingLeads ?? []).map((l: any) => l.phone),
+      );
+
+      const rows = companies
+        .map((c) => {
+          const phone = normalizeBrazilianPhone(c.phone ?? null);
+          if (!phone) return null;
+          if (existingPhones.has(phone)) return null;
+          existingPhones.add(phone);
+          return {
+            campaign_id: campaignId,
+            phone,
+            company_name: c.title ?? null,
+            website: c.website ?? null,
+            address: c.address ?? null,
+            rating: c.totalScore ?? null,
+            reviews_count: c.reviewsCount ?? 0,
+            funnel_status: "scraped" as const,
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+
+      if (rows.length > 0) {
+        const { error: insErr } = await supabase
+          .from("webinar_campaign_leads")
+          .insert(rows);
+        if (insErr) {
+          await supabase
+            .from("webinar_campaigns")
+            .update({
+              scraping_finished_at: new Date().toISOString(),
+              scraping_error: `Erro ao inserir leads: ${insErr.message}`,
+              status: "draft",
+            })
+            .eq("id", campaignId);
+          return { success: false, error: insErr.message };
+        }
+        inserted = rows.length;
+      }
+    }
+
+    await supabase
+      .from("webinar_campaigns")
+      .update({
+        scraping_finished_at: new Date().toISOString(),
+        scraping_error: null,
+        status: "ready",
+      })
+      .eq("id", campaignId);
+
+    revalidatePath(`/webinar/${campaignId}`);
+    return {
+      success: true,
+      status: "done",
+      inserted,
+      total: companies.length,
+    };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }

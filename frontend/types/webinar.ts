@@ -71,6 +71,12 @@ export interface WebinarCampaign {
   total_attended: number;
   total_converted: number;
 
+  scraping_job_id: string | null;
+  scraping_started_at: string | null;
+  scraping_finished_at: string | null;
+  scraping_max_per_city: number | null;
+  scraping_error: string | null;
+
   created_at: string;
   updated_at: string;
 }
