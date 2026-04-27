@@ -55,10 +55,18 @@ export const INITIAL_GREETINGS = {
 };
 
 export function detectPeriod(now: Date = new Date()): "manha" | "tarde" | "noite" {
-  const h = now.getHours();
-  if (h < 12) return "manha";
-  if (h < 18) return "tarde";
-  return "noite";
+  // Sempre usa horário do Brasil (America/Sao_Paulo) independente do servidor
+  const h = parseInt(
+    new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      hour12: false,
+      timeZone: "America/Sao_Paulo",
+    }).format(now),
+    10,
+  );
+  if (h >= 5 && h < 12) return "manha";
+  if (h >= 12 && h < 18) return "tarde";
+  return "noite"; // 18h-04h
 }
 
 export function pickInitialGreeting(now: Date = new Date()): string {
