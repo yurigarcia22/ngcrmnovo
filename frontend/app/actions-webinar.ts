@@ -834,22 +834,30 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
 
     const message = renderInviteMessage(lead, campaign);
 
-    const instance = await pickInstance({
+    const picked = await pickInstance({
       instance_names: campaign.instance_names,
       instance_name: campaign.instance_name,
+      preferredInstance: lead.last_instance_used ?? null,
     });
-    if (!instance) {
+    if (!picked) {
       throw new Error(
         "Nenhuma instance Evolution disponível. Configura na aba Setup.",
       );
     }
 
-    const evoResult = await sendTextViaEvolution(instance, lead.phone, message);
+    const evoResult = await sendTextViaEvolution(
+      picked.name,
+      lead.phone,
+      message,
+    );
     if (!evoResult.ok) throw new Error(evoResult.error ?? "Evolution falhou");
 
     await supabase
       .from("webinar_campaign_leads")
-      .update({ funnel_status: "invited" })
+      .update({
+        funnel_status: "invited",
+        last_instance_used: picked.name,
+      })
       .eq("id", leadId);
 
     await supabase.from("webinar_messages").insert({
@@ -860,7 +868,7 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
       sent_text: message,
       sent_at: new Date().toISOString(),
       evolution_message_id: evoResult.messageId ?? null,
-      instance_used: instance,
+      instance_used: picked.name,
     });
 
     await supabase
