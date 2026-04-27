@@ -179,6 +179,99 @@ export async function listCampaignLeads(campaignId: string): Promise<{
   }
 }
 
+/**
+ * Lista leads que já passaram da etapa de qualificação.
+ * Filter aceita: 'confirmed' | 'attended' | 'no_show' | 'converted' | 'all'
+ */
+export async function listConfirmedLeads(
+  campaignId: string,
+  filter: "confirmed" | "attended" | "no_show" | "converted" | "all" = "all",
+): Promise<{
+  success: boolean;
+  data?: WebinarCampaignLead[];
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const allConfirmedStatuses: string[] = [
+      "confirmed",
+      "attended",
+      "no_show",
+      "converted",
+    ];
+    const statuses = filter === "all" ? allConfirmedStatuses : [filter];
+
+    const { data, error } = await supabase
+      .from("webinar_campaign_leads")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .in("funnel_status", statuses)
+      .order("last_interaction_at", { ascending: false, nullsFirst: false });
+
+    if (error) throw error;
+    return { success: true, data: data as WebinarCampaignLead[] };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+/**
+ * Exporta confirmados como CSV (string).
+ * Header: empresa, nome, email, telefone_direto, telefone_original, status, data_confirmacao
+ */
+export async function exportConfirmedLeadsCSV(campaignId: string): Promise<{
+  success: boolean;
+  csv?: string;
+  filename?: string;
+  error?: string;
+}> {
+  try {
+    const result = await listConfirmedLeads(campaignId, "all");
+    if (!result.success || !result.data) {
+      throw new Error(result.error ?? "Falha ao listar");
+    }
+
+    const escape = (s: string | null | undefined): string => {
+      if (s === null || s === undefined) return "";
+      const str = String(s);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+        return `"${str.replaceAll('"', '""')}"`;
+      }
+      return str;
+    };
+
+    const header = [
+      "empresa",
+      "responsavel",
+      "email",
+      "telefone_direto",
+      "telefone_whatsapp",
+      "status",
+      "data_confirmacao",
+      "instance_usada",
+    ].join(",");
+
+    const rows = result.data.map((l) =>
+      [
+        escape(l.company_name),
+        escape(l.responsible_name),
+        escape(l.responsible_email),
+        escape(l.responsible_direct_phone),
+        escape(l.phone),
+        escape(l.funnel_status),
+        escape(l.last_interaction_at),
+        escape(l.last_instance_used),
+      ].join(","),
+    );
+
+    const csv = [header, ...rows].join("\n");
+    const filename = `confirmados-${campaignId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+    return { success: true, csv, filename };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
 export async function addLeadManually(
   campaignId: string,
   input: { phone: string; company_name?: string; website?: string; address?: string },

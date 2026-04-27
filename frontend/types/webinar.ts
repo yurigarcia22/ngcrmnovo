@@ -116,8 +116,17 @@ export interface WebinarCampaignLead {
   notes: string | null;
   loss_reason: string | null;
 
+  // Dados do responsável coletados pelo agente IA
+  responsible_name: string | null;
+  responsible_email: string | null;
+  responsible_direct_phone: string | null;
+
+  // Lead affinity (failover de número)
+  last_instance_used: string | null;
+
   created_at: string;
   updated_at: string;
+  last_interaction_at: string | null;
 }
 
 export interface WebinarCadenceStep {

@@ -110,11 +110,12 @@ async function runDispatch() {
         continue;
       }
 
-      const instance = await pickInstance({
+      const picked = await pickInstance({
         instance_names: campaign.instance_names,
         instance_name: campaign.instance_name,
+        preferredInstance: lead.last_instance_used ?? null,
       });
-      if (!instance) {
+      if (!picked) {
         await supabase
           .from("webinar_messages")
           .update({
@@ -131,6 +132,41 @@ async function runDispatch() {
         continue;
       }
 
+      // Failover bridge (apenas pra agent_reply, não pra reminders/cron massivo)
+      if (
+        picked.isFailover &&
+        picked.preferredInstance &&
+        category === "agent_reply"
+      ) {
+        const bridge =
+          "Oi, voltei aqui (tive um problema no outro número). Continuando nossa conversa.";
+        const bridgeRes = await sendTextViaEvolution(
+          picked.name,
+          lead.phone,
+          bridge,
+        );
+        if (bridgeRes.ok) {
+          await supabase.from("webinar_messages").insert({
+            campaign_lead_id: lead.id,
+            scheduled_at: new Date().toISOString(),
+            status: "sent",
+            direction: "outbound",
+            category: "agent_reply",
+            sent_text: bridge,
+            sent_at: new Date().toISOString(),
+            ai_metadata: {
+              type: "failover_bridge",
+              from_instance: picked.preferredInstance,
+              to_instance: picked.name,
+            },
+            evolution_message_id: bridgeRes.messageId ?? null,
+            instance_used: picked.name,
+          });
+          await new Promise((r) => setTimeout(r, 3500));
+        }
+      }
+
+      const instance = picked.name;
       const evoRes = await sendTextViaEvolution(
         instance,
         lead.phone,
@@ -165,6 +201,12 @@ async function runDispatch() {
           instance_used: instance,
         })
         .eq("id", row.id);
+
+      // Atualiza lead affinity (pra próximas mensagens irem pelo mesmo número)
+      await supabase
+        .from("webinar_campaign_leads")
+        .update({ last_instance_used: instance })
+        .eq("id", lead.id);
 
       // Avança status do lead se for primeira saudação
       if (category === "initial_outreach") {

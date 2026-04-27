@@ -67,11 +67,13 @@ export async function executeAgentTools(args: {
             continue;
           }
 
-          const instance = await pickInstance({
+          // Lead affinity: tenta usar a última instance que falou com este lead
+          const picked = await pickInstance({
             instance_names: campaign.instance_names,
             instance_name: campaign.instance_name,
+            preferredInstance: lead.last_instance_used ?? null,
           });
-          if (!instance) {
+          if (!picked) {
             result.executed.push({
               tool: "send_message",
               result: "error",
@@ -80,8 +82,39 @@ export async function executeAgentTools(args: {
             continue;
           }
 
+          // Failover: se trocou de instance, manda mensagem-ponte antes
+          if (picked.isFailover && picked.preferredInstance) {
+            const bridge = "Oi, voltei aqui (tive um problema no outro número). Continuando nossa conversa.";
+            const bridgeRes = await sendTextViaEvolution(
+              picked.name,
+              lead.phone,
+              bridge,
+            );
+            if (bridgeRes.ok) {
+              await supabase.from("webinar_messages").insert({
+                campaign_lead_id: args.campaignLeadId,
+                scheduled_at: new Date().toISOString(),
+                status: "sent",
+                direction: "outbound",
+                category: "agent_reply",
+                sent_text: bridge,
+                sent_at: new Date().toISOString(),
+                ai_generated: true,
+                ai_metadata: {
+                  type: "failover_bridge",
+                  from_instance: picked.preferredInstance,
+                  to_instance: picked.name,
+                },
+                evolution_message_id: bridgeRes.messageId ?? null,
+                instance_used: picked.name,
+              });
+              // Pequena pausa entre bridge e msg principal pra parecer humano
+              await new Promise((r) => setTimeout(r, 3500));
+            }
+          }
+
           const evoRes = await sendTextViaEvolution(
-            instance,
+            picked.name,
             lead.phone,
             text,
           );
@@ -103,12 +136,25 @@ export async function executeAgentTools(args: {
             sent_text: text,
             sent_at: new Date().toISOString(),
             ai_generated: true,
-            ai_metadata: { reasoning: args.reasoning?.slice(0, 1000) },
+            ai_metadata: {
+              reasoning: args.reasoning?.slice(0, 1000),
+              failover: picked.isFailover,
+            },
             evolution_message_id: evoRes.messageId ?? null,
-            instance_used: instance,
+            instance_used: picked.name,
           });
 
-          result.executed.push({ tool: "send_message", result: "ok" });
+          // Atualiza lead affinity pra próximas mensagens
+          await supabase
+            .from("webinar_campaign_leads")
+            .update({ last_instance_used: picked.name })
+            .eq("id", args.campaignLeadId);
+
+          result.executed.push({
+            tool: "send_message",
+            result: "ok",
+            detail: picked.isFailover ? `failover ${picked.preferredInstance} -> ${picked.name}` : picked.name,
+          });
           break;
         }
 

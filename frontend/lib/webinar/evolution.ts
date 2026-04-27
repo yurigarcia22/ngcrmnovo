@@ -51,16 +51,25 @@ export async function listEvolutionInstances(): Promise<EvolutionInstance[]> {
   }));
 }
 
+export type PickInstanceResult = {
+  name: string;
+  isFailover: boolean; // true se precisou trocar a instance preferida (caiu)
+  preferredInstance: string | null;
+};
+
 /**
- * Round-robin balanceado: pega instâncias ativas, ordena pelas menos usadas
- * recentemente, pega top 3 e sorteia entre elas.
+ * pickInstance v3 com lead affinity:
+ *   1. Se preferredInstance está nas candidates E open -> usa ela (sem failover)
+ *   2. Caso contrário -> round-robin balanceado entre as open
+ *      retorna isFailover=true se preferredInstance existia e caiu
  *
- * Por que top 3 e não a menos usada? Pra adicionar jitter/imprevisibilidade.
+ * Round-robin: pega top 3 menos usadas recentemente e sorteia (jitter anti-padrão).
  */
 export async function pickInstance(args: {
   instance_names?: string[] | null;
   instance_name?: string | null;
-}): Promise<string | null> {
+  preferredInstance?: string | null;
+}): Promise<PickInstanceResult | null> {
   const candidates = new Set<string>();
   if (args.instance_names) {
     for (const n of args.instance_names) {
@@ -72,24 +81,53 @@ export async function pickInstance(args: {
   }
   if (candidates.size === 0) return null;
 
+  const preferred = args.preferredInstance?.trim() || null;
+
   // Filtra as conectadas
   let live: EvolutionInstance[] = [];
   try {
     live = await listEvolutionInstances();
   } catch {
+    // Se Evolution falhar, usa qualquer das candidates aleatoriamente
     const arr = Array.from(candidates);
-    return arr[Math.floor(Math.random() * arr.length)];
+    const fallback = arr[Math.floor(Math.random() * arr.length)];
+    return {
+      name: fallback,
+      isFailover: preferred !== null && preferred !== fallback,
+      preferredInstance: preferred,
+    };
   }
 
   const open = live
     .filter((i) => i.connectionStatus === "open" && candidates.has(i.name))
     .map((i) => i.name);
 
+  // 1. Lead affinity: preferred está open -> usa ela
+  if (preferred && open.includes(preferred)) {
+    return {
+      name: preferred,
+      isFailover: false,
+      preferredInstance: preferred,
+    };
+  }
+
+  // 2. Failover: preferred caiu (ou não existia). Roda round-robin balanceado
   if (open.length === 0) {
     const arr = Array.from(candidates);
-    return arr[Math.floor(Math.random() * arr.length)];
+    const fallback = arr[Math.floor(Math.random() * arr.length)];
+    return {
+      name: fallback,
+      isFailover: preferred !== null && preferred !== fallback,
+      preferredInstance: preferred,
+    };
   }
-  if (open.length === 1) return open[0];
+  if (open.length === 1) {
+    return {
+      name: open[0],
+      isFailover: preferred !== null && preferred !== open[0],
+      preferredInstance: preferred,
+    };
+  }
 
   // Conta uso recente (60 min) por instance
   const supabase = createServiceClient();
@@ -111,15 +149,17 @@ export async function pickInstance(args: {
         if (name) usage.set(name, (usage.get(name) ?? 0) + 1);
       }
     }
-  } catch {
-    // Ignora erro de query, segue com uso=0 pra todos
-  }
+  } catch {}
 
-  // Ordena pelas menos usadas
   const sorted = open.sort((a, b) => (usage.get(a) ?? 0) - (usage.get(b) ?? 0));
-  // Pega top 3 (ou todas se menor)
   const top = sorted.slice(0, Math.min(3, sorted.length));
-  return top[Math.floor(Math.random() * top.length)];
+  const chosen = top[Math.floor(Math.random() * top.length)];
+
+  return {
+    name: chosen,
+    isFailover: preferred !== null && preferred !== chosen,
+    preferredInstance: preferred,
+  };
 }
 
 /**
