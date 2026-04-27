@@ -226,6 +226,12 @@ export async function POST(req: NextRequest) {
       })),
     };
 
+    // IA pausada manualmente pelo operador — ignora agente
+    if (lead.ai_paused) {
+      console.log("[webhook evolution] lead=" + lead.id + " ai_paused=true — agente ignorado");
+      return NextResponse.json({ ok: true, skipped: "ai_paused", leadId: lead.id });
+    }
+
     console.log("[webhook evolution] lead=" + lead.id + " status=" + cur + " msgs=" + (history?.length ?? 0) + " — agente em background");
 
     // RETORNA 200 IMEDIATAMENTE — Evolution não espera mais

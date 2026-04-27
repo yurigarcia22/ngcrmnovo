@@ -13,6 +13,8 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
+  BotOff,
+  Bot,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -21,6 +23,7 @@ import {
   sendTestMessageToLead,
   startCampaignScraping,
   pollCampaignScraping,
+  toggleLeadAiPause,
 } from "@/app/actions-webinar";
 import {
   WEBINAR_FUNNEL_LABELS,
@@ -134,6 +137,19 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
     });
   }
 
+  function handleToggleAi(lead: WebinarCampaignLead) {
+    startTransition(async () => {
+      const next = !lead.ai_paused;
+      const result = await toggleLeadAiPause(lead.id, next);
+      if (result.success) {
+        toast.success(next ? "IA pausada para este lead" : "IA reativada para este lead");
+        loadLeads();
+      } else {
+        toast.error(`Falha: ${result.error}`);
+      }
+    });
+  }
+
   return (
     <div className="space-y-6 max-w-5xl">
       <Card className="p-6">
@@ -225,6 +241,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                   <th className="pb-2 font-semibold text-slate-600">Empresa</th>
                   <th className="pb-2 font-semibold text-slate-600">Telefone</th>
                   <th className="pb-2 font-semibold text-slate-600">Status</th>
+                  <th className="pb-2 font-semibold text-slate-600">IA</th>
                   <th className="pb-2 font-semibold text-slate-600 text-right">Ações</th>
                 </tr>
               </thead>
@@ -239,6 +256,24 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-indigo-50 text-indigo-700">
                         {WEBINAR_FUNNEL_LABELS[lead.funnel_status]}
                       </span>
+                    </td>
+                    <td className="py-3">
+                      <button
+                        disabled={pending}
+                        onClick={() => handleToggleAi(lead)}
+                        title={lead.ai_paused ? "IA pausada — clique para reativar" : "IA ativa — clique para pausar e atender manualmente"}
+                        className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md transition-colors ${
+                          lead.ai_paused
+                            ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        }`}
+                      >
+                        {lead.ai_paused ? (
+                          <><BotOff className="w-3 h-3" /> Pausada</>
+                        ) : (
+                          <><Bot className="w-3 h-3" /> Ativa</>
+                        )}
+                      </button>
                     </td>
                     <td className="py-3 text-right">
                       <Button

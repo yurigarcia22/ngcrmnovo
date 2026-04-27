@@ -1049,3 +1049,20 @@ export async function deleteCadenceStep(stepId: string, campaignId: string): Pro
     return { success: false, error: e?.message ?? "erro" };
   }
 }
+
+export async function toggleLeadAiPause(
+  leadId: string,
+  paused: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("webinar_campaign_leads")
+      .update({ ai_paused: paused })
+      .eq("id", leadId);
+    if (error) throw error;
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
