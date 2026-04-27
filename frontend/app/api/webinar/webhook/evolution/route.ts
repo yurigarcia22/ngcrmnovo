@@ -176,6 +176,9 @@ export async function POST(req: NextRequest) {
       offerDescription: campaign.offer_description,
       calLink: campaign.cal_link,
       companyName: lead.company_name,
+      responsibleName: lead.responsible_name ?? null,
+      responsibleEmail: lead.responsible_email ?? null,
+      responsibleDirectPhone: lead.responsible_direct_phone ?? null,
       leadPhone: lead.phone,
       funnelStatus: lead.funnel_status,
       conversationHistory: (history ?? []).map((h: any) => ({
