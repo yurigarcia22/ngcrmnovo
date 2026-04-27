@@ -51,7 +51,15 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
     );
 
     if (decision.toolCalls.length === 0) {
-      console.warn("[webhook evolution] [bg] AVISO: agente retornou 0 tool calls — sem acao");
+      console.warn("[webhook evolution] [bg] AVISO: agente retornou 0 tool calls — injetando resposta padrao");
+      decision.toolCalls = [
+        {
+          name: "send_message",
+          args: {
+            text: "Isso foge um pouco do que consigo responder por políticas da empresa. Mas se tiver dúvida sobre o evento, pode perguntar à vontade.",
+          },
+        },
+      ];
     }
 
     const exec = await executeAgentTools({
