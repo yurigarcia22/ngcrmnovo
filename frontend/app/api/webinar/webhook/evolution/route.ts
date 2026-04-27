@@ -60,13 +60,10 @@ export async function POST(req: NextRequest) {
     const key = data?.key ?? {};
     const fromMe = key?.fromMe ?? false;
     if (fromMe) {
-      // Mensagem que NOS enviamos. Ignora.
       return NextResponse.json({ ok: true, ignored: "fromMe" });
     }
 
     const remoteJid: string = key?.remoteJid ?? "";
-    // WhatsApp Lid: quando vem como "xxx@lid" (identificador anônimo),
-    // o senderPn tem o número real ("55XX@s.whatsapp.net").
     const senderPn: string | null = key?.senderPn ?? null;
     const effectiveJid =
       remoteJid.endsWith("@lid") && senderPn ? senderPn : remoteJid;
@@ -80,7 +77,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Texto da mensagem (pode estar em conversation, extendedTextMessage, etc)
     const message = data?.message ?? {};
     const text =
       message?.conversation ??
@@ -97,7 +93,20 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Encontra o lead. Pode haver multiplas campanhas com mesmo numero, pega a mais recente ativa.
+    // Idempotência: se já processamos essa msg do Evolution, ignora silenciosamente.
+    // Evolution faz retry quando webhook demora a responder; o ack vai chegar várias vezes
+    // pra mesma mensagem com o mesmo evolution_message_id.
+    if (messageId) {
+      const { data: dup } = await supabase
+        .from("webinar_messages")
+        .select("id")
+        .eq("evolution_message_id", messageId)
+        .limit(1);
+      if (dup && dup.length > 0) {
+        return NextResponse.json({ ok: true, ignored: "duplicate_message" });
+      }
+    }
+
     const { data: leads } = await supabase
       .from("webinar_campaign_leads")
       .select("*, webinar_campaigns!inner(*)")
@@ -176,19 +185,17 @@ export async function POST(req: NextRequest) {
       })),
     };
 
-    const decision = await runAgent(ctx);
-
-    const exec = await executeAgentTools({
-      campaignLeadId: lead.id,
-      toolCalls: decision.toolCalls,
-      reasoning: decision.reasoning,
+    // Processamento do agente em background — Evolution só dá ~10s de timeout
+    // pro webhook, e o Gemini pode levar 5-30s. Ack imediato + processa async
+    // evita retry da Evolution e duplicação de mensagens.
+    runAgentAndExecute(lead.id, ctx).catch((e) => {
+      console.error("[webhook evolution] background agent erro", e);
     });
 
     return NextResponse.json({
       ok: true,
-      tool_calls: decision.toolCalls.map((c) => c.name),
-      reasoning: decision.reasoning?.slice(0, 200),
-      executed: exec.executed,
+      queued: true,
+      lead_id: lead.id,
     });
   } catch (e: any) {
     console.error("[webhook evolution] erro", e);
@@ -197,6 +204,15 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+async function runAgentAndExecute(leadId: string, ctx: AgentContext) {
+  const decision = await runAgent(ctx);
+  await executeAgentTools({
+    campaignLeadId: leadId,
+    toolCalls: decision.toolCalls,
+    reasoning: decision.reasoning,
+  });
 }
 
 export async function GET() {

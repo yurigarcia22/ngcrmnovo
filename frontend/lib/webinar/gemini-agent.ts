@@ -2,7 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { buildSystemPrompt, AGENT_TOOLS, type AgentContext } from "./agent-prompt";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY ?? "";
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-pro";
+// Flash é ~10x mais rápido que Pro (1-3s vs 15-30s). Pra SDR via WhatsApp
+// onde lead espera resposta em segundos, Flash é mais que suficiente.
+// Se quiser usar Pro, seta GEMINI_MODEL=gemini-2.5-pro no env do Easypanel.
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
 
 export type AgentToolCall =
   | { name: "send_message"; args: { text: string } }
