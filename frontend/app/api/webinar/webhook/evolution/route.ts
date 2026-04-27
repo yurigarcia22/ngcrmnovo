@@ -150,10 +150,18 @@ export async function POST(req: NextRequest) {
       theme: campaign.theme,
       eventDate: campaign.event_date,
       eventDateFormatted: eventDate
-        ? eventDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" })
+        ? eventDate.toLocaleDateString("pt-BR", {
+            day: "2-digit",
+            month: "long",
+            timeZone: "America/Sao_Paulo",
+          })
         : null,
       eventHourFormatted: eventDate
-        ? eventDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+        ? eventDate.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "America/Sao_Paulo",
+          })
         : null,
       meetLink: campaign.meet_link,
       offerDescription: campaign.offer_description,

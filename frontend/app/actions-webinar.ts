@@ -310,6 +310,7 @@ function renderInviteMessage(lead: any, campaign: any): string {
         month: "long",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: "America/Sao_Paulo",
       })
     : "em breve (data será confirmada)";
   const link = campaign.meet_link ?? "(link será enviado em breve)";

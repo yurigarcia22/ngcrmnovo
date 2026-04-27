@@ -323,10 +323,12 @@ async function scheduleReminderCadenceForLead(
   const dataFmt = eventDate.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "long",
+    timeZone: "America/Sao_Paulo",
   });
   const horaFmt = eventDate.toLocaleTimeString("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
   });
   const primeiroNome = getFirstName(lead.responsible_name);
   const empresa = lead.company_name ?? "tua clínica";
