@@ -217,17 +217,39 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Idempotência
+    // Idempotência inteligente:
+    // Se a mesma mensagem já existe E já tem resposta outbound posterior, ignora.
+    // Senão (mensagem chegou mas agente travou), reprocessa.
+    let alreadyProcessed = false;
+    let existingInboundId: string | null = null;
     if (messageId) {
       const { data: dup } = await supabase
         .from("webinar_messages")
-        .select("id")
+        .select("id, campaign_lead_id, created_at")
         .eq("evolution_message_id", messageId)
         .limit(1);
       if (dup && dup.length > 0) {
-        console.log("[webhook evolution] ignorando: duplicate msgId=" + messageId);
-        return NextResponse.json({ ok: true, ignored: "duplicate_message" });
+        existingInboundId = dup[0].id;
+        const dupRow = dup[0] as any;
+        // Tem outbound após esse inbound? Se sim, ja foi processado.
+        const { data: respAfter } = await supabase
+          .from("webinar_messages")
+          .select("id")
+          .eq("campaign_lead_id", dupRow.campaign_lead_id)
+          .eq("direction", "outbound")
+          .gt("created_at", dupRow.created_at)
+          .limit(1);
+        if (respAfter && respAfter.length > 0) {
+          alreadyProcessed = true;
+        }
       }
+    }
+    if (alreadyProcessed) {
+      console.log("[webhook evolution] ignorando: duplicate msgId=" + messageId + " (ja processado)");
+      return NextResponse.json({ ok: true, ignored: "duplicate_message_already_processed" });
+    }
+    if (existingInboundId) {
+      console.log("[webhook evolution] msgId=" + messageId + " ja existe mas sem resposta — reprocessando");
     }
 
     const { data: leads } = await supabase
@@ -243,17 +265,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "lead_not_found", phones });
     }
 
-    // Salva inbound
-    await supabase.from("webinar_messages").insert({
-      campaign_lead_id: lead.id,
-      scheduled_at: new Date().toISOString(),
-      status: "replied",
-      direction: "inbound",
-      sent_text: effectiveText,
-      sent_at: new Date().toISOString(),
-      evolution_message_id: messageId ?? null,
-      instance_used: instanceName ?? null,
-    });
+    // Salva inbound (so se ainda nao existir — caso do reprocessamento)
+    if (!existingInboundId) {
+      await supabase.from("webinar_messages").insert({
+        campaign_lead_id: lead.id,
+        scheduled_at: new Date().toISOString(),
+        status: "replied",
+        direction: "inbound",
+        sent_text: effectiveText,
+        sent_at: new Date().toISOString(),
+        evolution_message_id: messageId ?? null,
+        instance_used: instanceName ?? null,
+      });
+    }
 
     // Atualiza status se necessário
     const cur = lead.funnel_status;
