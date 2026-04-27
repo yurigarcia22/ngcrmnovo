@@ -89,9 +89,17 @@ async function sendEmergencyFallback(
   }
 }
 
-async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
+async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inboundId: string | null) {
   const supabase = createServiceClient();
   let decisionMade = false;
+  const markDone = async () => {
+    if (inboundId) {
+      await supabase
+        .from("webinar_messages")
+        .update({ agent_processed_at: new Date().toISOString() })
+        .eq("id", inboundId);
+    }
+  };
   try {
     console.log("[webhook evolution] [bg] iniciando agente lead=" + campaignLeadId);
 
@@ -144,6 +152,7 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
       .from("webinar_campaign_leads")
       .update({ last_interaction_at: new Date().toISOString() })
       .eq("id", campaignLeadId);
+    await markDone();
   } catch (e: any) {
     console.error("[webhook evolution] [bg] erro no agente:", e?.message, e?.stack);
     // Catch-all final: sempre envia algo pro lead
@@ -152,6 +161,7 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext) {
     } else {
       await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
     }
+    await markDone();
   }
 }
 
@@ -217,39 +227,44 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Idempotência inteligente:
-    // Se a mesma mensagem já existe E já tem resposta outbound posterior, ignora.
-    // Senão (mensagem chegou mas agente travou), reprocessa.
+    // Idempotência ATÔMICA via constraint do Postgres.
+    // O lock natural acontece no INSERT mais embaixo (com .upsert + onConflict)
+    // — duas requests com mesmo messageId nao conseguem ambas inserir.
+    // Aqui só verifica se já houve processamento finalizado.
     let alreadyProcessed = false;
+    let alreadyProcessing = false;
     let existingInboundId: string | null = null;
     if (messageId) {
       const { data: dup } = await supabase
         .from("webinar_messages")
-        .select("id, campaign_lead_id, created_at")
+        .select("id, campaign_lead_id, created_at, agent_processed_at, agent_processing_started_at")
         .eq("evolution_message_id", messageId)
+        .eq("direction", "inbound")
         .limit(1);
       if (dup && dup.length > 0) {
-        existingInboundId = dup[0].id;
-        const dupRow = dup[0] as any;
-        // Tem outbound após esse inbound? Se sim, ja foi processado.
-        const { data: respAfter } = await supabase
-          .from("webinar_messages")
-          .select("id")
-          .eq("campaign_lead_id", dupRow.campaign_lead_id)
-          .eq("direction", "outbound")
-          .gt("created_at", dupRow.created_at)
-          .limit(1);
-        if (respAfter && respAfter.length > 0) {
+        const row = dup[0] as any;
+        existingInboundId = row.id;
+        if (row.agent_processed_at) {
           alreadyProcessed = true;
+        } else if (row.agent_processing_started_at) {
+          // Em processamento? (criado < 60s atras = ainda rodando agente)
+          const ageMs = Date.now() - new Date(row.agent_processing_started_at).getTime();
+          if (ageMs < 60_000) {
+            alreadyProcessing = true;
+          }
         }
       }
     }
     if (alreadyProcessed) {
-      console.log("[webhook evolution] ignorando: duplicate msgId=" + messageId + " (ja processado)");
-      return NextResponse.json({ ok: true, ignored: "duplicate_message_already_processed" });
+      console.log("[webhook evolution] ignorando: msgId=" + messageId + " ja processado");
+      return NextResponse.json({ ok: true, ignored: "already_processed" });
+    }
+    if (alreadyProcessing) {
+      console.log("[webhook evolution] ignorando: msgId=" + messageId + " em processamento (agente rodando)");
+      return NextResponse.json({ ok: true, ignored: "in_processing" });
     }
     if (existingInboundId) {
-      console.log("[webhook evolution] msgId=" + messageId + " ja existe mas sem resposta — reprocessando");
+      console.log("[webhook evolution] msgId=" + messageId + " orfao (>60s sem termino) — reprocessando");
     }
 
     const { data: leads } = await supabase
@@ -265,18 +280,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "lead_not_found", phones });
     }
 
-    // Salva inbound (so se ainda nao existir — caso do reprocessamento)
-    if (!existingInboundId) {
-      await supabase.from("webinar_messages").insert({
-        campaign_lead_id: lead.id,
-        scheduled_at: new Date().toISOString(),
-        status: "replied",
-        direction: "inbound",
-        sent_text: effectiveText,
-        sent_at: new Date().toISOString(),
-        evolution_message_id: messageId ?? null,
-        instance_used: instanceName ?? null,
-      });
+    // Insert atomic com unique constraint em (evolution_message_id) para inbound.
+    // Se 2 webhooks chegam com mesmo messageId simultaneamente, só um insere.
+    // O outro recebe erro 23505 e a gente trata como "in_processing".
+    const inboundId = existingInboundId ?? (await (async () => {
+      const nowIso = new Date().toISOString();
+      const { data: ins, error } = await supabase
+        .from("webinar_messages")
+        .insert({
+          campaign_lead_id: lead.id,
+          scheduled_at: nowIso,
+          status: "replied",
+          direction: "inbound",
+          sent_text: effectiveText,
+          sent_at: nowIso,
+          evolution_message_id: messageId ?? null,
+          instance_used: instanceName ?? null,
+          agent_processing_started_at: nowIso,
+        })
+        .select("id")
+        .single();
+      if (error) {
+        // 23505 = unique violation = outro processo inseriu primeiro
+        if (error.code === "23505") {
+          console.log("[webhook evolution] race detectada msgId=" + messageId + " — outro processo ganhou");
+          return null;
+        }
+        throw error;
+      }
+      return ins?.id ?? null;
+    })());
+
+    if (!inboundId) {
+      // Outro processo ja esta cuidando. Ignora.
+      return NextResponse.json({ ok: true, ignored: "race_lost" });
+    }
+
+    // Se reprocessamento de orfao, marca processing_started_at agora
+    if (existingInboundId) {
+      await supabase
+        .from("webinar_messages")
+        .update({ agent_processing_started_at: new Date().toISOString() })
+        .eq("id", existingInboundId);
     }
 
     // Atualiza status se necessário
@@ -351,7 +396,7 @@ export async function POST(req: NextRequest) {
 
     // RETORNA 200 IMEDIATAMENTE — Evolution não espera mais
     // O agente roda no event loop do Node.js (não edge runtime, não serverless)
-    void runAgentBackground(lead.id, ctx);
+    void runAgentBackground(lead.id, ctx, inboundId);
 
     return NextResponse.json({ ok: true, agent: "background", leadId: lead.id });
   } catch (e: any) {
