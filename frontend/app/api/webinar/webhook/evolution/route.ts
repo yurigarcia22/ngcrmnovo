@@ -182,6 +182,14 @@ export async function POST(req: NextRequest) {
         .eq("id", lead.id);
     }
 
+    // Pós-confirmação: agente não atua mais — cadência automática assume.
+    // Quando rastreamento de clique no meet estiver implementado, remover este bloco.
+    const POST_CONFIRMATION_STATUSES = ["confirmed", "attended", "no_show", "converted", "interested_future", "escalated", "lost"];
+    if (POST_CONFIRMATION_STATUSES.includes(cur)) {
+      console.log("[webhook evolution] lead=" + lead.id + " status=" + cur + " — pos-confirmacao, agente ignorado");
+      return NextResponse.json({ ok: true, skipped: "post_confirmation", status: cur, leadId: lead.id });
+    }
+
     // Carrega histórico
     const { data: history } = await supabase
       .from("webinar_messages")
