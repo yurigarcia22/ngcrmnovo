@@ -40,13 +40,58 @@ export async function listCampaigns(): Promise<{
 }> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
+    const { data: campaigns, error } = await supabase
       .from("webinar_campaigns")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) throw error;
-    return { success: true, data: data as WebinarCampaign[] };
+    if (!campaigns || campaigns.length === 0) return { success: true, data: [] };
+
+    // Contagem dinâmica de leads por status (fonte de verdade)
+    const ids = (campaigns as any[]).map((c) => c.id);
+    const { data: leads } = await supabase
+      .from("webinar_campaign_leads")
+      .select("campaign_id, funnel_status")
+      .in("campaign_id", ids);
+
+    const counts = new Map<string, Record<string, number>>();
+    for (const id of ids) counts.set(id, {});
+    for (const l of (leads as any[]) ?? []) {
+      const map = counts.get(l.campaign_id) ?? {};
+      map[l.funnel_status] = (map[l.funnel_status] ?? 0) + 1;
+      counts.set(l.campaign_id, map);
+    }
+
+    const enriched = (campaigns as any[]).map((c) => {
+      const m = counts.get(c.id) ?? {};
+      const total = Object.values(m).reduce((a: number, b: any) => a + (b as number), 0);
+      const invited =
+        (m.invited ?? 0) +
+        (m.pending_response ?? 0) +
+        (m.qualifying ?? 0) +
+        (m.pitched ?? 0) +
+        (m.collecting_info ?? 0) +
+        (m.replied ?? 0) +
+        (m.confirmed ?? 0) +
+        (m.attended ?? 0) +
+        (m.no_show ?? 0) +
+        (m.converted ?? 0) +
+        (m.interested_future ?? 0);
+      const confirmed = (m.confirmed ?? 0) + (m.attended ?? 0) + (m.converted ?? 0);
+      const attended = (m.attended ?? 0) + (m.converted ?? 0);
+      const converted = m.converted ?? 0;
+      return {
+        ...c,
+        total_leads: total,
+        total_invited: invited,
+        total_confirmed: confirmed,
+        total_attended: attended,
+        total_converted: converted,
+      };
+    });
+
+    return { success: true, data: enriched as WebinarCampaign[] };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }
@@ -66,7 +111,46 @@ export async function getCampaign(id: string): Promise<{
       .single();
 
     if (error) throw error;
-    return { success: true, data: data as WebinarCampaign };
+
+    // Contagem dinâmica de leads por status
+    const { data: leads } = await supabase
+      .from("webinar_campaign_leads")
+      .select("funnel_status")
+      .eq("campaign_id", id);
+
+    const m: Record<string, number> = {};
+    for (const l of (leads as any[]) ?? []) {
+      m[l.funnel_status] = (m[l.funnel_status] ?? 0) + 1;
+    }
+
+    const total = Object.values(m).reduce((a, b) => a + b, 0);
+    const invited =
+      (m.invited ?? 0) +
+      (m.pending_response ?? 0) +
+      (m.qualifying ?? 0) +
+      (m.pitched ?? 0) +
+      (m.collecting_info ?? 0) +
+      (m.replied ?? 0) +
+      (m.confirmed ?? 0) +
+      (m.attended ?? 0) +
+      (m.no_show ?? 0) +
+      (m.converted ?? 0) +
+      (m.interested_future ?? 0);
+    const confirmed = (m.confirmed ?? 0) + (m.attended ?? 0) + (m.converted ?? 0);
+    const attended = (m.attended ?? 0) + (m.converted ?? 0);
+    const converted = m.converted ?? 0;
+
+    return {
+      success: true,
+      data: {
+        ...(data as any),
+        total_leads: total,
+        total_invited: invited,
+        total_confirmed: confirmed,
+        total_attended: attended,
+        total_converted: converted,
+      } as WebinarCampaign,
+    };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }
