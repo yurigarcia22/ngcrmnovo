@@ -185,34 +185,41 @@ export async function POST(req: NextRequest) {
       })),
     };
 
-    // Processamento do agente em background — Evolution só dá ~10s de timeout
-    // pro webhook, e o Gemini pode levar 5-30s. Ack imediato + processa async
-    // evita retry da Evolution e duplicação de mensagens.
-    runAgentAndExecute(lead.id, ctx).catch((e) => {
-      console.error("[webhook evolution] background agent erro", e);
+    // Processamento síncrono. Gemini Flash leva 3-6s, dentro do timeout do
+    // Evolution (~10s). Background async não funciona em todos ambientes
+    // (Next.js standalone às vezes mata Promise depois do response).
+    // Idempotência por evolution_message_id (acima) já protege contra dups
+    // de retry caso aconteça timeout em algum cenário extremo.
+    console.log("[webhook evolution] processando agente lead=" + lead.id);
+    const decision = await runAgent(ctx);
+    console.log(
+      "[webhook evolution] agente decidiu " +
+        decision.toolCalls.length +
+        " tool calls: " +
+        decision.toolCalls.map((c) => c.name).join(","),
+    );
+    const exec = await executeAgentTools({
+      campaignLeadId: lead.id,
+      toolCalls: decision.toolCalls,
+      reasoning: decision.reasoning,
     });
+    console.log(
+      "[webhook evolution] executor: " +
+        exec.executed.map((e) => e.tool + "=" + e.result).join(","),
+    );
 
     return NextResponse.json({
       ok: true,
-      queued: true,
-      lead_id: lead.id,
+      tool_calls: decision.toolCalls.map((c) => c.name),
+      executed: exec.executed,
     });
   } catch (e: any) {
-    console.error("[webhook evolution] erro", e);
+    console.error("[webhook evolution] erro", e?.message, e?.stack);
     return NextResponse.json(
       { ok: false, error: e?.message ?? "erro" },
       { status: 500 },
     );
   }
-}
-
-async function runAgentAndExecute(leadId: string, ctx: AgentContext) {
-  const decision = await runAgent(ctx);
-  await executeAgentTools({
-    campaignLeadId: leadId,
-    toolCalls: decision.toolCalls,
-    reasoning: decision.reasoning,
-  });
 }
 
 export async function GET() {
