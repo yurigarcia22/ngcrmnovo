@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/simple-ui";
 import {
@@ -96,6 +97,18 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
   const [exporting, setExporting] = useState(false);
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(
+    null,
+  );
+
+  function openMenu(leadId: string, anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    setMenuPos({
+      top: rect.bottom + 4,
+      right: window.innerWidth - rect.right,
+    });
+    setOpenMenuId(leadId);
+  }
 
   async function load() {
     setLoading(true);
@@ -307,7 +320,7 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                         </div>
                       </td>
                       <td
-                        className="px-2 py-3 text-right relative"
+                        className="px-2 py-3 text-right"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {lead.crm_deal_id ? (
@@ -328,47 +341,23 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                                 : "No CRM"}
                           </span>
                         ) : (
-                          <div className="inline-block relative">
-                            <button
-                              type="button"
-                              disabled={pushingId === lead.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(
-                                  openMenuId === lead.id ? null : lead.id,
-                                );
-                              }}
-                              className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-                            >
-                              <ArrowRightCircle className="w-3.5 h-3.5" />
-                              {pushingId === lead.id ? "Enviando..." : "Enviar"}
-                              <ChevronDown className="w-3 h-3" />
-                            </button>
-                            {openMenuId === lead.id && (
-                              <div
-                                className="absolute right-0 top-full mt-1 z-20 w-52 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {(["lead", "meeting", "sale"] as CrmMode[]).map(
-                                  (m) => {
-                                    const meta = CRM_MODE_META[m];
-                                    const Icon = meta.Icon;
-                                    return (
-                                      <button
-                                        key={m}
-                                        type="button"
-                                        onClick={() => handlePushToCrm(lead.id, m)}
-                                        className={`w-full text-left text-xs px-3 py-2 flex items-center gap-2 ${meta.cls}`}
-                                      >
-                                        <Icon className="w-3.5 h-3.5" />
-                                        {meta.label}
-                                      </button>
-                                    );
-                                  },
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <button
+                            type="button"
+                            disabled={pushingId === lead.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (openMenuId === lead.id) {
+                                setOpenMenuId(null);
+                              } else {
+                                openMenu(lead.id, e.currentTarget);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                          >
+                            <ArrowRightCircle className="w-3.5 h-3.5" />
+                            {pushingId === lead.id ? "Enviando..." : "Enviar"}
+                            <ChevronDown className="w-3 h-3" />
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -379,6 +368,33 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
           </div>
         )}
       </Card>
+
+      {/* Dropdown menu via portal — escapa do overflow:auto da tabela */}
+      {openMenuId && menuPos && typeof window !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed z-50 w-52 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
+            style={{ top: menuPos.top, right: menuPos.right }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(["lead", "meeting", "sale"] as CrmMode[]).map((m) => {
+              const meta = CRM_MODE_META[m];
+              const Icon = meta.Icon;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => handlePushToCrm(openMenuId, m)}
+                  className={`w-full text-left text-xs px-3 py-2 flex items-center gap-2 ${meta.cls}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {meta.label}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
