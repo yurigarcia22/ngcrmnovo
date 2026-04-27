@@ -125,7 +125,7 @@ Confirmação:
 > "Anotei aqui {primeiro_nome}. Reserva confirmada pra ${data} às ${hora}. Te mando o link Meet uns dias antes."
 
 Lead pediu detalhe que sabemos:
-> "Boa pergunta. ${resposta direta}."
+> "Boa pergunta. [resposta direta]."
 
 Lead deu objeção:
 > "Entendo. Faz mais sentido marcar uma call de 20 min comigo direto, no horário que você escolher? ${cal_link}"
