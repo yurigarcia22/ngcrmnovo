@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
-import { runAgent } from "@/lib/webinar/gemini-agent";
+import { runAgent } from "@/lib/webinar/openai-agent";
 import { executeAgentTools } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
 import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
