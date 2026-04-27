@@ -31,6 +31,8 @@ export async function executeAgentTools(args: {
 }): Promise<ExecutionResult> {
   const supabase = createServiceClient();
   const result: ExecutionResult = { ok: true, executed: [] };
+  let collectResponsibleDone: { name: string } | null = null;
+  let sendMessageCalled = false;
 
   const { data: lead, error: leadErr } = await supabase
     .from("webinar_campaign_leads")
@@ -57,6 +59,7 @@ export async function executeAgentTools(args: {
     try {
       switch (call.name) {
         case "send_message": {
+          sendMessageCalled = true;
           const text = call.args.text;
           if (!text || typeof text !== "string") {
             result.executed.push({
@@ -191,6 +194,7 @@ export async function executeAgentTools(args: {
           const isComplete = !!name && (!!email || !!phone);
           if (isComplete) {
             updates.funnel_status = "confirmed";
+            collectResponsibleDone = { name };
           }
 
           await supabase
@@ -290,6 +294,54 @@ export async function executeAgentTools(args: {
         result: "error",
         detail: e?.message ?? "exception",
       });
+    }
+  }
+
+  // Fallback defensivo: se agente chamou collect_responsible_info com dados completos
+  // mas esqueceu o send_message, envia confirmação automaticamente.
+  if (collectResponsibleDone && !sendMessageCalled) {
+    console.warn("[agent-executor] FALLBACK: collect_responsible_info sem send_message — enviando confirmação automática");
+    try {
+      const firstName = collectResponsibleDone.name.split(" ")[0];
+      const confirmText = `Show ${firstName}, anotado. Te mando o link uns dias antes do evento.`;
+
+      const picked = await pickInstance({
+        instance_names: campaign.instance_names,
+        instance_name: campaign.instance_name,
+        preferredInstance: lead.last_instance_used ?? null,
+      });
+
+      if (picked) {
+        const evoRes = await sendTextViaEvolution(picked.name, lead.phone, confirmText);
+        if (evoRes.ok) {
+          await supabase.from("webinar_messages").insert({
+            campaign_lead_id: args.campaignLeadId,
+            scheduled_at: new Date().toISOString(),
+            status: "sent",
+            direction: "outbound",
+            category: "agent_reply",
+            sent_text: confirmText,
+            sent_at: new Date().toISOString(),
+            ai_generated: true,
+            ai_metadata: { type: "auto_confirmation_fallback", reasoning: args.reasoning?.slice(0, 500) },
+            evolution_message_id: evoRes.messageId ?? null,
+            instance_used: picked.name,
+          });
+          await supabase
+            .from("webinar_campaign_leads")
+            .update({ last_instance_used: picked.name })
+            .eq("id", args.campaignLeadId);
+        }
+        result.executed.push({
+          tool: "_auto_confirmation",
+          result: evoRes.ok ? "ok" : "error",
+          detail: evoRes.ok ? `fallback enviado via ${picked.name}` : evoRes.error,
+        });
+      } else {
+        result.executed.push({ tool: "_auto_confirmation", result: "error", detail: "sem instance disponível" });
+      }
+    } catch (e: any) {
+      result.executed.push({ tool: "_auto_confirmation", result: "error", detail: e?.message });
     }
   }
 
