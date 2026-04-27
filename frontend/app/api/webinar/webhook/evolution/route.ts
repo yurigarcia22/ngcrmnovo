@@ -65,11 +65,19 @@ export async function POST(req: NextRequest) {
     }
 
     const remoteJid: string = key?.remoteJid ?? "";
+    // WhatsApp Lid: quando vem como "xxx@lid" (identificador anônimo),
+    // o senderPn tem o número real ("55XX@s.whatsapp.net").
+    const senderPn: string | null = key?.senderPn ?? null;
+    const effectiveJid =
+      remoteJid.endsWith("@lid") && senderPn ? senderPn : remoteJid;
     const messageId: string | undefined = key?.id;
     const instanceName: string = body?.instance ?? data?.instance ?? "";
 
-    if (!remoteJid) {
-      return NextResponse.json({ ok: false, error: "no remoteJid" });
+    if (!effectiveJid) {
+      return NextResponse.json({
+        ok: false,
+        error: "no remoteJid nor senderPn",
+      });
     }
 
     // Texto da mensagem (pode estar em conversation, extendedTextMessage, etc)
@@ -84,7 +92,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "no_text_in_message" });
     }
 
-    const phone = jidToPhone(remoteJid);
+    const phone = jidToPhone(effectiveJid);
     const phones = phoneVariations(phone);
 
     const supabase = createServiceClient();
