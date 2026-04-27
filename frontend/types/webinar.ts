@@ -124,6 +124,11 @@ export interface WebinarCampaignLead {
   // Lead affinity (failover de número)
   last_instance_used: string | null;
 
+  // Vínculo com CRM principal (quando user envia confirmado pro funil de vendas)
+  crm_deal_id: string | null;
+  crm_pushed_at: string | null;
+  crm_pushed_mode: "lead" | "meeting" | "sale" | null;
+
   created_at: string;
   updated_at: string;
   last_interaction_at: string | null;

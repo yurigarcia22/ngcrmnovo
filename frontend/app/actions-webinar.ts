@@ -356,6 +356,191 @@ export async function exportConfirmedLeadsCSV(campaignId: string): Promise<{
   }
 }
 
+/**
+ * Envia um lead confirmado pro CRM principal (cria contact + deal no Funil de Vendas).
+ *
+ * Modos:
+ * - "lead":    primeiro stage do funil (entrada normal)
+ * - "meeting": stage com nome ~"Reunião"
+ * - "sale":    stage "Ganho" (venda fechada)
+ *
+ * Também marca o webinar lead com crm_deal_id pra impedir duplicação,
+ * e atualiza funnel_status quando aplicável (meeting -> attended, sale -> converted).
+ */
+export async function pushConfirmedLeadToCrm(
+  webinarLeadId: string,
+  mode: "lead" | "meeting" | "sale",
+): Promise<{ success: boolean; deal_id?: string; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const tenantId = await getTenantId();
+    if (!tenantId) return { success: false, error: "Sem tenant" };
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Sem auth" };
+
+    // 1. Carrega lead + campaign
+    const { data: lead, error: leadErr } = await supabase
+      .from("webinar_campaign_leads")
+      .select("*, webinar_campaigns(theme, name)")
+      .eq("id", webinarLeadId)
+      .single();
+    if (leadErr || !lead) {
+      return { success: false, error: leadErr?.message ?? "Lead não encontrado" };
+    }
+    if ((lead as any).crm_deal_id) {
+      return {
+        success: false,
+        error: "Esse lead já foi enviado pro CRM antes",
+      };
+    }
+
+    const campaign = (lead as any).webinar_campaigns;
+    const contactName =
+      lead.responsible_name ?? lead.company_name ?? lead.phone;
+    const contactPhone = lead.responsible_direct_phone ?? lead.phone;
+    const contactEmail = lead.responsible_email ?? null;
+
+    // 2. Upsert contact (procura por telefone primeiro)
+    const possiblePhones = [contactPhone];
+    if (contactPhone.startsWith("55") && contactPhone.length >= 12) {
+      possiblePhones.push(contactPhone.substring(2));
+    }
+    if (lead.phone !== contactPhone) possiblePhones.push(lead.phone);
+
+    let contactId: string | null = null;
+    const { data: existingContacts } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .in("phone", possiblePhones)
+      .limit(1);
+
+    if (existingContacts && existingContacts.length > 0) {
+      contactId = existingContacts[0].id;
+    } else {
+      const insertContact: any = {
+        tenant_id: tenantId,
+        name: contactName,
+        phone: contactPhone,
+      };
+      if (contactEmail) insertContact.email = contactEmail;
+      const { data: newContact, error: cErr } = await supabase
+        .from("contacts")
+        .insert(insertContact)
+        .select("id")
+        .single();
+      if (cErr || !newContact) {
+        return { success: false, error: `Contact: ${cErr?.message}` };
+      }
+      contactId = newContact.id;
+    }
+
+    // 3. Pipeline alvo (Funil de Vendas)
+    let pipelineId: string | null = null;
+    const { data: pipeFunil } = await supabase
+      .from("pipelines")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .ilike("name", "%Funil de Vendas%")
+      .limit(1);
+    if (pipeFunil && pipeFunil.length > 0) {
+      pipelineId = pipeFunil[0].id;
+    } else {
+      const { data: firstPipe } = await supabase
+        .from("pipelines")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .single();
+      if (firstPipe) pipelineId = firstPipe.id;
+    }
+    if (!pipelineId) {
+      return {
+        success: false,
+        error: "Nenhum pipeline configurado no CRM. Cria um em Configurações > Funis.",
+      };
+    }
+
+    // 4. Stage alvo conforme modo
+    const { data: stages } = await supabase
+      .from("stages")
+      .select("id, name, position")
+      .eq("tenant_id", tenantId)
+      .eq("pipeline_id", pipelineId)
+      .order("position", { ascending: true });
+
+    if (!stages || stages.length === 0) {
+      return { success: false, error: "Pipeline sem stages" };
+    }
+
+    const findStage = (regex: RegExp) =>
+      stages.find((s: any) => regex.test(s.name?.toLowerCase() ?? ""));
+
+    let stageId: string | null = null;
+    if (mode === "lead") {
+      stageId = stages[0].id;
+    } else if (mode === "meeting") {
+      stageId = (findStage(/reuni/) ?? stages[1] ?? stages[0]).id;
+    } else if (mode === "sale") {
+      stageId = (findStage(/ganh|venda|fechad/) ?? stages[stages.length - 1]).id;
+    }
+    if (!stageId) {
+      return { success: false, error: "Stage alvo não encontrado" };
+    }
+
+    // 5. Cria deal
+    const tema = campaign?.theme ?? campaign?.name ?? "Webinar";
+    const dealTitle = `${contactName} (Webinar: ${tema})`;
+    const dealStatus =
+      mode === "sale" ? "won" : mode === "meeting" ? "open" : "open";
+
+    const { data: newDeal, error: dealErr } = await supabase
+      .from("deals")
+      .insert({
+        title: dealTitle,
+        value: 0,
+        contact_id: contactId,
+        stage_id: stageId,
+        status: dealStatus,
+        tenant_id: tenantId,
+        owner_id: user.id,
+      })
+      .select("id")
+      .single();
+
+    if (dealErr || !newDeal) {
+      return { success: false, error: `Deal: ${dealErr?.message}` };
+    }
+
+    // 6. Atualiza webinar lead com referência + funnel_status apropriado
+    const updates: any = {
+      crm_deal_id: newDeal.id,
+      crm_pushed_at: new Date().toISOString(),
+      crm_pushed_mode: mode,
+    };
+    if (mode === "meeting" && lead.funnel_status === "confirmed") {
+      updates.funnel_status = "attended";
+    }
+    if (mode === "sale") {
+      updates.funnel_status = "converted";
+    }
+
+    await supabase
+      .from("webinar_campaign_leads")
+      .update(updates)
+      .eq("id", webinarLeadId);
+
+    revalidatePath(`/webinar/${lead.campaign_id}`);
+    return { success: true, deal_id: newDeal.id };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
 export async function addLeadManually(
   campaignId: string,
   input: { phone: string; company_name?: string; website?: string; address?: string },
