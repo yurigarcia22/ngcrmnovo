@@ -288,11 +288,15 @@ export async function POST(req: NextRequest) {
         .eq("id", lead.id);
     }
 
-    // Carrega histórico
+    // Carrega histórico — IMPORTANTE: filtra pending (cadência futura agendada).
+    // Sem esse filtro, o agente ve mensagens de lembretes futuros como se ja
+    // tivessem sido enviadas e fica completamente confuso (alucinando, mandando
+    // duplicatas, ou silenciando).
     const { data: history } = await supabase
       .from("webinar_messages")
-      .select("direction, sent_text, created_at")
+      .select("direction, sent_text, created_at, status")
       .eq("campaign_lead_id", lead.id)
+      .neq("status", "pending")
       .order("created_at", { ascending: true });
 
     const campaign = lead.webinar_campaigns;
@@ -325,12 +329,17 @@ export async function POST(req: NextRequest) {
       responsibleDirectPhone: lead.responsible_direct_phone ?? null,
       leadPhone: lead.phone,
       funnelStatus: lead.funnel_status,
-      conversationHistory: (history ?? []).map((h: any) => ({
+      conversationHistory: (history ?? []).slice(-30).map((h: any) => ({
         direction: h.direction,
         content: h.sent_text ?? "",
         createdAt: h.created_at,
       })),
     };
+
+    console.log(
+      "[webhook evolution] historico carregado: " + (history?.length ?? 0) +
+      " msgs (sem pending), usando ultimas " + Math.min(30, history?.length ?? 0),
+    );
 
     // IA pausada manualmente pelo operador — ignora agente
     if (lead.ai_paused) {
