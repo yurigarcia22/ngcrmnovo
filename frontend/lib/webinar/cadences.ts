@@ -172,27 +172,9 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
-    {
-      category: "post_event",
-      label: "D+1 Presente",
-      branch: "attended",
-      template:
-        "Oi {primeiro_nome}, que bom te ver no webinar ontem.\n\nQuer trocar uma ideia 30 min sobre como aplicar isso na {empresa}? Marca aqui:\n{cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "attended",
-    },
-    {
-      category: "post_event",
-      label: "D+1 Ausente",
-      branch: "no_show",
-      template:
-        "Oi {primeiro_nome}, senti tua falta no webinar ontem.\n\nVou te mandar a gravação aqui mais tarde. E se quiser conversar sobre o cenário da {empresa}, marca uma call:\n{cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "no_show",
-    },
   ],
 
-  // 3-7 dias: 1 nutrição + lembretes + pós-evento
+  // 3-7 dias: 1 nutrição + lembretes
   MEDIA: [
     {
       category: "nutricao",
@@ -225,24 +207,6 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
-    {
-      category: "post_event",
-      label: "D+1 Presente",
-      branch: "attended",
-      template:
-        "Oi {primeiro_nome}, que bom te ver no webinar ontem.\n\nQuer trocar uma ideia 30 min sobre como aplicar isso na {empresa}? Marca aqui:\n{cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "attended",
-    },
-    {
-      category: "post_event",
-      label: "D+1 Ausente",
-      branch: "no_show",
-      template:
-        "Oi {primeiro_nome}, senti tua falta ontem.\n\nVou te mandar a gravação. E se quiser falar sobre o cenário da {empresa}: {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "no_show",
-    },
   ],
 
   // 1-3 dias: comprimido
@@ -270,24 +234,6 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
-    {
-      category: "post_event",
-      label: "D+1 Presente",
-      branch: "attended",
-      template:
-        "Oi {primeiro_nome}, que bom te ver ontem. Quer falar sobre {empresa} 30 min? {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "attended",
-    },
-    {
-      category: "post_event",
-      label: "D+1 Ausente",
-      branch: "no_show",
-      template:
-        "Oi {primeiro_nome}, senti tua falta. Te mando a gravação. Se quiser conversar sobre {empresa}: {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "no_show",
-    },
   ],
 
   // 12-24h: muito comprimido
@@ -307,24 +253,6 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
-    {
-      category: "post_event",
-      label: "D+1 Presente",
-      branch: "attended",
-      template:
-        "Oi {primeiro_nome}, que bom te ver. Quer falar sobre {empresa} 30 min? {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "attended",
-    },
-    {
-      category: "post_event",
-      label: "D+1 Ausente",
-      branch: "no_show",
-      template:
-        "Oi {primeiro_nome}, senti tua falta. Te mando a gravação. {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "no_show",
-    },
   ],
 
   // <12h: minimalista
@@ -336,24 +264,6 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
         "{primeiro_nome}, vai ser hoje às {hora}.\n\nLink: {meet_link}\n\nTe espero.",
       schedule: { type: "afterConfirm", minutes: 5 },
       requireStatus: "confirmed",
-    },
-    {
-      category: "post_event",
-      label: "D+1 Presente",
-      branch: "attended",
-      template:
-        "Oi {primeiro_nome}, que bom te ver. Quer conversar sobre {empresa}? {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "attended",
-    },
-    {
-      category: "post_event",
-      label: "D+1 Ausente",
-      branch: "no_show",
-      template:
-        "Oi {primeiro_nome}, senti tua falta. Te mando a gravação. {cal_link}",
-      schedule: { type: "byOffset", dayOffset: 1, hour: 9 },
-      requireStatus: "no_show",
     },
   ],
 };
