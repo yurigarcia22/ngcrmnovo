@@ -39,9 +39,6 @@ function phoneVariations(phone: string): string[] {
   return Array.from(variations);
 }
 
-const FALLBACK_MESSAGE =
-  "Isso foge um pouco do que consigo responder por políticas da empresa. Mas se tiver dúvida sobre o evento, pode perguntar à vontade.";
-
 const ERROR_FALLBACK_MESSAGE =
   "Tô com uma instabilidade aqui, me dá um minuto que eu volto.";
 
@@ -100,10 +97,33 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
         .eq("id", inboundId);
     }
   };
+
+  const forceMessageAndSend = async (baseReasoning?: string): Promise<boolean> => {
+    try {
+      const retryDecision = await Promise.race([
+        runAgentForceMessage(ctx),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("openai_force_timeout_25s")), 25_000),
+        ),
+      ]);
+      console.log("[webhook evolution] [bg] force send_message: " + retryDecision.toolCalls.length + " tool calls");
+      if (retryDecision.toolCalls.length > 0) {
+        const exec2 = await executeAgentTools({
+          campaignLeadId,
+          toolCalls: retryDecision.toolCalls,
+          reasoning: (baseReasoning ?? "") + " | force: " + (retryDecision.reasoning ?? ""),
+        });
+        return exec2.executed.some((e) => e.tool === "send_message" && e.result === "ok");
+      }
+    } catch (err: any) {
+      console.error("[webhook evolution] [bg] force send_message erro:", err?.message);
+    }
+    return false;
+  };
+
   try {
     console.log("[webhook evolution] [bg] iniciando agente lead=" + campaignLeadId);
 
-    // Timeout de 25s no OpenAI — se travar, dispara fallback
     const decision = await Promise.race([
       runAgent(ctx),
       new Promise<never>((_, reject) =>
@@ -119,62 +139,43 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
         decision.toolCalls.map((c) => c.name).join(","),
     );
 
-    if (decision.toolCalls.length === 0) {
-      console.warn("[webhook evolution] [bg] AVISO: agente retornou 0 tool calls — injetando resposta padrao");
-      decision.toolCalls = [
-        {
-          name: "send_message",
-          args: { text: FALLBACK_MESSAGE },
-        },
-      ];
-    }
+    const hasSendMessage = decision.toolCalls.some((c) => c.name === "send_message");
 
-    const exec = await executeAgentTools({
-      campaignLeadId,
-      toolCalls: decision.toolCalls,
-      reasoning: decision.reasoning,
-    });
-    console.log(
-      "[webhook evolution] [bg] executor: " +
-        exec.executed.map((e) => e.tool + "=" + e.result).join(","),
-    );
-
-    // Verifica se ALGUMA send_message foi enviada com sucesso
-    const sentOk = exec.executed.some(
-      (e) => (e.tool === "send_message" || e.tool === "_auto_confirmation") && e.result === "ok",
-    );
-    if (!sentOk) {
-      console.warn("[webhook evolution] [bg] nenhum send_message — retry forcando send_message");
-      // Retry: chama OpenAI de novo com tool_choice forcado em send_message
-      try {
-        const retryDecision = await Promise.race([
-          runAgentForceMessage(ctx),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("openai_force_timeout_25s")), 25_000),
-          ),
-        ]);
-        console.log(
-          "[webhook evolution] [bg] retry forcado: " + retryDecision.toolCalls.length + " tool calls"
-        );
-        if (retryDecision.toolCalls.length > 0) {
-          const exec2 = await executeAgentTools({
-            campaignLeadId,
-            toolCalls: retryDecision.toolCalls,
-            reasoning: (decision.reasoning ?? "") + " | retry: " + (retryDecision.reasoning ?? ""),
-          });
-          const retryOk = exec2.executed.some(
-            (e) => e.tool === "send_message" && e.result === "ok",
-          );
-          if (!retryOk) {
-            console.warn("[webhook evolution] [bg] retry falhou — emergency fallback");
-            await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
-          }
-        } else {
-          await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+    if (decision.toolCalls.length === 0 || !hasSendMessage) {
+      // Agente não incluiu send_message — executa outras tools se houver, depois força resposta real
+      if (decision.toolCalls.length > 0) {
+        const otherCalls = decision.toolCalls.filter((c) => c.name !== "send_message");
+        if (otherCalls.length > 0) {
+          await executeAgentTools({ campaignLeadId, toolCalls: otherCalls, reasoning: decision.reasoning });
         }
-      } catch (retryErr: any) {
-        console.error("[webhook evolution] [bg] retry erro:", retryErr?.message);
-        await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+      }
+      console.warn("[webhook evolution] [bg] sem send_message na decisao — forcando resposta real via OpenAI");
+      const sent = await forceMessageAndSend(decision.reasoning);
+      if (!sent) {
+        console.warn("[webhook evolution] [bg] force tambem falhou — emergency fallback");
+        await sendEmergencyFallback(campaignLeadId, ERROR_FALLBACK_MESSAGE);
+      }
+    } else {
+      const exec = await executeAgentTools({
+        campaignLeadId,
+        toolCalls: decision.toolCalls,
+        reasoning: decision.reasoning,
+      });
+      console.log(
+        "[webhook evolution] [bg] executor: " +
+          exec.executed.map((e) => e.tool + "=" + e.result).join(","),
+      );
+
+      const sentOk = exec.executed.some(
+        (e) => (e.tool === "send_message" || e.tool === "_auto_confirmation") && e.result === "ok",
+      );
+      if (!sentOk) {
+        console.warn("[webhook evolution] [bg] send_message nao confirmado — forcando resposta real via OpenAI");
+        const sent = await forceMessageAndSend(decision.reasoning);
+        if (!sent) {
+          console.warn("[webhook evolution] [bg] force tambem falhou — emergency fallback");
+          await sendEmergencyFallback(campaignLeadId, ERROR_FALLBACK_MESSAGE);
+        }
       }
     }
 
@@ -185,11 +186,9 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
     await markDone();
   } catch (e: any) {
     console.error("[webhook evolution] [bg] erro no agente:", e?.message, e?.stack);
-    // Catch-all final: sempre envia algo pro lead
+    // Catch-all final: erro real de API/rede — avisa o lead sobre instabilidade
     if (!decisionMade) {
       await sendEmergencyFallback(campaignLeadId, ERROR_FALLBACK_MESSAGE);
-    } else {
-      await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
     }
     await markDone();
   }
