@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Play, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { Play, Wifi, WifiOff, RefreshCw, Webhook } from "lucide-react";
 import {
   updateCampaign,
   deleteCampaign,
   startCampaign,
 } from "@/app/actions-webinar";
-import { listAvailableInstances } from "@/app/actions-evolution";
+import {
+  listAvailableInstances,
+  syncWebhooksForInstances,
+} from "@/app/actions-evolution";
 import type { WebinarCampaign } from "@/types/webinar";
 
 type EvoInstance = {
@@ -54,6 +57,36 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
   const [selectedInstances, setSelectedInstances] = useState<Set<string>>(initialSelected);
   const [instances, setInstances] = useState<EvoInstance[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(true);
+  const [syncingWebhooks, setSyncingWebhooks] = useState(false);
+
+  async function syncWebhooks() {
+    const list = Array.from(selectedInstances);
+    if (list.length === 0) {
+      toast.error("Marque pelo menos uma instância antes de sincronizar.");
+      return;
+    }
+    setSyncingWebhooks(true);
+    try {
+      const r = await syncWebhooksForInstances(list);
+      if (!r.success) {
+        toast.error(`Falha sincronizando: ${r.error}`);
+        return;
+      }
+      const ok = r.results?.filter((x) => x.ok).length ?? 0;
+      const fail = r.results?.filter((x) => !x.ok) ?? [];
+      if (fail.length === 0) {
+        toast.success(`${ok} webhook(s) configurado(s) no N8N.`);
+      } else {
+        toast.warning(
+          `${ok} ok, ${fail.length} falharam: ${fail.map((f) => f.instance).join(", ")}`,
+        );
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "erro");
+    } finally {
+      setSyncingWebhooks(false);
+    }
+  }
 
   async function loadInstances() {
     setLoadingInstances(true);
@@ -272,9 +305,22 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
             )}
 
             {selectedInstances.size > 0 && (
-              <p className="text-xs text-slate-500">
-                {selectedInstances.size} instância(s) selecionada(s) pra rotação.
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">
+                  {selectedInstances.size} instância(s) selecionada(s) pra rotação.
+                </p>
+                <button
+                  type="button"
+                  onClick={syncWebhooks}
+                  disabled={syncingWebhooks}
+                  className="text-xs font-medium text-emerald-700 hover:text-emerald-900 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Webhook className="w-3 h-3" />
+                  {syncingWebhooks
+                    ? "Sincronizando..."
+                    : "Realizar configurações no N8N"}
+                </button>
+              </div>
             )}
           </div>
         </Section>

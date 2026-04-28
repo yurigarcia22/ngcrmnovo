@@ -51,6 +51,34 @@ export async function listEvolutionInstances(): Promise<EvolutionInstance[]> {
   }));
 }
 
+export async function setEvolutionWebhook(
+  instanceName: string,
+  webhookUrl: string,
+): Promise<{ ok: boolean; enabled?: boolean; error?: string }> {
+  const res = await evoFetch(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        events: ["MESSAGES_UPSERT"],
+        webhookByEvents: false,
+        webhookBase64: false,
+      },
+    }),
+  });
+  const body = await res.text();
+  if (!res.ok) {
+    return { ok: false, error: `Evolution ${res.status}: ${body.slice(0, 200)}` };
+  }
+  try {
+    const json = JSON.parse(body);
+    return { ok: true, enabled: json.enabled };
+  } catch {
+    return { ok: true };
+  }
+}
+
 export type PickInstanceResult = {
   name: string;
   isFailover: boolean; // true se precisou trocar a instance preferida (caiu)
