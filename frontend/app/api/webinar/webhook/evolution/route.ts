@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
-import { runAgent } from "@/lib/webinar/openai-agent";
+import { runAgent, runAgentForceMessage } from "@/lib/webinar/openai-agent";
 import { executeAgentTools } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
 import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
@@ -144,8 +144,38 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
       (e) => (e.tool === "send_message" || e.tool === "_auto_confirmation") && e.result === "ok",
     );
     if (!sentOk) {
-      console.warn("[webhook evolution] [bg] nenhum send_message ok — disparando emergency fallback");
-      await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+      console.warn("[webhook evolution] [bg] nenhum send_message — retry forcando send_message");
+      // Retry: chama OpenAI de novo com tool_choice forcado em send_message
+      try {
+        const retryDecision = await Promise.race([
+          runAgentForceMessage(ctx),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("openai_force_timeout_25s")), 25_000),
+          ),
+        ]);
+        console.log(
+          "[webhook evolution] [bg] retry forcado: " + retryDecision.toolCalls.length + " tool calls"
+        );
+        if (retryDecision.toolCalls.length > 0) {
+          const exec2 = await executeAgentTools({
+            campaignLeadId,
+            toolCalls: retryDecision.toolCalls,
+            reasoning: (decision.reasoning ?? "") + " | retry: " + (retryDecision.reasoning ?? ""),
+          });
+          const retryOk = exec2.executed.some(
+            (e) => e.tool === "send_message" && e.result === "ok",
+          );
+          if (!retryOk) {
+            console.warn("[webhook evolution] [bg] retry falhou — emergency fallback");
+            await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+          }
+        } else {
+          await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+        }
+      } catch (retryErr: any) {
+        console.error("[webhook evolution] [bg] retry erro:", retryErr?.message);
+        await sendEmergencyFallback(campaignLeadId, FALLBACK_MESSAGE);
+      }
     }
 
     await supabase
