@@ -143,17 +143,24 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
 
     if (decision.toolCalls.length === 0 || !hasSendMessage) {
       // Agente não incluiu send_message — executa outras tools se houver, depois força resposta real
+      let alreadySentByExecutor = false;
       if (decision.toolCalls.length > 0) {
         const otherCalls = decision.toolCalls.filter((c) => c.name !== "send_message");
         if (otherCalls.length > 0) {
-          await executeAgentTools({ campaignLeadId, toolCalls: otherCalls, reasoning: decision.reasoning });
+          const execOther = await executeAgentTools({ campaignLeadId, toolCalls: otherCalls, reasoning: decision.reasoning });
+          // _auto_confirmation dispara quando collect_responsible_info é chamado sem send_message
+          alreadySentByExecutor = execOther.executed.some(
+            (e) => e.tool === "_auto_confirmation" && e.result === "ok",
+          );
         }
       }
-      console.warn("[webhook evolution] [bg] sem send_message na decisao — forcando resposta real via OpenAI");
-      const sent = await forceMessageAndSend(decision.reasoning);
-      if (!sent) {
-        console.warn("[webhook evolution] [bg] force tambem falhou — emergency fallback");
-        await sendEmergencyFallback(campaignLeadId, ERROR_FALLBACK_MESSAGE);
+      if (!alreadySentByExecutor) {
+        console.warn("[webhook evolution] [bg] sem send_message na decisao — forcando resposta real via OpenAI");
+        const sent = await forceMessageAndSend(decision.reasoning);
+        if (!sent) {
+          console.warn("[webhook evolution] [bg] force tambem falhou — emergency fallback");
+          await sendEmergencyFallback(campaignLeadId, ERROR_FALLBACK_MESSAGE);
+        }
       }
     } else {
       const exec = await executeAgentTools({
