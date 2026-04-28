@@ -386,6 +386,7 @@ export async function POST(req: NextRequest) {
     const ctx: AgentContext = {
       campaignName: campaign.name,
       theme: campaign.theme,
+      description: campaign.description ?? null,
       eventDate: campaign.event_date,
       eventDateFormatted: eventDate
         ? eventDate.toLocaleDateString("pt-BR", {

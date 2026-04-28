@@ -126,25 +126,25 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
   RICA: [
     {
       category: "nutricao",
-      label: "Nutrição 1 (D-5) - provoca reflexão",
+      label: "Nutrição 1 (D-5) - tese central",
       template:
-        "Oi {primeiro_nome}, vou ser direto contigo já que o evento tá chegando.\n\nA maioria das clínicas perde dinheiro NÃO no tráfego, e sim no que vem antes (oferta) e depois (atendimento). Anúncio é só ferramenta. Quem opera o resto bem ganha.\n\nDia {data} eu abro os 4 pilares disso na prática.",
+        "{primeiro_nome}, pensando aqui pro nosso encontro de {data}.\n\nA maioria das clínicas e petshops queima dinheiro em ad querendo crescer, enquanto perde 30-40% da margem dentro de casa. Atendimento, recompra, balcão, precificação.\n\nÉ disso que vou falar. 5 pilares concretos, não papo de marketeiro.",
       schedule: { type: "byOffset", dayOffset: -5, hour: 14 },
       requireStatus: "confirmed",
     },
     {
       category: "nutricao",
-      label: "Nutrição 2 (D-3) - case/dado real",
+      label: "Nutrição 2 (D-3) - exemplo concreto",
       template:
-        "{primeiro_nome}, mais uma pra ir aquecendo:\n\nJá vi {empresa}-tipo-coisa faturar 2x sem mexer em ad. Só ajustando como recebia o paciente novo (1 ligação, 1 mensagem, 1 retorno). Custou zero. Mudou tudo.\n\nNão é mágica. É operação. Te vejo dia {data} às {hora}.",
+        "Pequeno exemplo, {primeiro_nome}: já acompanhei petshop que dobrou ticket médio sem novo cliente. Só ajustou o combo de banho mensal e o jeito como o atendente sugeria ração no balcão.\n\nZero ad. Margem destravada. É o tipo de coisa que abro dia {data}.",
       schedule: { type: "byOffset", dayOffset: -3, hour: 14 },
       requireStatus: "confirmed",
     },
     {
       category: "nutricao",
-      label: "Nutrição 3 (D-2) - urgência leve",
+      label: "Nutrição 3 (D-2) - prova social leve",
       template:
-        "{primeiro_nome}, falando reto: vai ser ao vivo, sem gravação prévia. Quem entrar pega sem filtro o que travamos cliente em outra clínica que ajustou e dobrou.\n\nDia {data} às {hora}, 30-40 min. Bloqueia agenda.",
+        "Já passei esse conteúdo pra +96 equipes de clínica e petshop, {primeiro_nome}.\n\nOs que aplicaram tiveram resultado mensurável. Os que não, ficaram onde estavam. Vai ser ao vivo dia {data} às {hora}.",
       schedule: { type: "byOffset", dayOffset: -2, hour: 14 },
       requireStatus: "confirmed",
     },
@@ -152,7 +152,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "Véspera D-1 + Link",
       template:
-        "Oi {primeiro_nome}, lembrete: o webinar é amanhã às {hora}.\n\nLink: {meet_link}\n\nTe espero lá.",
+        "{primeiro_nome}, é amanhã às {hora}.\n\nLink do Meet: {meet_link}",
       schedule: { type: "byOffset", dayOffset: -1, hour: 18 },
       requireStatus: "confirmed",
     },
@@ -160,7 +160,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "1h antes",
       template:
-        "Oi {primeiro_nome}, em 1 hora começamos.\n\nLink: {meet_link}",
+        "Daqui 1h a gente começa, {primeiro_nome}. Link: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 60 },
       requireStatus: "confirmed",
     },
@@ -168,7 +168,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "10 min antes",
       template:
-        "{primeiro_nome}, tá começando. Entra: {meet_link}",
+        "Tá começando, {primeiro_nome}. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
@@ -178,9 +178,9 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
   MEDIA: [
     {
       category: "nutricao",
-      label: "Nutrição (D-2)",
+      label: "Nutrição (D-2) - tese central",
       template:
-        "Oi {primeiro_nome}, pra já aquecer o evento de {data}:\n\nA maioria das clínicas perde cliente NÃO no tráfego pago, e sim na agenda. Liga, ninguém atende. Atende mal. Custa caro.\n\nA gente vai abrir os 4 pilares que mudam isso.",
+        "{primeiro_nome}, pensando aqui pro evento de {data}.\n\nA maioria de clínica e petshop queima dinheiro em ad pra crescer e perde 30-40% da margem dentro de casa. Atendimento, recompra, balcão.\n\nVou abrir os 5 pilares que mudam isso. Sem papo teórico.",
       schedule: { type: "byOffset", dayOffset: -2, hour: 14 },
       requireStatus: "confirmed",
     },
@@ -188,7 +188,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "Véspera D-1 + Link",
       template:
-        "Oi {primeiro_nome}, lembrete: o webinar é amanhã às {hora}.\n\nLink: {meet_link}",
+        "{primeiro_nome}, é amanhã às {hora}. Link: {meet_link}",
       schedule: { type: "byOffset", dayOffset: -1, hour: 18 },
       requireStatus: "confirmed",
     },
@@ -196,14 +196,14 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "1h antes",
       template:
-        "{primeiro_nome}, em 1 hora começamos. Link: {meet_link}",
+        "Daqui 1h a gente começa, {primeiro_nome}. Link: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 60 },
       requireStatus: "confirmed",
     },
     {
       category: "reminder",
       label: "10 min antes",
-      template: "{primeiro_nome}, tá começando. Entra: {meet_link}",
+      template: "Tá começando, {primeiro_nome}. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
@@ -215,7 +215,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "Véspera D-1 + Link",
       template:
-        "Oi {primeiro_nome}, lembrete: webinar amanhã às {hora}.\n\nLink: {meet_link}\n\nTe espero.",
+        "{primeiro_nome}, é amanhã às {hora}. Link: {meet_link}",
       schedule: { type: "byOffset", dayOffset: -1, hour: 18 },
       requireStatus: "confirmed",
     },
@@ -223,14 +223,14 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "1h antes",
       template:
-        "{primeiro_nome}, em 1 hora começamos. Link: {meet_link}",
+        "Daqui 1h a gente começa, {primeiro_nome}. Link: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 60 },
       requireStatus: "confirmed",
     },
     {
       category: "reminder",
       label: "10 min antes",
-      template: "{primeiro_nome}, tá começando. Entra: {meet_link}",
+      template: "Tá começando, {primeiro_nome}. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
@@ -240,16 +240,16 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
   EXPRESS: [
     {
       category: "reminder",
-      label: "30 min após confirmar (lembrete imediato)",
+      label: "30 min após confirmar (salva o link)",
       template:
-        "{primeiro_nome}, anotei aqui. Te lembro daqui umas horas, mas se quiser já salvar:\n\n{tema}\n{data} às {hora}\nLink: {meet_link}",
+        "Já anotei aqui, {primeiro_nome}. Salva o link pra não perder: {meet_link}\n\n{data} às {hora}.",
       schedule: { type: "afterConfirm", minutes: 30 },
       requireStatus: "confirmed",
     },
     {
       category: "reminder",
       label: "10 min antes",
-      template: "{primeiro_nome}, tá começando. Entra: {meet_link}",
+      template: "Tá começando, {primeiro_nome}. Entra: {meet_link}",
       schedule: { type: "byEvent", minutesBefore: 10 },
       requireStatus: "confirmed",
     },
@@ -261,7 +261,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "reminder",
       label: "Imediato após confirmar",
       template:
-        "{primeiro_nome}, vai ser hoje às {hora}.\n\nLink: {meet_link}\n\nTe espero.",
+        "{primeiro_nome}, é hoje às {hora}.\n\nLink: {meet_link}",
       schedule: { type: "afterConfirm", minutes: 5 },
       requireStatus: "confirmed",
     },
