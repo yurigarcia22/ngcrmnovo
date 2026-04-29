@@ -211,7 +211,15 @@ export async function executeAgentTools(args: {
           if (isComplete) {
             // Agenda cadência de lembretes
             try {
-              await scheduleReminderCadenceForLead(supabase, lead, campaign);
+              // Recarrega lead do banco pra pegar responsible_name atualizado
+              // (evita renderizar templates com nome antigo/null)
+              const { data: freshLead } = await supabase
+                .from("webinar_campaign_leads")
+                .select("*")
+                .eq("id", args.campaignLeadId)
+                .single();
+              const leadForCadence = freshLead ?? { ...lead, ...updates };
+              await scheduleReminderCadenceForLead(supabase, leadForCadence, campaign);
               result.executed.push({
                 tool: "_schedule_reminders",
                 result: "ok",

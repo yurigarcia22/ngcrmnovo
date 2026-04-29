@@ -78,8 +78,16 @@ export function pickInitialGreeting(now: Date = new Date()): string {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function getFirstName(fullName: string | null | undefined): string {
-  if (!fullName) return "tudo bem";
-  return fullName.trim().split(/\s+/)[0];
+  if (!fullName) return "Olá";
+  const first = fullName.trim().split(/\s+/)[0];
+  // Sanitização: nomes esquisitos que a IA pode ter passado por engano
+  const blacklist = new Set([
+    "responsável", "responsavel", "lead", "cliente", "tudo", "sim", "não", "nao",
+    "ok", "obrigado", "obrigada", "confirmado", "empresa", "petshop", "clínica", "clinica",
+  ]);
+  if (blacklist.has(first.toLowerCase())) return "Olá";
+  // Capitaliza
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
 export function renderTemplate(
