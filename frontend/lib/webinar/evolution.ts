@@ -85,6 +85,12 @@ export type PickInstanceResult = {
   preferredInstance: string | null;
 };
 
+export type CandidateList = {
+  candidates: string[]; // ordenada: preferred primeiro, depois round-robin balanceado
+  preferredInstance: string | null;
+  preferredAvailable: boolean;
+};
+
 /**
  * pickInstance v3 com lead affinity:
  *   1. Se preferredInstance está nas candidates E open -> usa ela (sem failover)
@@ -187,6 +193,99 @@ export async function pickInstance(args: {
     name: chosen,
     isFailover: preferred !== null && preferred !== chosen,
     preferredInstance: preferred,
+  };
+}
+
+/**
+ * pickInstanceCandidates — retorna lista ORDENADA de candidates pra tentar claim.
+ *
+ * Diferença pra pickInstance: aqui retornamos várias opções (preferred + round-robin),
+ * porque o dispatcher tenta claim atômico em cada uma até achar uma disponível
+ * (cooldown vencido, daily_cap não atingido, status active).
+ *
+ * Ordem:
+ *   1. preferredInstance (se está open) — lead affinity
+ *   2. menos usadas nos últimos 60min (round-robin balanceado)
+ *
+ * Se preferred caiu, marca preferredAvailable=false pra dispatcher decidir bridge.
+ */
+export async function pickInstanceCandidates(args: {
+  instance_names?: string[] | null;
+  instance_name?: string | null;
+  preferredInstance?: string | null;
+}): Promise<CandidateList | null> {
+  const candidatesSet = new Set<string>();
+  if (args.instance_names) {
+    for (const n of args.instance_names) {
+      if (n && n.trim()) candidatesSet.add(n.trim());
+    }
+  }
+  if (args.instance_name && args.instance_name.trim()) {
+    candidatesSet.add(args.instance_name.trim());
+  }
+  if (candidatesSet.size === 0) return null;
+
+  const preferred = args.preferredInstance?.trim() || null;
+
+  let live: EvolutionInstance[] = [];
+  try {
+    live = await listEvolutionInstances();
+  } catch {
+    // Fallback: todas as candidates em ordem aleatória
+    const arr = Array.from(candidatesSet).sort(() => Math.random() - 0.5);
+    return {
+      candidates: arr,
+      preferredInstance: preferred,
+      preferredAvailable: preferred ? candidatesSet.has(preferred) : false,
+    };
+  }
+
+  const open = live
+    .filter((i) => i.connectionStatus === "open" && candidatesSet.has(i.name))
+    .map((i) => i.name);
+
+  if (open.length === 0) return null;
+
+  // Conta uso recente (60 min) por instance pra balanceamento
+  const supabase = createServiceClient();
+  const sixtyMinAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+  const usage = new Map<string, number>();
+  for (const name of open) usage.set(name, 0);
+
+  try {
+    const { data } = await supabase
+      .from("webinar_messages")
+      .select("instance_used")
+      .gte("sent_at", sixtyMinAgo)
+      .in("instance_used", open)
+      .eq("status", "sent");
+
+    if (data) {
+      for (const row of data as any[]) {
+        const name = row.instance_used;
+        if (name) usage.set(name, (usage.get(name) ?? 0) + 1);
+      }
+    }
+  } catch {}
+
+  // Ordena por uso ascendente, com tiebreaker aleatório (anti-padrão previsível)
+  const sorted = [...open].sort((a, b) => {
+    const diff = (usage.get(a) ?? 0) - (usage.get(b) ?? 0);
+    if (diff !== 0) return diff;
+    return Math.random() - 0.5;
+  });
+
+  // Se preferred está open, coloca ele NA FRENTE (lead affinity)
+  let candidates = sorted;
+  const preferredAvailable = preferred !== null && open.includes(preferred);
+  if (preferredAvailable) {
+    candidates = [preferred!, ...sorted.filter((n) => n !== preferred)];
+  }
+
+  return {
+    candidates,
+    preferredInstance: preferred,
+    preferredAvailable,
   };
 }
 

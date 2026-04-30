@@ -1,39 +1,39 @@
 /**
  * Cron de dispatch — envia mensagens pending que já venceram.
  *
- * Diferenciação por categoria:
- *   - initial_outreach: jitter de 3 a 7 minutos entre cada lead (anti-ban).
- *   - reminder/nutricao/post_event: dispara em rajada respeitando scheduled_at.
- *   - agent_reply: timer humano curto (5-30s).
+ * MODELO POR-INSTÂNCIA (refatorado em 2026-04-30):
+ *   - initial_outreach: cap diário 101/chip + jitter 4-9min POR instância +
+ *     quiet hours 9h-20h America/Sao_Paulo. Volume escala linear com nº de chips.
+ *     Ex: 3 chips = ~300/dia, 5 chips = ~500/dia.
+ *   - reminder/nutricao/post_event: dispara respeitando scheduled_at, sem cap.
+ *   - agent_reply: timer humano curto (5-30s), sem cap.
  *
- * Configurar como Vercel Cron: GET /api/webinar/cron/dispatch
- * Schedule sugerido: a cada 1-2 minutos.
+ * Como funciona:
+ *   1. Busca leads pending vencidos (até BATCH_SIZE)
+ *   2. Para cada lead: pickInstanceCandidates → tenta claim atômico em cada
+ *      instância da lista até achar uma disponível (cooldown ok, cap ok, active)
+ *   3. Se nenhuma claim: skip (próximo run pega)
+ *   4. Sem await sleep no loop = volume real cresce com nº de chips
+ *
+ * Cron sugerido: a cada 30-60s. Roda fast (sem sleeps), termina em segundos.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
-import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
+import {
+  pickInstanceCandidates,
+  sendTextViaEvolution,
+} from "@/lib/webinar/evolution";
+import {
+  claimInstance,
+  releaseInstanceOnFailure,
+  isWithinQuietHours,
+  isRateLimited,
+} from "@/lib/webinar/dispatch-policy";
 
 export const dynamic = "force-dynamic";
 
-const BATCH_SIZE = 30;
-
-// Jitter por categoria (segundos)
-const JITTER_BY_CATEGORY: Record<string, { min: number; max: number }> = {
-  initial_outreach: { min: 180, max: 420 }, // 3 a 7 min
-  reminder: { min: 5, max: 20 }, // 5 a 20s
-  nutricao: { min: 5, max: 20 },
-  post_event: { min: 5, max: 20 },
-  agent_reply: { min: 5, max: 30 },
-};
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
+const BATCH_SIZE = 60;
 
 export async function GET(_req: NextRequest) {
   return runDispatch();
@@ -41,6 +41,15 @@ export async function GET(_req: NextRequest) {
 export async function POST(_req: NextRequest) {
   return runDispatch();
 }
+
+type DispatchResult = {
+  id: string;
+  ok: boolean;
+  instance?: string;
+  category?: string;
+  skipped_reason?: string;
+  error?: string;
+};
 
 async function runDispatch() {
   const supabase = createServiceClient();
@@ -62,6 +71,7 @@ async function runDispatch() {
           phone,
           funnel_status,
           campaign_id,
+          last_instance_used,
           webinar_campaigns!inner (
             id,
             instance_name,
@@ -79,14 +89,8 @@ async function runDispatch() {
 
     if (error) throw error;
 
-    const results: Array<{
-      id: string;
-      ok: boolean;
-      instance?: string;
-      category?: string;
-      delay_ms?: number;
-      error?: string;
-    }> = [];
+    const results: DispatchResult[] = [];
+    const withinQuietHours = isWithinQuietHours(startedAt);
 
     for (const row of rows ?? []) {
       const lead = (row as any).webinar_campaign_leads;
@@ -110,12 +114,24 @@ async function runDispatch() {
         continue;
       }
 
-      const picked = await pickInstance({
+      // Quiet hours: só bloqueia categorias rate-limited (initial_outreach).
+      // agent_reply e cadências passam direto (são respostas em tempo real).
+      if (isRateLimited(category) && !withinQuietHours) {
+        results.push({
+          id: row.id,
+          ok: false,
+          category,
+          skipped_reason: "outside_quiet_hours",
+        });
+        continue;
+      }
+
+      const candidateList = await pickInstanceCandidates({
         instance_names: campaign.instance_names,
         instance_name: campaign.instance_name,
         preferredInstance: lead.last_instance_used ?? null,
       });
-      if (!picked) {
+      if (!candidateList || candidateList.candidates.length === 0) {
         await supabase
           .from("webinar_messages")
           .update({
@@ -132,16 +148,51 @@ async function runDispatch() {
         continue;
       }
 
+      // Tenta claim atômico em cada candidata até achar uma disponível.
+      // Para categorias rate-limited respeita cap+cooldown.
+      // Para outras (agent_reply, reminder de cadência ativa, etc) usa a primeira open
+      // sem passar pelo claim (resposta em tempo real não pode esperar cooldown).
+      let chosen: string | null = null;
+      let isFailover = false;
+
+      if (isRateLimited(category)) {
+        for (const candidate of candidateList.candidates) {
+          const claim = await claimInstance(supabase, candidate);
+          if (claim.granted) {
+            chosen = candidate;
+            isFailover =
+              candidateList.preferredInstance !== null &&
+              candidateList.preferredInstance !== candidate;
+            break;
+          }
+        }
+        if (!chosen) {
+          // Todas as instâncias em cooldown ou cap atingido. Lead fica pending.
+          results.push({
+            id: row.id,
+            ok: false,
+            category,
+            skipped_reason: "all_instances_unavailable",
+          });
+          continue;
+        }
+      } else {
+        chosen = candidateList.candidates[0];
+        isFailover =
+          candidateList.preferredInstance !== null &&
+          candidateList.preferredInstance !== chosen;
+      }
+
       // Failover bridge (apenas pra agent_reply, não pra reminders/cron massivo)
       if (
-        picked.isFailover &&
-        picked.preferredInstance &&
+        isFailover &&
+        candidateList.preferredInstance &&
         category === "agent_reply"
       ) {
         const bridge =
           "Oi, voltei aqui (tive um problema no outro número). Continuando nossa conversa.";
         const bridgeRes = await sendTextViaEvolution(
-          picked.name,
+          chosen,
           lead.phone,
           bridge,
         );
@@ -156,36 +207,40 @@ async function runDispatch() {
             sent_at: new Date().toISOString(),
             ai_metadata: {
               type: "failover_bridge",
-              from_instance: picked.preferredInstance,
-              to_instance: picked.name,
+              from_instance: candidateList.preferredInstance,
+              to_instance: chosen,
             },
             evolution_message_id: bridgeRes.messageId ?? null,
-            instance_used: picked.name,
+            instance_used: chosen,
           });
           await new Promise((r) => setTimeout(r, 3500));
         }
       }
 
-      const instance = picked.name;
       const evoRes = await sendTextViaEvolution(
-        instance,
+        chosen,
         lead.phone,
         row.sent_text ?? "",
       );
 
       if (!evoRes.ok) {
+        // Devolve o slot da instância pra retry rápido (decrementa contador
+        // e libera cooldown em 30s)
+        if (isRateLimited(category)) {
+          await releaseInstanceOnFailure(supabase, chosen);
+        }
         await supabase
           .from("webinar_messages")
           .update({
             status: "failed",
             error_message: evoRes.error?.slice(0, 500),
-            instance_used: instance,
+            instance_used: chosen,
           })
           .eq("id", row.id);
         results.push({
           id: row.id,
           ok: false,
-          instance,
+          instance: chosen,
           category,
           error: evoRes.error,
         });
@@ -198,14 +253,14 @@ async function runDispatch() {
           status: "sent",
           sent_at: new Date().toISOString(),
           evolution_message_id: evoRes.messageId ?? null,
-          instance_used: instance,
+          instance_used: chosen,
         })
         .eq("id", row.id);
 
-      // Atualiza lead affinity (pra próximas mensagens irem pelo mesmo número)
+      // Atualiza lead affinity
       await supabase
         .from("webinar_campaign_leads")
-        .update({ last_instance_used: instance })
+        .update({ last_instance_used: chosen })
         .eq("id", lead.id);
 
       // Avança status do lead se for primeira saudação
@@ -221,30 +276,21 @@ async function runDispatch() {
         }
       }
 
-      // Jitter humano DEPOIS do envio antes do próximo lead da mesma rodada
-      const jitter = JITTER_BY_CATEGORY[category] ?? JITTER_BY_CATEGORY.reminder;
-      const delaySec = randInt(jitter.min, jitter.max);
       results.push({
         id: row.id,
         ok: true,
-        instance,
+        instance: chosen,
         category,
-        delay_ms: delaySec * 1000,
       });
-
-      // Aguarda jitter antes da próxima mensagem (anti-ban)
-      // Só faz delay se ainda há mais mensagens pra processar
-      const remaining = (rows ?? []).indexOf(row) < (rows?.length ?? 0) - 1;
-      if (remaining) {
-        await sleep(delaySec * 1000);
-      }
     }
 
     return NextResponse.json({
       ok: true,
       processed: results.length,
       sent: results.filter((r) => r.ok).length,
-      failed: results.filter((r) => !r.ok).length,
+      failed: results.filter((r) => !r.ok && !r.skipped_reason).length,
+      skipped: results.filter((r) => !!r.skipped_reason).length,
+      within_quiet_hours: withinQuietHours,
       results,
       duration_ms: Date.now() - startedAt.getTime(),
     });

@@ -66,14 +66,45 @@ async function runHealthCheck(req: NextRequest) {
   }
 
   for (const inst of liveInstances) {
+    // ── Sincroniza webinar_instance_state com a realidade do Evolution ──
+    // Cria registro se ainda não existe (default cap=101, jitter 4-9min)
+    await supabase
+      .from("webinar_instance_state")
+      .upsert(
+        { instance_name: inst.name },
+        { onConflict: "instance_name", ignoreDuplicates: true },
+      );
+
     if (inst.connectionStatus !== "open") {
       issues.push({
         severity: "warning",
         type: "instance_not_open",
         detail: `Instância "${inst.name}" está ${inst.connectionStatus} (precisa reescanear QR no Evolution Manager)`,
+        fixed: false,
       });
+      // Auto-pause: bloqueia dispatch enquanto chip está fora
+      const { error: pauseErr } = await supabase
+        .from("webinar_instance_state")
+        .update({
+          status: "paused",
+          paused_reason: `evolution_${inst.connectionStatus}`,
+        })
+        .eq("instance_name", inst.name)
+        .neq("status", "banned"); // banned é decisão manual, não sobrescreve
+      if (!pauseErr) {
+        issues[issues.length - 1].fixed = true;
+        issues[issues.length - 1].detail += " → instance_state pausado";
+      }
       continue;
     }
+
+    // Instância open: se estava paused por queda anterior, reativa
+    await supabase
+      .from("webinar_instance_state")
+      .update({ status: "active", paused_reason: null })
+      .eq("instance_name", inst.name)
+      .eq("status", "paused")
+      .like("paused_reason", "evolution_%");
 
     // Verifica webhook config
     try {
@@ -196,6 +227,25 @@ async function runHealthCheck(req: NextRequest) {
     });
   }
 
+  // ── 6. Estado das instâncias (cap diário, cooldown) ─────────────────────
+  const { data: instanceStates } = await supabase
+    .from("webinar_instance_state")
+    .select(
+      "instance_name, status, daily_sent_count, daily_cap, next_available_at, last_sent_at",
+    )
+    .order("instance_name", { ascending: true });
+
+  const capWarnings = (instanceStates ?? []).filter(
+    (s: any) => s.status === "active" && s.daily_sent_count >= s.daily_cap,
+  );
+  for (const s of capWarnings) {
+    issues.push({
+      severity: "info",
+      type: "daily_cap_reached",
+      detail: `${s.instance_name} atingiu cap diário (${s.daily_sent_count}/${s.daily_cap})`,
+    });
+  }
+
   // ── Resumo ──────────────────────────────────────────────────────────────
   const summary = {
     ok: issues.filter((i) => i.severity === "error").length === 0,
@@ -205,6 +255,7 @@ async function runHealthCheck(req: NextRequest) {
     info: issues.filter((i) => i.severity === "info").length,
     auto_fixed: issues.filter((i) => i.fixed).length,
     duration_ms: Date.now() - startedAt.getTime(),
+    instance_states: instanceStates,
     issues,
   };
 
