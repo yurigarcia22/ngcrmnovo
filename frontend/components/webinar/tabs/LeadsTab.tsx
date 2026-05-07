@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button, Input } from "@/components/ui/simple-ui";
@@ -15,10 +15,16 @@ import {
   AlertCircle,
   BotOff,
   Bot,
+  ListPlus,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   addLeadManually,
+  bulkDeleteLeads,
+  bulkImportLeads,
+  deleteLeadFromCampaign,
   listCampaignLeads,
   sendTestMessageToLead,
   startCampaignScraping,
@@ -37,12 +43,56 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showScrapeModal, setShowScrapeModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [pending, startTransition] = useTransition();
   const [scrapeStatus, setScrapeStatus] = useState<
     "idle" | "queued" | "running" | "done" | "error"
   >("idle");
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeStarting, setScrapeStarting] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState<{
+    type: "single" | "bulk";
+    leadId?: string;
+    count?: number;
+  } | null>(null);
+
+  const filteredLeads = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return leads;
+    return leads.filter((lead) => {
+      const name = (lead.company_name ?? "").toLowerCase();
+      const phone = lead.phone ?? "";
+      const address = ((lead as any).address ?? "").toLowerCase();
+      return (
+        name.includes(q) || phone.includes(q.replace(/\D/g, "")) || address.includes(q)
+      );
+    });
+  }, [leads, search]);
+
+  const allFilteredSelected =
+    filteredLeads.length > 0 &&
+    filteredLeads.every((l) => selectedIds.has(l.id));
+
+  function toggleSelectAll() {
+    if (allFilteredSelected) {
+      const next = new Set(selectedIds);
+      filteredLeads.forEach((l) => next.delete(l.id));
+      setSelectedIds(next);
+    } else {
+      const next = new Set(selectedIds);
+      filteredLeads.forEach((l) => next.add(l.id));
+      setSelectedIds(next);
+    }
+  }
+
+  function toggleOne(id: string) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  }
 
   async function loadLeads() {
     setLoading(true);
@@ -150,15 +200,50 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
     });
   }
 
+  function handleDelete(leadId: string) {
+    setConfirmDelete({ type: "single", leadId });
+  }
+
+  function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setConfirmDelete({ type: "bulk", count: selectedIds.size });
+  }
+
+  function executeDelete() {
+    if (!confirmDelete) return;
+    startTransition(async () => {
+      if (confirmDelete.type === "single" && confirmDelete.leadId) {
+        const result = await deleteLeadFromCampaign(confirmDelete.leadId);
+        if (result.success) {
+          toast.success("Lead excluído");
+          loadLeads();
+        } else {
+          toast.error(`Falha: ${result.error}`);
+        }
+      } else if (confirmDelete.type === "bulk") {
+        const ids = Array.from(selectedIds);
+        const result = await bulkDeleteLeads(ids);
+        if (result.success) {
+          toast.success(`${result.deleted} leads excluídos`);
+          setSelectedIds(new Set());
+          loadLeads();
+        } else {
+          toast.error(`Falha: ${result.error}`);
+        }
+      }
+      setConfirmDelete(null);
+    });
+  }
+
   return (
     <div className="space-y-6 max-w-5xl">
       <Card className="p-6">
         <h2 className="text-sm font-bold text-slate-800 mb-1">Ações</h2>
         <p className="text-xs text-slate-500 mb-4">
-          Construa a base de leads dessa campanha de 3 jeitos
+          Construa a base de leads dessa campanha
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <ActionCard
             icon={Search}
             title="Extrair via scraper"
@@ -172,11 +257,11 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
             onClick={() => setShowScrapeModal(true)}
           />
           <ActionCard
-            icon={Sparkles}
-            title="Enriquecer com IA"
-            description="Classifica leads (hot/warm/cold) e gera ângulo de abordagem"
-            cta="Disponível na Fase 3"
-            disabled
+            icon={ListPlus}
+            title="Importar lista"
+            description="Cola uma lista (1 lead por linha). Detecta duplicatas automaticamente"
+            cta="Importar"
+            onClick={() => setShowImportModal(true)}
           />
           <ActionCard
             icon={UserPlus}
@@ -184,6 +269,13 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
             description="Cola um número individual pra teste ou complemento"
             cta="Adicionar lead"
             onClick={() => setShowAddModal(true)}
+          />
+          <ActionCard
+            icon={Sparkles}
+            title="Enriquecer com IA"
+            description="Classifica leads (hot/warm/cold) e gera ângulo de abordagem"
+            cta="Disponível na Fase 3"
+            disabled
           />
         </div>
 
@@ -218,26 +310,65 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
       </Card>
 
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <div>
             <h2 className="text-sm font-bold text-slate-800">Leads da campanha</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {leads.length} leads cadastrados
+              {leads.length} cadastrados{search && ` · ${filteredLeads.length} filtrados`}
+              {selectedIds.size > 0 && ` · ${selectedIds.size} selecionados`}
             </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por nome, telefone, endereço"
+                className="pl-8 h-8 text-xs w-72"
+              />
+            </div>
+            {selectedIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={handleBulkDelete}
+                className="text-xs text-rose-700 border-rose-200 hover:bg-rose-50"
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                Excluir {selectedIds.size}
+              </Button>
+            )}
           </div>
         </div>
 
         {loading ? (
           <div className="text-center py-8 text-slate-400 text-sm">Carregando...</div>
-        ) : leads.length === 0 ? (
+        ) : filteredLeads.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-sm">
-            Nenhum lead ainda. Adiciona manualmente acima.
+            {leads.length === 0
+              ? "Nenhum lead ainda. Adiciona manualmente acima."
+              : "Nenhum lead bate com o filtro."}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left border-b border-slate-100">
+                  <th className="pb-2 pr-2 w-8">
+                    <button
+                      onClick={toggleSelectAll}
+                      className="text-slate-400 hover:text-slate-700"
+                      title={allFilteredSelected ? "Desmarcar todos" : "Selecionar todos visíveis"}
+                    >
+                      {allFilteredSelected ? (
+                        <CheckSquare className="w-4 h-4" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </th>
                   <th className="pb-2 font-semibold text-slate-600">Empresa</th>
                   <th className="pb-2 font-semibold text-slate-600">Telefone</th>
                   <th className="pb-2 font-semibold text-slate-600">Status</th>
@@ -246,50 +377,85 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                 </tr>
               </thead>
               <tbody>
-                {leads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="py-3 text-slate-700">
-                      {lead.company_name ?? <span className="text-slate-400">Sem nome</span>}
-                    </td>
-                    <td className="py-3 text-slate-600 font-mono text-xs">{lead.phone}</td>
-                    <td className="py-3">
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-indigo-50 text-indigo-700">
-                        {WEBINAR_FUNNEL_LABELS[lead.funnel_status]}
-                      </span>
-                    </td>
-                    <td className="py-3">
-                      <button
-                        disabled={pending}
-                        onClick={() => handleToggleAi(lead)}
-                        title={lead.ai_paused ? "IA pausada — clique para reativar" : "IA ativa — clique para pausar e atender manualmente"}
-                        className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md transition-colors ${
-                          lead.ai_paused
-                            ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
-                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                        }`}
-                      >
-                        {lead.ai_paused ? (
-                          <><BotOff className="w-3 h-3" /> Pausada</>
-                        ) : (
-                          <><Bot className="w-3 h-3" /> Ativa</>
+                {filteredLeads.map((lead) => {
+                  const isSelected = selectedIds.has(lead.id);
+                  return (
+                    <tr
+                      key={lead.id}
+                      className={`border-b border-slate-50 ${
+                        isSelected ? "bg-indigo-50/40" : "hover:bg-slate-50/50"
+                      }`}
+                    >
+                      <td className="py-3 pr-2">
+                        <button
+                          onClick={() => toggleOne(lead.id)}
+                          className="text-slate-400 hover:text-slate-700"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-indigo-600" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-3 text-slate-700">
+                        {lead.company_name ?? <span className="text-slate-400">Sem nome</span>}
+                        {(lead as any).address && (
+                          <div className="text-[11px] text-slate-400 mt-0.5 max-w-md truncate">
+                            {(lead as any).address}
+                          </div>
                         )}
-                      </button>
-                    </td>
-                    <td className="py-3 text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={pending}
-                        onClick={() => handleSend(lead)}
-                        className="text-xs"
-                        title="Manda saudação variada e ativa o agente IA quando o lead responder"
-                      >
-                        <Send className="w-3 h-3 mr-1" />
-                        Iniciar conversa
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 text-slate-600 font-mono text-xs">{lead.phone}</td>
+                      <td className="py-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-indigo-50 text-indigo-700">
+                          {WEBINAR_FUNNEL_LABELS[lead.funnel_status]}
+                        </span>
+                      </td>
+                      <td className="py-3">
+                        <button
+                          disabled={pending}
+                          onClick={() => handleToggleAi(lead)}
+                          title={lead.ai_paused ? "IA pausada. Clique para reativar." : "IA ativa. Clique para pausar."}
+                          className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md transition-colors ${
+                            lead.ai_paused
+                              ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                              : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {lead.ai_paused ? (
+                            <><BotOff className="w-3 h-3" /> Pausada</>
+                          ) : (
+                            <><Bot className="w-3 h-3" /> Ativa</>
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pending}
+                            onClick={() => handleSend(lead)}
+                            className="text-xs"
+                            title="Manda saudação variada e ativa o agente IA quando o lead responder"
+                          >
+                            <Send className="w-3 h-3 mr-1" />
+                            Iniciar
+                          </Button>
+                          <button
+                            disabled={pending}
+                            onClick={() => handleDelete(lead.id)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                            title="Excluir lead"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -315,6 +481,224 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
           onConfirm={handleStartScraping}
         />
       )}
+
+      {showImportModal && (
+        <ImportLeadsModal
+          campaignId={campaign.id}
+          onClose={() => setShowImportModal(false)}
+          onImported={() => {
+            setShowImportModal(false);
+            loadLeads();
+          }}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          confirmDelete={confirmDelete}
+          pending={pending}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={executeDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfirmDeleteModal({
+  confirmDelete,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  confirmDelete: { type: "single" | "bulk"; leadId?: string; count?: number };
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isMulti = confirmDelete.type === "bulk";
+  const count = confirmDelete.count ?? 1;
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-5 h-5 text-rose-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Excluir {isMulti ? `${count} leads` : "este lead"}?
+            </h2>
+            <p className="text-xs text-slate-600 mt-1">
+              Essa ação é permanente. Mensagens enviadas pra esse{isMulti ? "s lead(s)" : " lead"}{" "}
+              também serão removidas. Não tem como desfazer.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" disabled={pending} onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button
+            disabled={pending}
+            onClick={onConfirm}
+            className="bg-rose-600 text-white hover:bg-rose-700"
+          >
+            {pending ? "Excluindo..." : "Excluir"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportLeadsModal({
+  campaignId,
+  onClose,
+  onImported,
+}: {
+  campaignId: string;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{
+    added?: number;
+    skipped?: number;
+    invalid?: number;
+    errors?: string[];
+  } | null>(null);
+
+  async function handleImport() {
+    if (!text.trim()) {
+      toast.error("Cola pelo menos 1 lead");
+      return;
+    }
+    setImporting(true);
+    const r = await bulkImportLeads(campaignId, text);
+    setImporting(false);
+
+    if (!r.success) {
+      toast.error(`Erro: ${r.errors?.[0] ?? "falha"}`);
+      setResult(r);
+      return;
+    }
+    setResult(r);
+    if ((r.added ?? 0) > 0) {
+      toast.success(`${r.added} leads adicionados`);
+    }
+    if ((r.skipped ?? 0) > 0) {
+      toast(`${r.skipped} duplicatas ignoradas`);
+    }
+  }
+
+  function handleFinish() {
+    onImported();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-900">Importar lista de leads</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-600 space-y-1">
+          <p>Cola a lista abaixo. <strong>Uma linha por lead</strong>. Formatos aceitos:</p>
+          <ul className="list-disc list-inside text-[11px] text-slate-500 space-y-0.5 ml-2">
+            <li>Só telefone: <code className="font-mono bg-slate-100 px-1 rounded">5511999999999</code></li>
+            <li>Telefone, nome: <code className="font-mono bg-slate-100 px-1 rounded">5511999999999, Clínica Pet</code></li>
+            <li>Telefone, nome, endereço, site: <code className="font-mono bg-slate-100 px-1 rounded">551199..., Clínica X, Rua Y, https://...</code></li>
+          </ul>
+          <p className="pt-1 text-[11px]">
+            Linhas começando com <code className="font-mono bg-slate-100 px-1 rounded">#</code> são ignoradas.
+            Telefones que já existem na campanha (mesmo formato normalizado) são detectados como duplicata.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-slate-700">
+            Lista de leads
+          </label>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={12}
+            className="w-full text-xs font-mono border border-slate-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none"
+            placeholder={"5511999999999, Clínica Pet Salvador\n5511888888888, Hospital Veterinário X, Rua A 100\n# linhas com # são ignoradas"}
+          />
+          <p className="text-[11px] text-slate-400">
+            {text.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith("#")).length} linhas válidas
+          </p>
+        </div>
+
+        {result && (
+          <div className="rounded-lg border border-slate-200 p-3 space-y-1 bg-slate-50">
+            <p className="text-xs font-semibold text-slate-800">Resultado da importação</p>
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div>
+                <span className="block text-slate-500">Adicionados</span>
+                <span className="font-bold text-emerald-600">{result.added ?? 0}</span>
+              </div>
+              <div>
+                <span className="block text-slate-500">Duplicatas</span>
+                <span className="font-bold text-amber-600">{result.skipped ?? 0}</span>
+              </div>
+              <div>
+                <span className="block text-slate-500">Inválidos</span>
+                <span className="font-bold text-rose-600">{result.invalid ?? 0}</span>
+              </div>
+            </div>
+            {result.errors && result.errors.length > 0 && (
+              <details className="text-[11px] mt-2">
+                <summary className="cursor-pointer text-slate-600">
+                  Ver erros ({result.errors.length})
+                </summary>
+                <ul className="mt-1 space-y-0.5 text-rose-700">
+                  {result.errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          {result ? (
+            <>
+              <Button variant="outline" onClick={() => { setResult(null); setText(""); }}>
+                Importar outra lista
+              </Button>
+              <Button
+                onClick={handleFinish}
+                className="bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Fechar
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleImport}
+                disabled={importing || !text.trim()}
+                className="bg-slate-900 text-white hover:bg-slate-800"
+              >
+                {importing ? "Importando..." : "Importar"}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -766,11 +766,31 @@ export async function addLeadManually(
 ): Promise<{ success: boolean; data?: WebinarCampaignLead; error?: string }> {
   try {
     const supabase = await createClient();
+    const phoneNormalized = normalizeBrazilianPhone(input.phone);
+    if (!phoneNormalized) {
+      return { success: false, error: "Telefone inválido" };
+    }
+
+    // Dedup por phone normalizado dentro da mesma campanha
+    const { data: existing } = await supabase
+      .from("webinar_campaign_leads")
+      .select("id")
+      .eq("campaign_id", campaignId)
+      .eq("phone", phoneNormalized)
+      .maybeSingle();
+
+    if (existing) {
+      return {
+        success: false,
+        error: "Lead já existe nesta campanha",
+      };
+    }
+
     const { data, error } = await supabase
       .from("webinar_campaign_leads")
       .insert({
         campaign_id: campaignId,
-        phone: input.phone,
+        phone: phoneNormalized,
         company_name: input.company_name ?? null,
         website: input.website ?? null,
         address: input.address ?? null,
@@ -782,6 +802,199 @@ export async function addLeadManually(
     if (error) throw error;
     revalidatePath(`/webinar/${campaignId}`);
     return { success: true, data: data as WebinarCampaignLead };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+/**
+ * Remove um lead da campanha. Hard delete.
+ *
+ * IMPORTANTE: cascateia em webinar_messages (FK cascade configurado na migration).
+ * Use com cuidado em leads que já tiveram conversa.
+ */
+export async function deleteLeadFromCampaign(leadId: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+
+    const { data: lead } = await supabase
+      .from("webinar_campaign_leads")
+      .select("campaign_id")
+      .eq("id", leadId)
+      .single();
+
+    const campaignId = lead?.campaign_id;
+
+    const { error } = await supabase
+      .from("webinar_campaign_leads")
+      .delete()
+      .eq("id", leadId);
+
+    if (error) throw error;
+    if (campaignId) revalidatePath(`/webinar/${campaignId}`);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+/**
+ * Importação em massa de leads via texto.
+ *
+ * Formato aceito (uma linha por lead):
+ *   - Telefone só: 5511999999999
+ *   - Telefone + nome: 5511999999999, Clínica Veterinária X
+ *   - Telefone + nome + endereço: 5511999999999, Clínica X, Rua Y, 100
+ *   - Separador pode ser vírgula, tab ou ponto e vírgula
+ *
+ * Dedup automática: leads com phone normalizado já existente na campanha
+ * são pulados e contados em `skipped`.
+ */
+export async function bulkImportLeads(
+  campaignId: string,
+  rawText: string,
+): Promise<{
+  success: boolean;
+  added?: number;
+  skipped?: number;
+  invalid?: number;
+  errors?: string[];
+}> {
+  try {
+    const supabase = await createClient();
+
+    // Parse linhas
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#"));
+
+    if (lines.length === 0) {
+      return { success: false, errors: ["Nenhuma linha pra importar"] };
+    }
+
+    // Parseia cada linha em { phone, company_name, address, website }
+    const parsed: Array<{
+      phone: string;
+      company_name: string | null;
+      address: string | null;
+      website: string | null;
+    }> = [];
+    let invalid = 0;
+    const errors: string[] = [];
+
+    for (const line of lines) {
+      const cols = line.split(/[,;\t]/).map((c) => c.trim());
+      const rawPhone = cols[0];
+      const phone = normalizeBrazilianPhone(rawPhone);
+      if (!phone) {
+        invalid++;
+        if (errors.length < 5) {
+          errors.push(`Telefone inválido: "${rawPhone}"`);
+        }
+        continue;
+      }
+      parsed.push({
+        phone,
+        company_name: cols[1] || null,
+        address: cols.slice(2, -1).join(", ") || cols[2] || null,
+        website:
+          cols[cols.length - 1]?.startsWith("http") ? cols[cols.length - 1] : null,
+      });
+    }
+
+    if (parsed.length === 0) {
+      return { success: false, invalid, errors };
+    }
+
+    // Dedup contra leads já existentes na campanha (por phone normalizado)
+    const phones = parsed.map((p) => p.phone);
+    const { data: existing } = await supabase
+      .from("webinar_campaign_leads")
+      .select("phone")
+      .eq("campaign_id", campaignId)
+      .in("phone", phones);
+
+    const existingSet = new Set((existing ?? []).map((e: any) => e.phone));
+    const toInsert = parsed.filter((p) => !existingSet.has(p.phone));
+    const skipped = parsed.length - toInsert.length;
+
+    // Dedup interna no próprio batch (mesmo phone aparece 2x na lista)
+    const seenInBatch = new Set<string>();
+    const finalInsert = toInsert.filter((p) => {
+      if (seenInBatch.has(p.phone)) return false;
+      seenInBatch.add(p.phone);
+      return true;
+    });
+
+    const internalDups = toInsert.length - finalInsert.length;
+
+    if (finalInsert.length === 0) {
+      return {
+        success: true,
+        added: 0,
+        skipped: skipped + internalDups,
+        invalid,
+        errors,
+      };
+    }
+
+    const { error } = await supabase.from("webinar_campaign_leads").insert(
+      finalInsert.map((p) => ({
+        campaign_id: campaignId,
+        phone: p.phone,
+        company_name: p.company_name,
+        address: p.address,
+        website: p.website,
+        funnel_status: "scraped",
+      })),
+    );
+
+    if (error) throw error;
+    revalidatePath(`/webinar/${campaignId}`);
+    return {
+      success: true,
+      added: finalInsert.length,
+      skipped: skipped + internalDups,
+      invalid,
+      errors,
+    };
+  } catch (e: any) {
+    return { success: false, errors: [e?.message ?? "erro"] };
+  }
+}
+
+/**
+ * Bulk delete por lista de IDs. Útil pra limpeza em massa
+ * (ex: remover todos os leads fora do ICP, fora da região, etc).
+ */
+export async function bulkDeleteLeads(
+  leadIds: string[],
+): Promise<{ success: boolean; deleted?: number; error?: string }> {
+  try {
+    if (leadIds.length === 0) {
+      return { success: false, error: "Lista vazia" };
+    }
+    const supabase = await createClient();
+
+    // Pega o campaign_id pra revalidate (usa o primeiro)
+    const { data: first } = await supabase
+      .from("webinar_campaign_leads")
+      .select("campaign_id")
+      .eq("id", leadIds[0])
+      .maybeSingle();
+
+    const { error } = await supabase
+      .from("webinar_campaign_leads")
+      .delete()
+      .in("id", leadIds);
+
+    if (error) throw error;
+    if (first?.campaign_id) revalidatePath(`/webinar/${first.campaign_id}`);
+    return { success: true, deleted: leadIds.length };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }
