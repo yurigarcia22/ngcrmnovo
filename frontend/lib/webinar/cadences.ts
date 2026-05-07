@@ -136,7 +136,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "nutricao",
       label: "Nutrição 1 (D-5) - tese central",
       template:
-        "{primeiro_nome}, pensando aqui pro nosso encontro de {data}.\n\nA maioria das clínicas e petshops queima dinheiro em ad querendo crescer, enquanto perde 30-40% da margem dentro de casa. Atendimento, recompra, balcão, precificação.\n\nÉ disso que vou falar. 5 pilares concretos, não papo de marketeiro.",
+        "{primeiro_nome}, pensando aqui pro nosso encontro dia {data}.\n\nClínica veterinária no Brasil cresce até um ponto e trava. Quase sempre o ponto é o mesmo: o dono virou o único pilar que sustenta tudo.\n\nVou abrir os 5 cargos invisíveis que precisam estar instalados pra clínica funcionar sem você no centro.",
       schedule: { type: "byOffset", dayOffset: -5, hour: 14 },
       requireStatus: "confirmed",
     },
@@ -144,7 +144,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "nutricao",
       label: "Nutrição 2 (D-3) - exemplo concreto",
       template:
-        "Pequeno exemplo, {primeiro_nome}: já acompanhei petshop que dobrou ticket médio sem novo cliente. Só ajustou o combo de banho mensal e o jeito como o atendente sugeria ração no balcão.\n\nZero ad. Margem destravada. É o tipo de coisa que abro dia {data}.",
+        "Pequeno exemplo, {primeiro_nome}: já vi clínica veterinária que tirou o dono do plantão e cresceu o caixa no mesmo trimestre. Não foi tráfego, não foi Instagram. Foi treinar a recepção pra fechar pacote no telefone.\n\nÉ o tipo de coisa que abro dia {data}.",
       schedule: { type: "byOffset", dayOffset: -3, hour: 14 },
       requireStatus: "confirmed",
     },
@@ -152,7 +152,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "nutricao",
       label: "Nutrição 3 (D-2) - prova social leve",
       template:
-        "Já passei esse conteúdo pra +96 equipes de clínica e petshop, {primeiro_nome}.\n\nOs que aplicaram tiveram resultado mensurável. Os que não, ficaram onde estavam. Vai ser ao vivo dia {data} às {hora}.",
+        "Trabalhei com 67 clínicas veterinárias até agora, {primeiro_nome}. As que aplicaram o método saíram do limite biológico do dono. As que não, continuaram presas.\n\nVai ser ao vivo dia {data} às {hora}.",
       schedule: { type: "byOffset", dayOffset: -2, hour: 14 },
       requireStatus: "confirmed",
     },
@@ -188,7 +188,7 @@ export const REMINDER_PROFILES: Record<ReminderProfile, ReminderStep[]> = {
       category: "nutricao",
       label: "Nutrição (D-2) - tese central",
       template:
-        "{primeiro_nome}, pensando aqui pro evento de {data}.\n\nA maioria de clínica e petshop queima dinheiro em ad pra crescer e perde 30-40% da margem dentro de casa. Atendimento, recompra, balcão.\n\nVou abrir os 5 pilares que mudam isso. Sem papo teórico.",
+        "{primeiro_nome}, pensando aqui pro evento dia {data}.\n\nClínica veterinária trava no limite da agenda do dono. Não é mercado, não é tráfego, não é Petlove.\n\nVou abrir os 5 cargos que precisam estar instalados pra a clínica rodar sem o dono no centro. Sem papo teórico.",
       schedule: { type: "byOffset", dayOffset: -2, hour: 14 },
       requireStatus: "confirmed",
     },
