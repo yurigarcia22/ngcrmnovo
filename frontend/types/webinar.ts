@@ -14,6 +14,7 @@ export type WebinarStatus =
   | "enriching"
   | "ready"
   | "active"
+  | "paused"
   | "finished"
   | "archived";
 
@@ -182,6 +183,7 @@ export const WEBINAR_STATUS_LABELS: Record<WebinarStatus, string> = {
   enriching: "Enriquecendo IA",
   ready: "Pronta",
   active: "Ativa",
+  paused: "Pausada",
   finished: "Finalizada",
   archived: "Arquivada",
 };

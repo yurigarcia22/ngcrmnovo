@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Play, Wifi, WifiOff, RefreshCw, Webhook } from "lucide-react";
+import { Play, Pause, Wifi, WifiOff, RefreshCw, Webhook } from "lucide-react";
 import {
   updateCampaign,
   deleteCampaign,
   startCampaign,
+  pauseCampaign,
+  resumeCampaign,
 } from "@/app/actions-webinar";
 import {
   listAvailableInstances,
@@ -158,6 +160,42 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
     toast.success(
       `Campanha ativada. ${result.scheduled} saudações iniciais agendadas (cron dispara com jitter 3-7 min entre cada).`,
     );
+    router.refresh();
+  }
+
+  async function handlePause() {
+    if (
+      !confirm(
+        `Pausar campanha "${campaign.name}"?\n\nNenhuma mensagem nova será disparada (initial outreach + cadências de lembrete ficam em standby). Conversas em andamento com o agente IA CONTINUAM funcionando.\n\nQuando retomar, o sistema pega o backlog de onde parou.`,
+      )
+    )
+      return;
+    setSaving(true);
+    const result = await pauseCampaign(campaign.id);
+    setSaving(false);
+    if (!result.success) {
+      toast.error(`Erro: ${result.error}`);
+      return;
+    }
+    toast.success("Campanha pausada. Disparos em standby.");
+    router.refresh();
+  }
+
+  async function handleResume() {
+    setSaving(true);
+    const result = await resumeCampaign(campaign.id);
+    setSaving(false);
+    if (!result.success) {
+      toast.error(`Erro: ${result.error}`);
+      return;
+    }
+    if ((result.pendingCount ?? 0) > 0) {
+      toast.success(
+        `Campanha retomada. ${result.pendingCount} mensagens em backlog vão disparar nos próximos minutos (jitter 4-9min por chip).`,
+      );
+    } else {
+      toast.success("Campanha retomada.");
+    }
     router.refresh();
   }
 
@@ -346,7 +384,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
           <Button variant="outline" onClick={remove} className="text-rose-600 hover:text-rose-700 hover:bg-rose-50">
             Excluir campanha
           </Button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button
               onClick={save}
               disabled={saving}
@@ -354,14 +392,39 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
             >
               {saving ? "Salvando..." : "Salvar alterações"}
             </Button>
-            <Button
-              onClick={handleStart}
-              disabled={saving || campaign.status === "active"}
-              className="bg-emerald-600 text-white hover:bg-emerald-700"
-            >
-              <Play className="w-4 h-4 mr-2" />
-              {campaign.status === "active" ? "Campanha ativa" : "Iniciar campanha"}
-            </Button>
+
+            {campaign.status === "active" && (
+              <Button
+                onClick={handlePause}
+                disabled={saving}
+                className="bg-amber-600 text-white hover:bg-amber-700"
+              >
+                <Pause className="w-4 h-4 mr-2" />
+                Pausar campanha
+              </Button>
+            )}
+
+            {campaign.status === "paused" && (
+              <Button
+                onClick={handleResume}
+                disabled={saving}
+                className="bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Retomar campanha
+              </Button>
+            )}
+
+            {campaign.status !== "paused" && (
+              <Button
+                onClick={handleStart}
+                disabled={saving || campaign.status === "active"}
+                className="bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                {campaign.status === "active" ? "Campanha ativa" : "Iniciar campanha"}
+              </Button>
+            )}
           </div>
         </div>
       </Card>

@@ -1179,6 +1179,94 @@ export async function startCampaign(campaignId: string): Promise<{
   }
 }
 
+/**
+ * Pausa a campanha. Tudo que tá pending continua pending no banco
+ * (mensagens initial_outreach, lembretes de cadência) — só não disparam
+ * porque o dispatcher filtra `status="active"`.
+ *
+ * Quando retomar via resumeCampaign, dispatcher pega o backlog e dispara
+ * com jitter por instância (cap diário 101 protege contra burst).
+ *
+ * IA do agente conversacional CONTINUA respondendo leads que mandam
+ * mensagem (não bloqueia conversação em andamento, só novos disparos
+ * outbound). Pra parar IA totalmente: ai_paused por lead.
+ */
+export async function pauseCampaign(campaignId: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const { data: cur } = await supabase
+      .from("webinar_campaigns")
+      .select("status")
+      .eq("id", campaignId)
+      .single();
+
+    if (cur?.status !== "active") {
+      return { success: false, error: `Campanha está em status "${cur?.status}", não pode pausar` };
+    }
+
+    const { error } = await supabase
+      .from("webinar_campaigns")
+      .update({ status: "paused" })
+      .eq("id", campaignId);
+
+    if (error) throw error;
+    revalidatePath(`/webinar/${campaignId}`);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+/**
+ * Retoma a campanha pausada. Volta status pra "active" e dispatcher
+ * processa o backlog naturalmente. Mensagens com scheduled_at no
+ * passado serão disparadas no próximo tick do cron.
+ *
+ * Se pausou por muitas horas, pode haver "burst" — mas o cap diário
+ * por instância (101) protege contra estouro.
+ */
+export async function resumeCampaign(campaignId: string): Promise<{
+  success: boolean;
+  pendingCount?: number;
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const { data: cur } = await supabase
+      .from("webinar_campaigns")
+      .select("status")
+      .eq("id", campaignId)
+      .single();
+
+    if (cur?.status !== "paused") {
+      return { success: false, error: `Campanha está em status "${cur?.status}", não está pausada` };
+    }
+
+    // Conta backlog antes de retomar (pra UI informar o user)
+    const { count } = await supabase
+      .from("webinar_messages")
+      .select("id, webinar_campaign_leads!inner(campaign_id)", { count: "exact", head: true })
+      .eq("webinar_campaign_leads.campaign_id", campaignId)
+      .eq("status", "pending")
+      .eq("direction", "outbound")
+      .lte("scheduled_at", new Date().toISOString());
+
+    const { error } = await supabase
+      .from("webinar_campaigns")
+      .update({ status: "active" })
+      .eq("id", campaignId);
+
+    if (error) throw error;
+    revalidatePath(`/webinar/${campaignId}`);
+    return { success: true, pendingCount: count ?? 0 };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
 // ─── Cadence ─────────────────────────────────────────────────────────────────
 
 export async function listCadenceSteps(campaignId: string): Promise<{
