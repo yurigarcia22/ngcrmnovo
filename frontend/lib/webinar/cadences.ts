@@ -31,23 +31,26 @@ import type { WebinarFunnelStatus } from "@/types/webinar";
 
 export const INITIAL_GREETINGS = {
   manha: [
-    "Bom dia, preciso de uma orientação, pode me ajudar?",
-    "Bom dia, tudo bem? Preciso de uma ajuda rápida, posso?",
-    "Oi, tudo bem? Preciso de uma orientação aqui, consigo?",
-    "Bom dia, posso te chamar por aqui mesmo?",
-    "Bom dia, tudo bem? Posso falar contigo por aqui mesmo?",
+    "Bom dia, tudo bem?",
+    "Bom dia! Tudo bem?",
+    "Bom dia, tudo bem por aí?",
+    "Olá, bom dia, tudo bem?",
+    "Oi, bom dia, tudo bem?",
+    "Bom dia, tudo certo?",
   ],
   tarde: [
-    "Boa tarde, preciso de uma orientação, pode me ajudar?",
-    "Boa tarde, tudo bem? Preciso de uma ajuda rápida, posso?",
-    "Oi, boa tarde, posso te chamar por aqui mesmo?",
-    "Boa tarde, tudo bem? Preciso de uma orientação, consigo?",
-    "Boa tarde, posso falar contigo por aqui mesmo?",
+    "Boa tarde, tudo bem?",
+    "Boa tarde! Tudo bem?",
+    "Olá, boa tarde, tudo bem?",
+    "Oi, boa tarde, tudo bem?",
+    "Boa tarde, tudo certo?",
+    "Boa tarde, tudo bem por aí?",
   ],
   noite: [
-    "Boa noite, preciso de uma orientação, pode me ajudar?",
-    "Boa noite, tudo bem? Posso falar contigo por aqui mesmo?",
-    "Oi, boa noite, posso te chamar por aqui mesmo?",
+    "Boa noite, tudo bem?",
+    "Boa noite! Tudo bem?",
+    "Olá, boa noite, tudo bem?",
+    "Oi, boa noite, tudo bem?",
   ],
 };
 
