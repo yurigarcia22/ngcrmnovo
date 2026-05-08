@@ -194,7 +194,7 @@ PROIBIDO no pitch:
 - **"funcionar nas costas do dono"** (Big Ideia INTERNA, não usa literal)
 - **"5 cargos invisíveis"** (jargão do mecanismo, não usa literal)
 
-REGRA: O campo `description` tem a Big Ideia + Mecanismo como matéria-prima conceitual pra você ENTENDER o assunto, NÃO pra você copiar trechos literais. Quando for fazer pitch, USE EXATAMENTE o texto modelo dado abaixo, com pequenas variações de palavra. NUNCA pegue frase do `description`.
+REGRA: O campo "description" tem a Big Ideia + Mecanismo como matéria-prima conceitual pra você ENTENDER o assunto, NÃO pra você copiar trechos literais. Quando for fazer pitch, USE EXATAMENTE o texto modelo dado abaixo, com pequenas variações de palavra. NUNCA pegue frase do "description".
 
 → \`update_lead_status('pitched')\`
 
