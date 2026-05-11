@@ -10,7 +10,15 @@ export type AgentToolCall =
       args: { hours_from_now: number; content: string };
     }
   | { name: "escalate_to_human"; args: { reason: string } }
-  | { name: "mark_as_lost"; args: { reason: string } };
+  | { name: "mark_as_lost"; args: { reason: string } }
+  | {
+      name: "forward_to_responsible";
+      args: {
+        responsible_phone: string;
+        responsible_name?: string;
+        intermediary_company?: string;
+      };
+    };
 
 export type AgentDecision = {
   toolCalls: AgentToolCall[];

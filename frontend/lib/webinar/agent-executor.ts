@@ -17,6 +17,7 @@ import {
   renderTemplate,
   getFirstName,
 } from "./cadences";
+import { normalizeBrazilianPhone } from "./scraper";
 import type { AgentToolCall } from "./agent-types";
 
 export type ExecutionResult = {
@@ -325,6 +326,162 @@ export async function executeAgentTools(args: {
             tool: "mark_as_lost",
             result: "ok",
             detail: call.args.reason,
+          });
+          break;
+        }
+
+        case "forward_to_responsible": {
+          // Intermediário passou WhatsApp do responsável real.
+          // Cria lead novo na mesma campanha + dispara mensagem inicial
+          // contextualizada ("X da empresa Y me passou seu contato").
+          // Marca intermediário como lost('intermediary_passed_contact').
+          const {
+            responsible_phone: rawPhone,
+            responsible_name: respName,
+            intermediary_company: interCompany,
+          } = call.args;
+
+          const normalized = normalizeBrazilianPhone(rawPhone);
+          if (!normalized) {
+            result.executed.push({
+              tool: "forward_to_responsible",
+              result: "error",
+              detail: `phone inválido: "${rawPhone}"`,
+            });
+            break;
+          }
+
+          // Dedup: já existe lead com esse phone nesta campanha?
+          const { data: existing } = await supabase
+            .from("webinar_campaign_leads")
+            .select("id, company_name, funnel_status")
+            .eq("campaign_id", campaign.id)
+            .eq("phone", normalized)
+            .maybeSingle();
+
+          let newLeadId: string;
+          let isExisting = false;
+          if (existing) {
+            newLeadId = existing.id;
+            isExisting = true;
+          } else {
+            // Cria lead novo. company_name = "Indicado por {intermediary_company}"
+            // pra rastrear origem.
+            const empresaIntermediario = interCompany || lead.company_name || "(empresa)";
+            const novoLeadCompany = `Indicado por ${empresaIntermediario}`;
+            const { data: novo, error: novoErr } = await supabase
+              .from("webinar_campaign_leads")
+              .insert({
+                campaign_id: campaign.id,
+                phone: normalized,
+                company_name: novoLeadCompany,
+                responsible_name: respName ?? null,
+                funnel_status: "scraped",
+                notes: `Encaminhado via lead ${args.campaignLeadId} (${empresaIntermediario})`,
+              })
+              .select("id")
+              .single();
+            if (novoErr || !novo) {
+              result.executed.push({
+                tool: "forward_to_responsible",
+                result: "error",
+                detail: novoErr?.message ?? "falha criando lead novo",
+              });
+              break;
+            }
+            newLeadId = novo.id;
+          }
+
+          // Mensagem inicial contextualizada (NÃO a saudação genérica)
+          const empresaIntermediarioMsg =
+            interCompany || lead.company_name || "a clínica veterinária";
+          const saudacaoNome = respName ? `, ${getFirstName(respName)}` : "";
+          const initialText =
+            `Olá${saudacaoNome}, tudo bem? Aqui é o Yuri Garcia, do Grupo NG.\n\n` +
+            `Quem atende o WhatsApp da ${empresaIntermediarioMsg} me passou teu contato pra falar diretamente. ` +
+            `Tô formalizando um convite pra um evento online focado em donos de clínica veterinária. ` +
+            `Posso te explicar rápido?`;
+
+          // Tenta enviar imediatamente
+          const picked = await pickInstance({
+            instance_names: campaign.instance_names,
+            instance_name: campaign.instance_name,
+            preferredInstance: null,
+          });
+
+          if (picked) {
+            const evoRes = await sendTextViaEvolution(picked.name, normalized, initialText);
+            if (evoRes.ok) {
+              await supabase.from("webinar_messages").insert({
+                campaign_lead_id: newLeadId,
+                scheduled_at: new Date().toISOString(),
+                status: "sent",
+                direction: "outbound",
+                category: "initial_outreach",
+                sent_text: initialText,
+                sent_at: new Date().toISOString(),
+                ai_generated: true,
+                ai_metadata: {
+                  type: "forwarded_from_intermediary",
+                  forwarded_from_lead: args.campaignLeadId,
+                  intermediary_company: empresaIntermediarioMsg,
+                },
+                evolution_message_id: evoRes.messageId ?? null,
+                instance_used: picked.name,
+              });
+              await supabase
+                .from("webinar_campaign_leads")
+                .update({
+                  last_instance_used: picked.name,
+                  funnel_status: "pending_response",
+                })
+                .eq("id", newLeadId);
+            } else {
+              // Falhou envio imediato. Salva como pending pra cron disparar.
+              await supabase.from("webinar_messages").insert({
+                campaign_lead_id: newLeadId,
+                scheduled_at: new Date().toISOString(),
+                status: "pending",
+                direction: "outbound",
+                category: "initial_outreach",
+                sent_text: initialText,
+                ai_metadata: {
+                  type: "forwarded_from_intermediary_fallback",
+                  forwarded_from_lead: args.campaignLeadId,
+                  intermediary_company: empresaIntermediarioMsg,
+                },
+              });
+            }
+          } else {
+            await supabase.from("webinar_messages").insert({
+              campaign_lead_id: newLeadId,
+              scheduled_at: new Date().toISOString(),
+              status: "pending",
+              direction: "outbound",
+              category: "initial_outreach",
+              sent_text: initialText,
+              ai_metadata: {
+                type: "forwarded_from_intermediary_no_instance",
+                forwarded_from_lead: args.campaignLeadId,
+                intermediary_company: empresaIntermediarioMsg,
+              },
+            });
+          }
+
+          // Marca intermediário como lost
+          await supabase
+            .from("webinar_campaign_leads")
+            .update({
+              funnel_status: "lost",
+              loss_reason: "intermediary_passed_contact",
+              notes: `Passou contato do responsável (${normalized})${respName ? ` - ${respName}` : ""}. Lead novo: ${newLeadId}`,
+            })
+            .eq("id", args.campaignLeadId);
+
+          result.executed.push({
+            tool: "forward_to_responsible",
+            result: "ok",
+            detail: `${isExisting ? "lead existente" : "lead novo"} ${newLeadId} (phone ${normalized})`,
           });
           break;
         }

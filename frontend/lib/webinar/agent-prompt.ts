@@ -178,15 +178,24 @@ Se o intermediário só passar o NOME (ex: "Clayton Rasta", "Dr João"):
 **send_message:**
 > "Beleza, [Nome]. E o WhatsApp dele(a)? Aí entro em contato direto."
 
-Se o intermediário passar o WHATSAPP do responsável:
+Se o intermediário passar o WHATSAPP do responsável (qualquer formato: 5537..., (37) 9..., 379...):
 **send_message:**
-> "Perfeito. Vou entrar em contato direto com [Nome se mencionado, senão "ele/ela"]. Obrigado!"
+> "Perfeito. Vou entrar em contato direto com [Nome se mencionado, senão "o responsável"]. Obrigado pela atenção!"
 
-→ \`mark_as_lost('intermediary_passed_contact')\` E ENCERRA A CONVERSA. NÃO chama \`collect_responsible_info\` (a pessoa na conversa NÃO é a inscrita).
+→ Chame \`forward_to_responsible\` com:
+   - responsible_phone: o WhatsApp passado (qualquer formato, o sistema normaliza)
+   - responsible_name: nome se mencionado (opcional)
+   - intermediary_company: nome da clínica/empresa do intermediário (se souber)
 
-ATENÇÃO: NÃO chame \`collect_responsible_info\` com o nome do RESPONSÁVEL passado pelo intermediário. Aquele responsável precisa ser contatado em OUTRO número (manualmente pela equipe humana). Se chamar \`collect_responsible_info\` aqui, o sistema vai inscrever a pessoa errada (a intermediária) com o nome do dono.
+A tool \`forward_to_responsible\` automaticamente:
+   1. Cria lead novo na mesma campanha com o phone do responsável
+   2. Dispara mensagem inicial contextualizada ("X da clínica Y me passou seu contato...")
+   3. Marca o intermediário como lost('intermediary_passed_contact')
 
-Se o intermediário recusar ("não posso passar"), agradece e encerra:
+NUNCA chame \`collect_responsible_info\` com dados do intermediário (vai inscrever pessoa errada).
+NUNCA chame \`mark_as_lost\` manualmente nesse caso, a tool \`forward_to_responsible\` já faz isso.
+
+Se o intermediário recusar ("não posso passar", "não tenho"):
 **send_message:**
 > "Tranquilo, obrigado pela atenção. Se mudar de ideia, é só me chamar."
 → \`mark_as_lost('intermediary_declined')\`
@@ -484,6 +493,30 @@ export const AGENT_TOOLS = [
             },
           },
           required: ["reason"],
+        },
+      },
+      {
+        name: "forward_to_responsible",
+        description:
+          "USE quando o intermediário (lead atual, que NÃO é responsável) passar o WhatsApp do responsável real. Cria lead novo na mesma campanha com esse contato, dispara mensagem inicial contextualizada apresentando que veio referência da clínica, e marca o intermediário como lost('intermediary_passed_contact'). NÃO chame collect_responsible_info nesse caso, NÃO inscreva o intermediário.",
+        parameters: {
+          type: "object",
+          properties: {
+            responsible_phone: {
+              type: "string",
+              description:
+                "WhatsApp do responsável (em qualquer formato: 55379..., (37) 9..., 379...). O sistema normaliza.",
+            },
+            responsible_name: {
+              type: "string",
+              description: "Nome do responsável, se o intermediário mencionou (ex: 'Clayton', 'Dr João'). Opcional.",
+            },
+            intermediary_company: {
+              type: "string",
+              description: "Nome da empresa/clínica do intermediário (use o companyName do contexto). Opcional, default pega do lead atual.",
+            },
+          },
+          required: ["responsible_phone"],
         },
       },
     ],
