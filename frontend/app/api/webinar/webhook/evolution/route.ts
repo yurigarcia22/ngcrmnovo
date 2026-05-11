@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
 import { runAgent, runAgentForceMessage } from "@/lib/webinar/openai-agent";
-import { executeAgentTools } from "@/lib/webinar/agent-executor";
+import { executeAgentTools, looksLikeAutoReply } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
 import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
 
@@ -427,6 +427,20 @@ export async function POST(req: NextRequest) {
     if (lead.ai_paused) {
       console.log("[webhook evolution] lead=" + lead.id + " ai_paused=true — agente ignorado");
       return NextResponse.json({ ok: true, skipped: "ai_paused", leadId: lead.id });
+    }
+
+    // Auto-reply do WhatsApp Business detectado — não chamar agente.
+    // Marca como processado pra não ficar reprocessando.
+    if (looksLikeAutoReply(effectiveText)) {
+      console.log("[webhook evolution] lead=" + lead.id + " text parece auto-reply de WhatsApp Business — ignorando agente");
+      await supabase
+        .from("webinar_messages")
+        .update({
+          agent_processed_at: new Date().toISOString(),
+          ai_metadata: { type: "auto_reply_detected_skipped" },
+        })
+        .eq("id", inboundId);
+      return NextResponse.json({ ok: true, skipped: "auto_reply_detected", leadId: lead.id });
     }
 
     console.log("[webhook evolution] lead=" + lead.id + " status=" + cur + " msgs=" + (history?.length ?? 0) + " — agente em background");

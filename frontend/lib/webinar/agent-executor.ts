@@ -25,6 +25,54 @@ export type ExecutionResult = {
   executed: Array<{ tool: string; result: "ok" | "error"; detail?: string }>;
 };
 
+/**
+ * Similaridade Jaccard simples entre 2 textos (0..1).
+ * Token-based, case-insensitive. Útil pra detectar mensagens duplicadas
+ * semanticamente (não só literais).
+ */
+function textSimilarity(a: string, b: string): number {
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+  const ta = new Set(norm(a));
+  const tb = new Set(norm(b));
+  if (ta.size === 0 || tb.size === 0) return 0;
+  const intersection = new Set([...ta].filter((x) => tb.has(x)));
+  const union = new Set([...ta, ...tb]);
+  return intersection.size / union.size;
+}
+
+/**
+ * Detecta se mensagem inbound parece auto-reply de WhatsApp Business
+ * (bot do estabelecimento, não pessoa real).
+ *
+ * Sinais clássicos:
+ * - Sequência de emojis exclamativos/atenção (⚠️⚠️, 🚨, ❗❗)
+ * - Frases "ATENÇÃO", "estamos fora", "horário de atendimento", "número migrou"
+ * - Texto muito longo (auto-replies costumam ser corporativos e formais)
+ * - Frases padrão de cobertura ("agradecemos seu contato, retornaremos...")
+ */
+export function looksLikeAutoReply(text: string): boolean {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  const patterns = [
+    /aten[cç][aã]o.{0,20}!{2,}/i,
+    /[⚠🚨❗]{2,}/u,
+    /(?:estamos fora|fora do hor[aá]rio|hor[aá]rio de atendimento)/i,
+    /(?:n[uú]mero (?:mudou|migrou|trocou|atualizado)|novo (?:n[uú]mero|whatsapp))/i,
+    /(?:agradecemos|obrigad[oa]) (?:o |pelo |pela )?(?:seu |contato|interesse).{0,40}(?:retornarem|responder|brevidade)/i,
+    /respondemos? em breve|retornaremos|fora do expediente/i,
+    /assim que poss[ií]vel.{0,30}(?:respond|retornar)/i,
+    /(?:olá|oi).*(?:!{2,}|💙|🧡|🩺|🩵|😁)/iu,
+  ];
+  return patterns.some((re) => re.test(text));
+}
+
 export async function executeAgentTools(args: {
   campaignLeadId: string;
   toolCalls: AgentToolCall[];
@@ -34,6 +82,8 @@ export async function executeAgentTools(args: {
   const result: ExecutionResult = { ok: true, executed: [] };
   let collectResponsibleDone: { name: string } | null = null;
   let sendMessageCalled = false;
+  // Mensagens já enviadas neste turno (pra dedup defensiva)
+  const sentTextsThisTurn: string[] = [];
 
   const { data: lead, error: leadErr } = await supabase
     .from("webinar_campaign_leads")
@@ -67,6 +117,20 @@ export async function executeAgentTools(args: {
               tool: "send_message",
               result: "error",
               detail: "texto vazio",
+            });
+            continue;
+          }
+
+          // Dedup defensivo: se já mandamos algo muito parecido neste turno, descarta.
+          // OpenAI as vezes faz 2 send_message com texto quase idêntico.
+          const dupOfTurn = sentTextsThisTurn.find(
+            (prev) => textSimilarity(prev, text) > 0.7,
+          );
+          if (dupOfTurn) {
+            result.executed.push({
+              tool: "send_message",
+              result: "error",
+              detail: `dedup: similar a msg anterior do turno (${text.slice(0, 40)}...)`,
             });
             continue;
           }
@@ -153,6 +217,9 @@ export async function executeAgentTools(args: {
             .from("webinar_campaign_leads")
             .update({ last_instance_used: picked.name })
             .eq("id", args.campaignLeadId);
+
+          // Registra no rastreio do turno pra dedup das próximas
+          sentTextsThisTurn.push(text);
 
           result.executed.push({
             tool: "send_message",
