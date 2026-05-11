@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/simple-ui";
@@ -18,12 +18,15 @@ import {
   CalendarCheck,
   Trophy,
   ExternalLink,
+  Trash2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   listConfirmedLeads,
   exportConfirmedLeadsCSV,
   pushConfirmedLeadToCrm,
+  deleteLeadFromCampaign,
 } from "@/app/actions-webinar";
 import {
   WEBINAR_FUNNEL_LABELS,
@@ -100,6 +103,11 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(
     null,
   );
+  const [confirmDelete, setConfirmDelete] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [deleting, startDelete] = useTransition();
 
   function openMenu(leadId: string, anchor: HTMLElement) {
     const rect = anchor.getBoundingClientRect();
@@ -149,6 +157,28 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
           : "Lead enviado pro CRM",
     );
     load();
+  }
+
+  function handleAskDelete(lead: WebinarCampaignLead) {
+    setConfirmDelete({
+      id: lead.id,
+      name: lead.company_name ?? lead.responsible_name ?? lead.phone,
+    });
+  }
+
+  function handleConfirmDelete() {
+    if (!confirmDelete) return;
+    const id = confirmDelete.id;
+    startDelete(async () => {
+      const r = await deleteLeadFromCampaign(id);
+      if (r.success) {
+        toast.success("Lead excluído");
+        setConfirmDelete(null);
+        load();
+      } else {
+        toast.error(`Falha: ${r.error}`);
+      }
+    });
   }
 
   async function handleExport() {
@@ -255,6 +285,7 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                   <th className="px-2 py-2 font-semibold text-slate-600">Status</th>
                   <th className="px-2 py-2 font-semibold text-slate-600">Última interação</th>
                   <th className="px-2 py-2 font-semibold text-slate-600 text-right">CRM</th>
+                  <th className="px-2 py-2 font-semibold text-slate-600 text-right w-12"></th>
                 </tr>
               </thead>
               <tbody>
@@ -360,6 +391,17 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                           </button>
                         )}
                       </td>
+                      <td className="px-2 py-3 text-right">
+                        <button
+                          type="button"
+                          disabled={deleting}
+                          onClick={() => handleAskDelete(lead)}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                          title="Excluir lead"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -368,6 +410,43 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
           </div>
         )}
       </Card>
+
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Excluir confirmado?
+                </h2>
+                <p className="text-xs text-slate-600 mt-1">
+                  <strong>{confirmDelete.name}</strong> e todo o histórico de mensagens vão ser removidos. Lembretes pendentes também. Ação permanente, sem desfazer.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                disabled={deleting}
+                onClick={() => setConfirmDelete(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                disabled={deleting}
+                onClick={handleConfirmDelete}
+                className="bg-rose-600 text-white hover:bg-rose-700"
+              >
+                {deleting ? "Excluindo..." : "Excluir"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dropdown menu via portal — escapa do overflow:auto da tabela */}
       {openMenuId && menuPos && typeof window !== "undefined" &&
