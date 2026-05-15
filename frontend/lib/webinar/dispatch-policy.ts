@@ -1,48 +1,121 @@
 /**
  * Política de dispatch anti-ban: quiet hours + claim atômico de instância.
  *
- * Quiet hours: 9h-20h America/Sao_Paulo (configurável via env).
- * Cap diário: 101 disparos/chip/dia (modo SEGURO, jitter 4-9min).
- * Jitter por instância: cada chip tem seu próprio next_available_at.
+ * Quiet hours: 2 janelas (9:00-11:30 e 14:00-17:30) America/Sao_Paulo.
+ *   Excluir almoço e fim de tarde reduz padrão detectável de bot — humano
+ *   comercial não dispara em horário cheio nem em 18h-20h fora do expediente.
  *
- * Veja migration 20260430120000_webinar_instance_state.sql.
+ * Cap diário: 40 disparos/chip/dia (modo CONSERVADOR pós-restrições maio/26).
+ * Jitter por instância: 8-18 min entre disparos do mesmo chip.
+ *
+ * Override de janelas via env WEBINAR_DISPATCH_WINDOWS:
+ *   "9:00-11:30,14:00-17:30" (formato HH:MM-HH:MM separado por vírgula)
+ *
+ * Retrocompatibilidade: se WEBINAR_DISPATCH_START_HOUR e END_HOUR
+ * estiverem definidos, usa eles como 1 janela única.
+ *
+ * Veja migrations:
+ *   20260430120000_webinar_instance_state.sql (estado base)
+ *   20260513000000_webinar_tighten_dispatch.sql (cap 40, jitter 8-18min, warmup)
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// ── Quiet hours (janela de disparo permitida) ──────────────────────────
-// Default: 9h às 20h horário de Brasília. Override via env:
-//   WEBINAR_DISPATCH_START_HOUR (0-23)
-//   WEBINAR_DISPATCH_END_HOUR   (0-23, exclusivo)
+// ── Quiet hours (janelas de disparo permitidas) ─────────────────────────
 const TIMEZONE = "America/Sao_Paulo";
-const START_HOUR = Number(process.env.WEBINAR_DISPATCH_START_HOUR ?? 9);
-const END_HOUR = Number(process.env.WEBINAR_DISPATCH_END_HOUR ?? 20);
+
+type DispatchWindow = { startMinutes: number; endMinutes: number };
 
 /**
- * Retorna true se o horário atual está DENTRO da janela permitida.
+ * Parser de janela "HH:MM-HH:MM" → minutos absolutos do dia.
+ * Retorna null se formato inválido (pulado silenciosamente).
+ */
+function parseWindow(raw: string): DispatchWindow | null {
+  const m = raw.trim().match(/^(\d{1,2})(?::(\d{1,2}))?-(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!m) return null;
+  const sh = Number(m[1]);
+  const sm = m[2] ? Number(m[2]) : 0;
+  const eh = Number(m[3]);
+  const em = m[4] ? Number(m[4]) : 0;
+  if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) return null;
+  if (sh < 0 || sh > 23 || eh < 0 || eh > 24 || sm < 0 || sm > 59 || em < 0 || em > 59) {
+    return null;
+  }
+  return { startMinutes: sh * 60 + sm, endMinutes: eh * 60 + em };
+}
+
+/**
+ * Carrega janelas de quiet hours na ordem:
+ *   1. Se WEBINAR_DISPATCH_WINDOWS definido → parse "9:00-11:30,14:00-17:30"
+ *   2. Senão se START_HOUR e END_HOUR definidos → 1 janela legacy
+ *   3. Senão → default 9:00-11:30 + 14:00-17:30
+ */
+function loadWindows(): DispatchWindow[] {
+  const raw = process.env.WEBINAR_DISPATCH_WINDOWS?.trim();
+  if (raw) {
+    const parsed = raw
+      .split(",")
+      .map((w) => parseWindow(w))
+      .filter((w): w is DispatchWindow => w !== null);
+    if (parsed.length > 0) return parsed;
+  }
+
+  const legacyStart = process.env.WEBINAR_DISPATCH_START_HOUR;
+  const legacyEnd = process.env.WEBINAR_DISPATCH_END_HOUR;
+  if (legacyStart !== undefined && legacyEnd !== undefined) {
+    const sh = Number(legacyStart);
+    const eh = Number(legacyEnd);
+    if (!Number.isNaN(sh) && !Number.isNaN(eh)) {
+      return [{ startMinutes: sh * 60, endMinutes: eh * 60 }];
+    }
+  }
+
+  return [
+    { startMinutes: 9 * 60, endMinutes: 11 * 60 + 30 },
+    { startMinutes: 14 * 60, endMinutes: 17 * 60 + 30 },
+  ];
+}
+
+const DISPATCH_WINDOWS: DispatchWindow[] = loadWindows();
+
+/**
+ * Retorna true se o horário atual está DENTRO de ALGUMA janela permitida.
  * Considera fuso horário de São Paulo (campanhas brasileiras).
  *
  * Categorias afetadas: initial_outreach (massivo).
  * agent_reply e cadências (reminder/nutricao) NÃO sofrem quiet hours,
  * pois respondem o usuário em tempo real.
+ *
+ * Suporta janelas que atravessam meia-noite (startMinutes > endMinutes).
  */
 export function isWithinQuietHours(now: Date = new Date()): boolean {
-  // Pega a hora local em São Paulo via Intl
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: TIMEZONE,
     hour: "numeric",
+    minute: "numeric",
     hour12: false,
   });
   const parts = fmt.formatToParts(now);
   const hourPart = parts.find((p) => p.type === "hour")?.value ?? "0";
+  const minutePart = parts.find((p) => p.type === "minute")?.value ?? "0";
   let hour = Number(hourPart);
+  const minute = Number(minutePart);
   if (hour === 24) hour = 0;
+  const currentMinutes = hour * 60 + minute;
 
-  if (START_HOUR <= END_HOUR) {
-    return hour >= START_HOUR && hour < END_HOUR;
+  for (const win of DISPATCH_WINDOWS) {
+    if (win.startMinutes <= win.endMinutes) {
+      if (currentMinutes >= win.startMinutes && currentMinutes < win.endMinutes) {
+        return true;
+      }
+    } else {
+      // Janela atravessa meia-noite
+      if (currentMinutes >= win.startMinutes || currentMinutes < win.endMinutes) {
+        return true;
+      }
+    }
   }
-  // Janela atravessa meia-noite (não é o caso default, mas suporta)
-  return hour >= START_HOUR || hour < END_HOUR;
+  return false;
 }
 
 export type ClaimResult = {

@@ -13,7 +13,7 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { runAgent, runAgentForceMessage } from "@/lib/webinar/openai-agent";
 import { executeAgentTools, looksLikeAutoReply } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
-import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
+import { pickInstance, sendTextHuman, markMessageAsRead } from "@/lib/webinar/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +61,7 @@ async function sendEmergencyFallback(
       preferredInstance: lead.last_instance_used ?? null,
     });
     if (!picked) return;
-    const evoRes = await sendTextViaEvolution(picked.name, lead.phone, text);
+    const evoRes = await sendTextHuman(picked.name, lead.phone, text);
     if (evoRes.ok) {
       await supabase.from("webinar_messages").insert({
         campaign_lead_id: campaignLeadId,
@@ -358,6 +358,28 @@ export async function POST(req: NextRequest) {
         .from("webinar_messages")
         .update({ agent_processing_started_at: new Date().toISOString() })
         .eq("id", existingInboundId);
+    }
+
+    // ── Fire-and-forget: marca mensagem como lida após delay humano ──────
+    // Bot que processa msg sem nunca marcar como lida é fingerprint clássico.
+    // Delay 5-30s aleatório simula tempo de a pessoa abrir/ler o WhatsApp.
+    if (messageId && instanceName && effectiveJid) {
+      const readDelayMs = 5000 + Math.random() * 25000;
+      setTimeout(() => {
+        markMessageAsRead(instanceName, effectiveJid, messageId)
+          .then((r) => {
+            if (!r.ok) {
+              console.warn(
+                "[webhook evolution] markAsRead falhou (best-effort): " + r.error,
+              );
+            }
+          })
+          .catch((err) => {
+            console.warn(
+              "[webhook evolution] markAsRead exception: " + (err?.message ?? "?"),
+            );
+          });
+      }, readDelayMs);
     }
 
     // Atualiza status se necessário

@@ -335,3 +335,115 @@ export async function sendTextViaEvolution(
 
   return { ok: false, error: lastError || "max retries", attempts: maxRetries + 1 };
 }
+
+// ── Comportamento humano (anti-ban) ──────────────────────────────────────
+
+export type Presence = "composing" | "paused" | "available" | "unavailable";
+
+/**
+ * Dispara presença ("digitando...", "pausado", "online") por delayMs.
+ * Best-effort: falha silenciosa (apenas warn no log).
+ *
+ * Evolution mantém a presença ativa por `delay` ms — passar o tempo de
+ * digitação real pra simular humano. Não bloqueante.
+ */
+export async function sendPresence(
+  instanceName: string,
+  number: string,
+  presence: Presence,
+  delayMs: number,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await evoFetch(
+      `/chat/sendPresence/${encodeURIComponent(instanceName)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ number, presence, delay: delayMs }),
+      },
+    );
+    if (!res.ok) {
+      return { ok: false, error: `Evolution ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch falhou" };
+  }
+}
+
+/**
+ * Marca mensagem inbound como lida.
+ * Best-effort: falha silenciosa.
+ */
+export async function markMessageAsRead(
+  instanceName: string,
+  remoteJid: string,
+  messageId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await evoFetch(
+      `/chat/markMessageAsRead/${encodeURIComponent(instanceName)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          readMessages: [{ remoteJid, fromMe: false, id: messageId }],
+        }),
+      },
+    );
+    if (!res.ok) {
+      return { ok: false, error: `Evolution ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch falhou" };
+  }
+}
+
+/**
+ * Calcula tempo realista de digitação baseado no texto.
+ * Humano digita ~12 chars/s = 80ms/char. Mínimo 2.5s, máximo 12s.
+ */
+export function typingDelayForText(text: string): number {
+  const base = (text?.length ?? 0) * 80;
+  return Math.max(2500, Math.min(12000, base));
+}
+
+/**
+ * Delay humano entre 2 mensagens consecutivas do mesmo turno.
+ * Aplicar ANTES de cada send (a partir da 2ª) pra simular tempo natural
+ * de "pensar e digitar" entre frases.
+ *
+ * Fórmula: 8s base + 50ms/char + jitter aleatório 0-10s, clampeado 8s-30s.
+ */
+export function humanInterMessageDelay(text: string): number {
+  const base = 8000 + (text?.length ?? 0) * 50;
+  const jitter = Math.random() * 10000;
+  return Math.min(30000, Math.max(8000, base + jitter));
+}
+
+/**
+ * Envia texto simulando comportamento humano: presence "digitando" → wait
+ * → sendText. O delay de digitação é calculado a partir do tamanho do texto
+ * (~80ms/char, clampeado em 2.5s-12s).
+ *
+ * Se `presenceFailed`, segue direto pro envio (não bloqueia o disparo).
+ *
+ * Cenários onde NÃO usar (manter sendTextViaEvolution direto):
+ *   - Notificação interna pro diretor (mesmo chip, sem necessidade de typing)
+ *   - Mensagens de teste/healthcheck
+ */
+export async function sendTextHuman(
+  instanceName: string,
+  number: string,
+  text: string,
+  opts: { maxRetries?: number; typingMs?: number } = {},
+): Promise<{ ok: boolean; messageId?: string; error?: string; attempts?: number }> {
+  const typingMs = opts.typingMs ?? typingDelayForText(text);
+
+  // Best-effort: dispara presence "composing" mas não bloqueia se falhar
+  await sendPresence(instanceName, number, "composing", typingMs);
+  await new Promise((r) => setTimeout(r, typingMs));
+
+  return sendTextViaEvolution(instanceName, number, text, {
+    maxRetries: opts.maxRetries,
+  });
+}

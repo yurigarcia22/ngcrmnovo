@@ -22,7 +22,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
 import {
   pickInstanceCandidates,
-  sendTextViaEvolution,
+  sendTextHuman,
+  humanInterMessageDelay,
 } from "@/lib/webinar/evolution";
 import {
   claimInstance,
@@ -189,9 +190,8 @@ async function runDispatch() {
         candidateList.preferredInstance &&
         category === "agent_reply"
       ) {
-        const bridge =
-          "Oi, voltei aqui (tive um problema no outro número). Continuando nossa conversa.";
-        const bridgeRes = await sendTextViaEvolution(
+        const bridge = "Oi, continuando aqui.";
+        const bridgeRes = await sendTextHuman(
           chosen,
           lead.phone,
           bridge,
@@ -213,11 +213,14 @@ async function runDispatch() {
             evolution_message_id: bridgeRes.messageId ?? null,
             instance_used: chosen,
           });
-          await new Promise((r) => setTimeout(r, 3500));
+          // Pausa humana entre bridge e mensagem principal
+          await new Promise((r) =>
+            setTimeout(r, humanInterMessageDelay(row.sent_text ?? "")),
+          );
         }
       }
 
-      const evoRes = await sendTextViaEvolution(
+      const evoRes = await sendTextHuman(
         chosen,
         lead.phone,
         row.sent_text ?? "",

@@ -13,7 +13,7 @@ import {
   pickInitialGreeting,
   renderTemplate,
 } from "@/lib/webinar/cadences";
-import { pickInstance, sendTextViaEvolution } from "@/lib/webinar/evolution";
+import { pickInstance, sendTextHuman } from "@/lib/webinar/evolution";
 import {
   startScrape,
   getScrapeJob,
@@ -1060,7 +1060,7 @@ export async function sendTestMessageToLead(leadId: string): Promise<{
       );
     }
 
-    const evoResult = await sendTextViaEvolution(
+    const evoResult = await sendTextHuman(
       picked.name,
       lead.phone,
       message,

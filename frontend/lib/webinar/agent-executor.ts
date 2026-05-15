@@ -9,7 +9,12 @@
  */
 
 import { createServiceClient } from "@/utils/supabase/service";
-import { pickInstance, sendTextViaEvolution } from "./evolution";
+import {
+  pickInstance,
+  sendTextViaEvolution,
+  sendTextHuman,
+  humanInterMessageDelay,
+} from "./evolution";
 import {
   REMINDER_PROFILES,
   pickReminderProfile,
@@ -135,6 +140,15 @@ export async function executeAgentTools(args: {
             continue;
           }
 
+          // Delay humano entre mensagens consecutivas do MESMO turno.
+          // 1ª send_message dispara direto; 2ª+ espera 8-30s baseado em length.
+          // Simula tempo natural de "pensar + digitar" entre frases.
+          if (sentTextsThisTurn.length > 0) {
+            await new Promise((r) =>
+              setTimeout(r, humanInterMessageDelay(text)),
+            );
+          }
+
           // Lead affinity: tenta usar a última instance que falou com este lead
           const picked = await pickInstance({
             instance_names: campaign.instance_names,
@@ -152,8 +166,8 @@ export async function executeAgentTools(args: {
 
           // Failover: se trocou de instance, manda mensagem-ponte antes
           if (picked.isFailover && picked.preferredInstance) {
-            const bridge = "Oi, voltei aqui (tive um problema no outro número). Continuando nossa conversa.";
-            const bridgeRes = await sendTextViaEvolution(
+            const bridge = "Oi, continuando aqui.";
+            const bridgeRes = await sendTextHuman(
               picked.name,
               lead.phone,
               bridge,
@@ -176,12 +190,14 @@ export async function executeAgentTools(args: {
                 evolution_message_id: bridgeRes.messageId ?? null,
                 instance_used: picked.name,
               });
-              // Pequena pausa entre bridge e msg principal pra parecer humano
-              await new Promise((r) => setTimeout(r, 3500));
+              // Pausa humana entre bridge e msg principal (8-30s, baseado em length)
+              await new Promise((r) =>
+                setTimeout(r, humanInterMessageDelay(text)),
+              );
             }
           }
 
-          const evoRes = await sendTextViaEvolution(
+          const evoRes = await sendTextHuman(
             picked.name,
             lead.phone,
             text,
@@ -477,7 +493,7 @@ export async function executeAgentTools(args: {
           });
 
           if (picked) {
-            const evoRes = await sendTextViaEvolution(picked.name, normalized, initialText);
+            const evoRes = await sendTextHuman(picked.name, normalized, initialText);
             if (evoRes.ok) {
               await supabase.from("webinar_messages").insert({
                 campaign_lead_id: newLeadId,
@@ -584,7 +600,7 @@ export async function executeAgentTools(args: {
       });
 
       if (picked) {
-        const evoRes = await sendTextViaEvolution(picked.name, lead.phone, confirmText);
+        const evoRes = await sendTextHuman(picked.name, lead.phone, confirmText);
         if (evoRes.ok) {
           await supabase.from("webinar_messages").insert({
             campaign_lead_id: args.campaignLeadId,
