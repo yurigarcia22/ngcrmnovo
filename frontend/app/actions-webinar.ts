@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { createServiceClient } from "@/utils/supabase/service";
 import { revalidatePath } from "next/cache";
 import type {
   WebinarCampaign,
@@ -1398,7 +1399,6 @@ export async function getInstanceStats(campaignId: string): Promise<{
 
     // Service client para bypassar RLS no agregado
     // (somente leitura de stats, sem retornar dados sensíveis)
-    const { createServiceClient } = await import("@/utils/supabase/service");
     const supabase = createServiceClient();
 
     const { data: leads, error: leadsErr } = await supabase
