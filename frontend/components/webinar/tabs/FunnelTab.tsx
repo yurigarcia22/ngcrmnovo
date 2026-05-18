@@ -22,12 +22,16 @@ const FUNNEL_STAGES = [
 
 export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
   const [instanceStats, setInstanceStats] = useState<InstanceStats[]>([]);
+  const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
 
   async function loadStats() {
     setLoadingStats(true);
     const r = await getInstanceStats(campaign.id);
-    if (r.success) setInstanceStats(r.data ?? []);
+    if (r.success) {
+      setInstanceStats(r.data ?? []);
+      setSnapshotAt(r.snapshot_at ?? null);
+    }
     setLoadingStats(false);
   }
 
@@ -237,6 +241,17 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
               Confirmados/presentes contam por <code>last_instance_used</code> do
               lead. Se um lead conversou por mais de um chip, conta no último que
               falou com ele.
+              {snapshotAt && (
+                <>
+                  {" "}· Snapshot:{" "}
+                  {new Date(snapshotAt).toLocaleString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    day: "2-digit",
+                    month: "2-digit",
+                  })}
+                </>
+              )}
             </p>
           </>
         )}

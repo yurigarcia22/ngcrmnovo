@@ -1387,114 +1387,57 @@ export type InstanceStats = {
 export async function getInstanceStats(campaignId: string): Promise<{
   success: boolean;
   data?: InstanceStats[];
+  snapshot_at?: string | null;
   error?: string;
 }> {
   try {
-    // Garantir que o user está autenticado (não usar service role anonimamente)
+    // Auth guard
     const userClient = await createClient();
     const {
       data: { user },
     } = await userClient.auth.getUser();
     if (!user) return { success: false, error: "não autenticado" };
 
-    // Service client para bypassar RLS no agregado
-    // (somente leitura de stats, sem retornar dados sensíveis)
     const supabase = createServiceClient();
 
-    const { data: leads, error: leadsErr } = await supabase
-      .from("webinar_campaign_leads")
-      .select("id, last_instance_used, funnel_status")
-      .eq("campaign_id", campaignId);
-    if (leadsErr) throw leadsErr;
+    // 1. Refresh on-demand: garante que a snapshot dessa campanha tá fresca.
+    //    O refresh em massa (cron) cuida do resto a cada 5min.
+    await supabase.rpc("refresh_webinar_instance_stats", {
+      p_campaign_id: campaignId,
+    });
 
-    const leadList = (leads ?? []) as Array<{
-      id: string;
-      last_instance_used: string | null;
-      funnel_status: string;
-    }>;
+    // 2. Lê da snapshot
+    const { data: rows, error } = await supabase
+      .from("webinar_instance_stats_snapshot")
+      .select(
+        `instance_name,
+         sent_today, sent_total, failed_total, inbound_total,
+         replied_leads, confirmed_leads, attended_leads, converted_leads,
+         active_leads, snapshot_at`,
+      )
+      .eq("campaign_id", campaignId)
+      .order("sent_total", { ascending: false });
 
-    if (leadList.length === 0) return { success: true, data: [] };
+    if (error) throw error;
 
-    const leadIds = leadList.map((l) => l.id);
+    const stats: InstanceStats[] = (rows ?? []).map((r: any) => ({
+      instance: r.instance_name,
+      sent_total: r.sent_total,
+      sent_today: r.sent_today,
+      failed_total: r.failed_total,
+      inbound_total: r.inbound_total,
+      replied_leads: r.replied_leads,
+      confirmed_leads: r.confirmed_leads,
+      attended_leads: r.attended_leads,
+      converted_leads: r.converted_leads,
+      active_leads: r.active_leads,
+    }));
 
-    // Chunk para evitar query muito grande
-    const CHUNK = 500;
-    const allMsgs: Array<{
-      campaign_lead_id: string;
-      instance_used: string | null;
-      status: string;
-      direction: string;
-      sent_at: string | null;
-    }> = [];
-
-    for (let i = 0; i < leadIds.length; i += CHUNK) {
-      const slice = leadIds.slice(i, i + CHUNK);
-      const { data: msgs, error: msgsErr } = await supabase
-        .from("webinar_messages")
-        .select("campaign_lead_id, instance_used, status, direction, sent_at")
-        .in("campaign_lead_id", slice);
-      if (msgsErr) throw msgsErr;
-      if (msgs) allMsgs.push(...(msgs as any[]));
-    }
-
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const startIso = startOfDay.toISOString();
-
-    const stats: Record<string, InstanceStats> = {};
-    function ensure(name: string): InstanceStats {
-      if (!stats[name]) {
-        stats[name] = {
-          instance: name,
-          sent_total: 0,
-          sent_today: 0,
-          failed_total: 0,
-          inbound_total: 0,
-          replied_leads: 0,
-          confirmed_leads: 0,
-          attended_leads: 0,
-          converted_leads: 0,
-          active_leads: 0,
-        };
-      }
-      return stats[name];
-    }
-
-    const repliedSet = new Set<string>();
-    for (const m of allMsgs) {
-      if (!m.instance_used) continue;
-      const s = ensure(m.instance_used);
-      if (m.direction === "outbound") {
-        if (m.status === "sent" || m.status === "delivered" || m.status === "read") {
-          s.sent_total += 1;
-          if (m.sent_at && m.sent_at >= startIso) s.sent_today += 1;
-        } else if (m.status === "failed") {
-          s.failed_total += 1;
-        }
-      } else if (m.direction === "inbound") {
-        s.inbound_total += 1;
-        repliedSet.add(m.campaign_lead_id);
-      }
-    }
-
-    const CONFIRMED = new Set(["confirmed", "attended", "converted"]);
-    const ATTENDED = new Set(["attended", "converted"]);
-
-    for (const l of leadList) {
-      if (!l.last_instance_used) continue;
-      const s = ensure(l.last_instance_used);
-      s.active_leads += 1;
-      if (CONFIRMED.has(l.funnel_status)) s.confirmed_leads += 1;
-      if (ATTENDED.has(l.funnel_status)) s.attended_leads += 1;
-      if (l.funnel_status === "converted") s.converted_leads += 1;
-      if (repliedSet.has(l.id)) s.replied_leads += 1;
-    }
-
-    const result = Object.values(stats).sort(
-      (a, b) => b.sent_total - a.sent_total,
-    );
-
-    return { success: true, data: result };
+    return {
+      success: true,
+      data: stats,
+      snapshot_at: rows?.[0]?.snapshot_at ?? null,
+    };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }
