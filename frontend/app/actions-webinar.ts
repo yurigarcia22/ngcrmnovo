@@ -1367,3 +1367,125 @@ export async function toggleLeadAiPause(
     return { success: false, error: e?.message ?? "erro" };
   }
 }
+
+// ─── Stats por instância ─────────────────────────────────────────────────────
+
+export type InstanceStats = {
+  instance: string;
+  sent_total: number;
+  sent_today: number;
+  failed_total: number;
+  inbound_total: number;
+  replied_leads: number;
+  confirmed_leads: number;
+  attended_leads: number;
+  converted_leads: number;
+  active_leads: number;
+};
+
+export async function getInstanceStats(campaignId: string): Promise<{
+  success: boolean;
+  data?: InstanceStats[];
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+
+    const { data: leads, error: leadsErr } = await supabase
+      .from("webinar_campaign_leads")
+      .select("id, last_instance_used, funnel_status")
+      .eq("campaign_id", campaignId);
+    if (leadsErr) throw leadsErr;
+
+    const leadList = (leads ?? []) as Array<{
+      id: string;
+      last_instance_used: string | null;
+      funnel_status: string;
+    }>;
+
+    if (leadList.length === 0) return { success: true, data: [] };
+
+    const leadIds = leadList.map((l) => l.id);
+
+    // Chunk para evitar query muito grande
+    const CHUNK = 500;
+    const allMsgs: Array<{
+      campaign_lead_id: string;
+      instance_used: string | null;
+      status: string;
+      direction: string;
+      sent_at: string | null;
+    }> = [];
+
+    for (let i = 0; i < leadIds.length; i += CHUNK) {
+      const slice = leadIds.slice(i, i + CHUNK);
+      const { data: msgs, error: msgsErr } = await supabase
+        .from("webinar_messages")
+        .select("campaign_lead_id, instance_used, status, direction, sent_at")
+        .in("campaign_lead_id", slice);
+      if (msgsErr) throw msgsErr;
+      if (msgs) allMsgs.push(...(msgs as any[]));
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const startIso = startOfDay.toISOString();
+
+    const stats: Record<string, InstanceStats> = {};
+    function ensure(name: string): InstanceStats {
+      if (!stats[name]) {
+        stats[name] = {
+          instance: name,
+          sent_total: 0,
+          sent_today: 0,
+          failed_total: 0,
+          inbound_total: 0,
+          replied_leads: 0,
+          confirmed_leads: 0,
+          attended_leads: 0,
+          converted_leads: 0,
+          active_leads: 0,
+        };
+      }
+      return stats[name];
+    }
+
+    const repliedSet = new Set<string>();
+    for (const m of allMsgs) {
+      if (!m.instance_used) continue;
+      const s = ensure(m.instance_used);
+      if (m.direction === "outbound") {
+        if (m.status === "sent" || m.status === "delivered" || m.status === "read") {
+          s.sent_total += 1;
+          if (m.sent_at && m.sent_at >= startIso) s.sent_today += 1;
+        } else if (m.status === "failed") {
+          s.failed_total += 1;
+        }
+      } else if (m.direction === "inbound") {
+        s.inbound_total += 1;
+        repliedSet.add(m.campaign_lead_id);
+      }
+    }
+
+    const CONFIRMED = new Set(["confirmed", "attended", "converted"]);
+    const ATTENDED = new Set(["attended", "converted"]);
+
+    for (const l of leadList) {
+      if (!l.last_instance_used) continue;
+      const s = ensure(l.last_instance_used);
+      s.active_leads += 1;
+      if (CONFIRMED.has(l.funnel_status)) s.confirmed_leads += 1;
+      if (ATTENDED.has(l.funnel_status)) s.attended_leads += 1;
+      if (l.funnel_status === "converted") s.converted_leads += 1;
+      if (repliedSet.has(l.id)) s.replied_leads += 1;
+    }
+
+    const result = Object.values(stats).sort(
+      (a, b) => b.sent_total - a.sent_total,
+    );
+
+    return { success: true, data: result };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
