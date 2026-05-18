@@ -44,6 +44,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
     (acc, s) => ({
       sent_total: acc.sent_total + s.sent_total,
       sent_today: acc.sent_today + s.sent_today,
+      unique_leads_today: acc.unique_leads_today + (s.unique_leads_today ?? 0),
       failed_total: acc.failed_total + s.failed_total,
       replied_leads: acc.replied_leads + s.replied_leads,
       confirmed_leads: acc.confirmed_leads + s.confirmed_leads,
@@ -51,6 +52,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
     {
       sent_total: 0,
       sent_today: 0,
+      unique_leads_today: 0,
       failed_total: 0,
       replied_leads: 0,
       confirmed_leads: 0,
@@ -143,11 +145,16 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
               <Stat
                 label="Enviadas hoje"
                 value={totals.sent_today}
                 accent="indigo"
+              />
+              <Stat
+                label="Leads únicos hoje"
+                value={totals.unique_leads_today}
+                hint="Distintos abordados"
               />
               <Stat label="Total enviadas" value={totals.sent_total} />
               <Stat label="Falhas" value={totals.failed_total} />
@@ -167,10 +174,22 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
                       Instância
                     </th>
                     <th className="text-right font-semibold py-2 px-2">
-                      Hoje
+                      Msgs hoje
+                    </th>
+                    <th
+                      className="text-right font-semibold py-2 px-2"
+                      title="Leads únicos abordados hoje"
+                    >
+                      Leads hoje
                     </th>
                     <th className="text-right font-semibold py-2 px-2">
-                      Total
+                      Total msgs
+                    </th>
+                    <th
+                      className="text-right font-semibold py-2 px-2"
+                      title="Leads únicos abordados no total"
+                    >
+                      Leads únicos
                     </th>
                     <th className="text-right font-semibold py-2 px-2">
                       Falhas
@@ -198,6 +217,11 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
                       s.active_leads > 0
                         ? Math.round((s.confirmed_leads / s.active_leads) * 100)
                         : 0;
+                    const msgsPerLead =
+                      s.unique_leads_total > 0
+                        ? s.sent_total / s.unique_leads_total
+                        : 0;
+                    const loopWarning = msgsPerLead >= 10;
                     return (
                       <tr
                         key={s.instance}
@@ -205,12 +229,26 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
                       >
                         <td className="py-2.5 pr-3 font-mono text-xs font-semibold text-slate-800">
                           {s.instance}
+                          {loopWarning && (
+                            <span
+                              className="ml-1.5 inline-block text-[9px] font-bold uppercase text-amber-700 bg-amber-50 px-1 py-0.5 rounded"
+                              title={`${msgsPerLead.toFixed(1)} msgs/lead — possível loop de auto-reply`}
+                            >
+                              loop?
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-2 text-right tabular-nums font-semibold text-indigo-600">
                           {s.sent_today}
                         </td>
+                        <td className="py-2.5 px-2 text-right tabular-nums font-semibold text-slate-800">
+                          {s.unique_leads_today}
+                        </td>
                         <td className="py-2.5 px-2 text-right tabular-nums text-slate-700">
                           {s.sent_total}
+                        </td>
+                        <td className="py-2.5 px-2 text-right tabular-nums font-semibold text-slate-800">
+                          {s.unique_leads_total}
                         </td>
                         <td className="py-2.5 px-2 text-right tabular-nums text-rose-600">
                           {s.failed_total || "-"}

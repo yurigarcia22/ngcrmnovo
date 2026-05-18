@@ -1375,6 +1375,8 @@ export type InstanceStats = {
   instance: string;
   sent_total: number;
   sent_today: number;
+  unique_leads_total: number;
+  unique_leads_today: number;
   failed_total: number;
   inbound_total: number;
   replied_leads: number;
@@ -1411,7 +1413,9 @@ export async function getInstanceStats(campaignId: string): Promise<{
       .from("webinar_instance_stats_snapshot")
       .select(
         `instance_name,
-         sent_today, sent_total, failed_total, inbound_total,
+         sent_today, sent_total,
+         unique_leads_today, unique_leads_total,
+         failed_total, inbound_total,
          replied_leads, confirmed_leads, attended_leads, converted_leads,
          active_leads, snapshot_at`,
       )
@@ -1424,6 +1428,8 @@ export async function getInstanceStats(campaignId: string): Promise<{
       instance: r.instance_name,
       sent_total: r.sent_total,
       sent_today: r.sent_today,
+      unique_leads_total: r.unique_leads_total ?? 0,
+      unique_leads_today: r.unique_leads_today ?? 0,
       failed_total: r.failed_total,
       inbound_total: r.inbound_total,
       replied_leads: r.replied_leads,
