@@ -1389,7 +1389,17 @@ export async function getInstanceStats(campaignId: string): Promise<{
   error?: string;
 }> {
   try {
-    const supabase = await createClient();
+    // Garantir que o user está autenticado (não usar service role anonimamente)
+    const userClient = await createClient();
+    const {
+      data: { user },
+    } = await userClient.auth.getUser();
+    if (!user) return { success: false, error: "não autenticado" };
+
+    // Service client para bypassar RLS no agregado
+    // (somente leitura de stats, sem retornar dados sensíveis)
+    const { createServiceClient } = await import("@/utils/supabase/service");
+    const supabase = createServiceClient();
 
     const { data: leads, error: leadsErr } = await supabase
       .from("webinar_campaign_leads")
