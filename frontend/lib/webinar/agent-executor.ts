@@ -556,11 +556,25 @@ export async function executeAgentTools(args: {
             .eq("phone", normalized)
             .maybeSingle();
 
+          // Affinity: lead novo herda o MESMO chip que falou com o intermediario.
+          // Garante continuidade visual pro responsavel (so vai trocar de chip se
+          // o original cair). Sem isso, o lead da Bruna receberia mensagem de um
+          // chip aleatorio e o "Yuri Garcia" apareceria de um numero diferente
+          // do que o intermediario indicou — quebra de confianca.
+          const inheritedInstance = lead.last_instance_used ?? null;
+
           let newLeadId: string;
           let isExisting = false;
           if (existing) {
             newLeadId = existing.id;
             isExisting = true;
+            // Se o lead ja existe mas sem affinity, herda do intermediario agora
+            if (inheritedInstance && !(existing as any).last_instance_used) {
+              await supabase
+                .from("webinar_campaign_leads")
+                .update({ last_instance_used: inheritedInstance })
+                .eq("id", newLeadId);
+            }
           } else {
             // Cria lead novo. company_name = "Indicado por {intermediary_company}"
             // pra rastrear origem.
@@ -574,6 +588,8 @@ export async function executeAgentTools(args: {
                 company_name: novoLeadCompany,
                 responsible_name: respName ?? null,
                 funnel_status: "scraped",
+                // Lead novo ja nasce com affinity do intermediario
+                last_instance_used: inheritedInstance,
                 notes: `Encaminhado via lead ${args.campaignLeadId} (${empresaIntermediario})`,
               })
               .select("id")
@@ -599,11 +615,13 @@ export async function executeAgentTools(args: {
             `Tô formalizando um convite pra um evento online focado em donos de clínica veterinária. ` +
             `Posso te explicar rápido?`;
 
-          // Tenta enviar imediatamente
+          // Tenta enviar imediatamente — usa o chip herdado como preferred.
+          // Se ele estiver disponivel (open + cooldown ok + cap ok), pickInstance
+          // usa ele. So troca se cair ou esgotar.
           const picked = await pickInstance({
             instance_names: campaign.instance_names,
             instance_name: campaign.instance_name,
-            preferredInstance: null,
+            preferredInstance: inheritedInstance,
           });
 
           if (picked) {
