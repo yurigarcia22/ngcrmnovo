@@ -632,7 +632,11 @@ export async function executeAgentTools(args: {
                 scheduled_at: new Date().toISOString(),
                 status: "sent",
                 direction: "outbound",
-                category: "initial_outreach",
+                // Categoria 'forwarded_initial' NAO entra em RATE_LIMITED_CATEGORIES.
+                // Diferente de saudacao em massa, esta e continuidade de conversa:
+                // intermediario indicou o responsavel direto. Tem que usar o
+                // mesmo chip e nao respeitar cap/cooldown (sao poucos disparos).
+                category: "forwarded_initial",
                 sent_text: initialText,
                 sent_at: new Date().toISOString(),
                 ai_generated: true,
@@ -658,7 +662,7 @@ export async function executeAgentTools(args: {
                 scheduled_at: new Date().toISOString(),
                 status: "pending",
                 direction: "outbound",
-                category: "initial_outreach",
+                category: "forwarded_initial",
                 sent_text: initialText,
                 ai_metadata: {
                   type: "forwarded_from_intermediary_fallback",
@@ -673,7 +677,7 @@ export async function executeAgentTools(args: {
               scheduled_at: new Date().toISOString(),
               status: "pending",
               direction: "outbound",
-              category: "initial_outreach",
+              category: "forwarded_initial",
               sent_text: initialText,
               ai_metadata: {
                 type: "forwarded_from_intermediary_no_instance",
