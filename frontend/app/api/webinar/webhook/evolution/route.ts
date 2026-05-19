@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/service";
 import { runAgent, runAgentForceMessage } from "@/lib/webinar/openai-agent";
-import { executeAgentTools, looksLikeAutoReply } from "@/lib/webinar/agent-executor";
+import { executeAgentTools, looksLikeAutoReply, isInActiveLoop } from "@/lib/webinar/agent-executor";
 import type { AgentContext } from "@/lib/webinar/agent-prompt";
 import { pickInstance, sendTextHuman, markMessageAsRead } from "@/lib/webinar/evolution";
 
@@ -463,6 +463,36 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", inboundId);
       return NextResponse.json({ ok: true, skipped: "auto_reply_detected", leadId: lead.id });
+    }
+
+    // Detecção de loop ativo — defesa em profundidade.
+    // Se o agente já mandou >=3 outbound nos últimos 5min SEM inbound humano real,
+    // está em loop. Pausa o lead automaticamente pra interromper o sangramento.
+    const loopCheck = await isInActiveLoop(lead.id);
+    if (loopCheck.inLoop) {
+      console.warn(
+        "[webhook evolution] lead=" + lead.id + " LOOP DETECTADO (" + loopCheck.reason + ") — auto-pausando",
+      );
+      await supabase
+        .from("webinar_campaign_leads")
+        .update({
+          ai_paused: true,
+          loss_reason: "loop_auto_paused: " + loopCheck.reason,
+        })
+        .eq("id", lead.id);
+      await supabase
+        .from("webinar_messages")
+        .update({
+          agent_processed_at: new Date().toISOString(),
+          ai_metadata: { type: "loop_detected_auto_pause", reason: loopCheck.reason },
+        })
+        .eq("id", inboundId);
+      return NextResponse.json({
+        ok: true,
+        skipped: "loop_detected_auto_pause",
+        leadId: lead.id,
+        reason: loopCheck.reason,
+      });
     }
 
     console.log("[webhook evolution] lead=" + lead.id + " status=" + cur + " msgs=" + (history?.length ?? 0) + " — agente em background");

@@ -59,13 +59,20 @@ function textSimilarity(a: string, b: string): number {
  * Sinais clássicos:
  * - Sequência de emojis exclamativos/atenção (⚠️⚠️, 🚨, ❗❗)
  * - Frases "ATENÇÃO", "estamos fora", "horário de atendimento", "número migrou"
- * - Texto muito longo (auto-replies costumam ser corporativos e formais)
+ * - Menu numerado com asteriscos: *1* *-* opção / 1️⃣ opção
+ * - "digite", "selecione", "escolha uma opção"
+ * - "não entendemos sua mensagem"
  * - Frases padrão de cobertura ("agradecemos seu contato, retornaremos...")
  */
 export function looksLikeAutoReply(text: string): boolean {
   if (!text) return false;
-  const t = text.toLowerCase();
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return true;
+  // Mensagem muito curta — comum em template buttons ("✅", "👍", "1")
+  if (trimmed.length <= 2) return true;
+
   const patterns = [
+    // Sinais clássicos
     /aten[cç][aã]o.{0,20}!{2,}/i,
     /[⚠🚨❗]{2,}/u,
     /(?:estamos fora|fora do hor[aá]rio|hor[aá]rio de atendimento)/i,
@@ -74,8 +81,63 @@ export function looksLikeAutoReply(text: string): boolean {
     /respondemos? em breve|retornaremos|fora do expediente/i,
     /assim que poss[ií]vel.{0,30}(?:respond|retornar)/i,
     /(?:olá|oi).*(?:!{2,}|💙|🧡|🩺|🩵|😁)/iu,
+
+    // Menus numerados de WhatsApp Business
+    /\*\s*[1-9]\s*\*\s*[-–]\s*\*/i,                          // *1* - * ou *1* *-* *
+    /(?:[1-9][⃣]|[1-9]\s*[-–.):])\s+\S+.*\n.*[1-9]/i,    // 1️⃣ x  2️⃣ y / 1 - x  2 - y (>=2 opções)
+    /digite\s+(?:o\s+n[uúº°]?|a\s+op[cç][aã]o|um[a]?\s+(?:n[uú]mero|op[cç][aã]o))/i,
+    /(?:selecione|escolha)\s+(?:um[a]?\s+)?(?:das?\s+)?(?:op[cç]|alternativa)/i,
+    /(?:para|p[ra])\s+(?:falar|atendimento|continuar).{0,40}digit/i,
+    /n[aã]o\s+entendemos\s+(?:sua|a)\s+mensag/i,
+    /por\s+favor\s+(?:digite|escolha|selecione)/i,
+    /(?:autoatendimento|menu\s+(?:principal|de\s+op[cç][oõ]es))/i,
+    /(?:bem.?vindo|seja\s+bem.?vindo).{0,80}(?:digite|escolha|selecione|op[cç][aã]o)/i,
   ];
   return patterns.some((re) => re.test(text));
+}
+
+/**
+ * Verifica histórico recente do lead pra detectar loop em andamento.
+ * Se houve >=3 outbound do agente nos últimos 5 minutos sem inbound humano
+ * (=inbound com >10 chars que NÃO bate looksLikeAutoReply), está em loop.
+ *
+ * Usado pelo webhook ANTES de chamar o agente: se em loop, pula execução.
+ */
+export async function isInActiveLoop(
+  campaignLeadId: string,
+): Promise<{ inLoop: boolean; outboundCount: number; reason?: string }> {
+  const supabase = createServiceClient();
+  const sinceIso = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { data } = await supabase
+    .from("webinar_messages")
+    .select("direction, status, sent_text, sent_at")
+    .eq("campaign_lead_id", campaignLeadId)
+    .gte("sent_at", sinceIso)
+    .order("sent_at", { ascending: true });
+  const rows = (data ?? []) as Array<{
+    direction: string;
+    status: string;
+    sent_text: string | null;
+    sent_at: string | null;
+  }>;
+  let outboundCount = 0;
+  let humanInboundCount = 0;
+  for (const r of rows) {
+    if (r.direction === "outbound" && ["sent","delivered","read"].includes(r.status)) {
+      outboundCount += 1;
+    } else if (r.direction === "inbound") {
+      const txt = (r.sent_text ?? "").trim();
+      if (txt.length > 10 && !looksLikeAutoReply(txt)) humanInboundCount += 1;
+    }
+  }
+  if (outboundCount >= 3 && humanInboundCount === 0) {
+    return {
+      inLoop: true,
+      outboundCount,
+      reason: `${outboundCount} outbound em 5min sem inbound humano real`,
+    };
+  }
+  return { inLoop: false, outboundCount };
 }
 
 export async function executeAgentTools(args: {
@@ -136,6 +198,29 @@ export async function executeAgentTools(args: {
               tool: "send_message",
               result: "error",
               detail: `dedup: similar a msg anterior do turno (${text.slice(0, 40)}...)`,
+            });
+            continue;
+          }
+
+          // Dedup HISTÓRICO: olha últimas 5 outbound enviadas a esse lead.
+          // Se o agente já mandou algo >70% similar, descarta — evita loop entre turnos
+          // (mesmo agente, próximo inbound, agente repete frase).
+          const { data: recentOut } = await supabase
+            .from("webinar_messages")
+            .select("sent_text")
+            .eq("campaign_lead_id", args.campaignLeadId)
+            .eq("direction", "outbound")
+            .in("status", ["sent", "delivered", "read"])
+            .order("sent_at", { ascending: false })
+            .limit(5);
+          const dupHistorical = (recentOut ?? []).find(
+            (r: any) => r.sent_text && textSimilarity(r.sent_text, text) > 0.7,
+          );
+          if (dupHistorical) {
+            result.executed.push({
+              tool: "send_message",
+              result: "error",
+              detail: `dedup historico: similar a outbound recente (${text.slice(0, 40)}...)`,
             });
             continue;
           }
