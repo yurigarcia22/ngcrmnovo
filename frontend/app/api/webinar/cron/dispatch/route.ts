@@ -117,6 +117,31 @@ async function runDispatch() {
         continue;
       }
 
+      // Guard de OVERDUE: pula reminders muito atrasados (>2h).
+      // Evita rajada quando cron pega varios pending acumulados.
+      // (Reminder de evento que ja passou nao faz sentido enviar.)
+      const scheduledAt = new Date((row as any).scheduled_at);
+      const lateBy = startedAt.getTime() - scheduledAt.getTime();
+      if (
+        (category === "reminder" || category === "nutricao" || category === "post_event") &&
+        lateBy > 2 * 60 * 60_000
+      ) {
+        await supabase
+          .from("webinar_messages")
+          .update({
+            status: "cancelled",
+            error_message: `overdue: agendado pra ${scheduledAt.toISOString()}, ${Math.round(lateBy / 60_000)} min atrasado`,
+          })
+          .eq("id", row.id);
+        results.push({
+          id: row.id,
+          ok: false,
+          category,
+          skipped_reason: "overdue_skip",
+        });
+        continue;
+      }
+
       // Quiet hours: só bloqueia categorias rate-limited (initial_outreach).
       // agent_reply e cadências passam direto (são respostas em tempo real).
       if (isRateLimited(category) && !withinQuietHours) {

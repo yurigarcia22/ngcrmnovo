@@ -329,6 +329,10 @@ export function pickReminderProfile(
 /**
  * Calcula scheduled_at absoluto pra cada step do perfil.
  * Steps no passado são filtrados.
+ *
+ * IMPORTANTE: byOffset usa horário BRT explícito. Sem isso, em servidor
+ * UTC (Easypanel/Vercel) o "D-1 às 18h" virava 18:00 UTC = 15:00 BRT,
+ * gerando reminders 3h antes do esperado.
  */
 export function scheduleReminderSteps(
   steps: ReminderStep[],
@@ -338,18 +342,30 @@ export function scheduleReminderSteps(
 ): Array<{ step: ReminderStep; scheduledAt: Date }> {
   const result: Array<{ step: ReminderStep; scheduledAt: Date }> = [];
 
+  // Calcula data do evento em BRT (yyyy-MM-dd)
+  const brtFmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const eventBrtIso = brtFmt.format(eventDate); // "2026-05-20"
+  const [evY, evM, evD] = eventBrtIso.split("-").map((n) => parseInt(n, 10));
+
   for (const step of steps) {
     let scheduledAt: Date;
 
     if (step.schedule.type === "byOffset") {
-      scheduledAt = new Date(eventDate);
-      scheduledAt.setDate(scheduledAt.getDate() + step.schedule.dayOffset);
-      scheduledAt.setHours(
-        step.schedule.hour,
-        step.schedule.minute ?? 0,
-        0,
-        0,
-      );
+      // Aplica offset em dias (UTC pra não pegar problema de DST)
+      const base = new Date(Date.UTC(evY, evM - 1, evD));
+      base.setUTCDate(base.getUTCDate() + step.schedule.dayOffset);
+      const targetY = base.getUTCFullYear();
+      const targetM = String(base.getUTCMonth() + 1).padStart(2, "0");
+      const targetD = String(base.getUTCDate()).padStart(2, "0");
+      const h = String(step.schedule.hour).padStart(2, "0");
+      const min = String(step.schedule.minute ?? 0).padStart(2, "0");
+      // Constrói ISO com offset BRT (-03:00) explícito
+      scheduledAt = new Date(`${targetY}-${targetM}-${targetD}T${h}:${min}:00-03:00`);
     } else if (step.schedule.type === "byEvent") {
       scheduledAt = new Date(
         eventDate.getTime() - step.schedule.minutesBefore * 60_000,
