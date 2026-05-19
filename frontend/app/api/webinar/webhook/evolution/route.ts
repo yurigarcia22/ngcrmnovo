@@ -86,6 +86,87 @@ async function sendEmergencyFallback(
   }
 }
 
+/**
+ * Wrapper que adiciona DEBOUNCE + LOCK ao agente background.
+ *
+ * Debounce 8s: espera caso mais inbounds estejam chegando rapido.
+ * Lock atomico: so UM processo roda o agente por lead. Outros saem skipped.
+ *
+ * O processo que ganha o lock vai ler TODO o historico (incluindo os
+ * inbounds que chegaram durante o debounce) e responder com contexto
+ * completo, 1 vez so.
+ */
+async function runAgentWithLockAndDebounce(
+  campaignLeadId: string,
+  ctx: AgentContext,
+  inboundId: string | null,
+) {
+  const supabase = createServiceClient();
+
+  // 1. Debounce: espera 8s pra coalescer inbounds proximos
+  await new Promise((r) => setTimeout(r, 8000));
+
+  // 2. Tenta adquirir lock atomico
+  const { data: tokenData } = await supabase.rpc("webinar_acquire_agent_lock", {
+    p_lead_id: campaignLeadId,
+  });
+  const lockToken: string | null = tokenData ?? null;
+
+  if (!lockToken) {
+    console.log(
+      "[webhook evolution] [bg] lock_held_by_another lead=" + campaignLeadId +
+      " — outro processo ja esta processando, skip",
+    );
+    if (inboundId) {
+      await supabase
+        .from("webinar_messages")
+        .update({
+          agent_processed_at: new Date().toISOString(),
+          ai_metadata: { type: "skipped_lock_held_by_another" },
+        })
+        .eq("id", inboundId);
+    }
+    return;
+  }
+
+  // 3. Reload do contexto APOS o debounce — historico pode ter crescido
+  //    com inbounds que chegaram nos ultimos 8s.
+  try {
+    const { data: history } = await supabase
+      .from("webinar_messages")
+      .select("direction, sent_text, created_at, status")
+      .eq("campaign_lead_id", campaignLeadId)
+      .neq("status", "pending")
+      .order("created_at", { ascending: true });
+
+    const enrichedCtx: AgentContext = {
+      ...ctx,
+      conversationHistory: (history ?? []).slice(-30).map((h: any) => ({
+        direction: h.direction,
+        content: h.sent_text ?? "",
+        createdAt: h.created_at,
+      })),
+    };
+
+    console.log(
+      "[webhook evolution] [bg] lock adquirido lead=" + campaignLeadId +
+      " token=" + lockToken.slice(0, 8) +
+      " historico=" + (history?.length ?? 0),
+    );
+
+    await runAgentBackground(campaignLeadId, enrichedCtx, inboundId);
+  } finally {
+    // 4. SEMPRE libera o lock no final
+    await supabase.rpc("webinar_release_agent_lock", {
+      p_lead_id: campaignLeadId,
+      p_token: lockToken,
+    });
+    console.log(
+      "[webhook evolution] [bg] lock liberado lead=" + campaignLeadId,
+    );
+  }
+}
+
 async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inboundId: string | null) {
   const supabase = createServiceClient();
   let decisionMade = false;
@@ -497,9 +578,18 @@ export async function POST(req: NextRequest) {
 
     console.log("[webhook evolution] lead=" + lead.id + " status=" + cur + " msgs=" + (history?.length ?? 0) + " — agente em background");
 
-    // RETORNA 200 IMEDIATAMENTE — Evolution não espera mais
-    // O agente roda no event loop do Node.js (não edge runtime, não serverless)
-    void runAgentBackground(lead.id, ctx, inboundId);
+    // ── LOCK + DEBOUNCE ────────────────────────────────────────────────────
+    // Problema: lead manda 3 inbounds em sequência rápida ("ok" + "telefone"
+    // + "email"). Cada um dispara o webhook em paralelo. 3 agentes rodam ao
+    // mesmo tempo, todos leem o mesmo histórico, todos decidem mandar a
+    // mesma frase → 3-4 mensagens duplicadas em segundos.
+    //
+    // Solução:
+    // 1. Debounce 8s: espera caso mais inbounds estejam chegando
+    // 2. Lock atômico: só UM agente roda por lead. Outros saem skipped.
+    // 3. O agente que tem o lock vai ver TODAS as inbounds no histórico
+    //    e responde 1x só com contexto completo.
+    void runAgentWithLockAndDebounce(lead.id, ctx, inboundId);
 
     return NextResponse.json({ ok: true, agent: "background", leadId: lead.id });
   } catch (e: any) {

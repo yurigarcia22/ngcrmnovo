@@ -202,17 +202,17 @@ export async function executeAgentTools(args: {
             continue;
           }
 
-          // Dedup HISTÓRICO: olha últimas 5 outbound enviadas a esse lead.
+          // Dedup HISTÓRICO: olha últimas 8 outbound enviadas a esse lead.
           // Se o agente já mandou algo >70% similar, descarta — evita loop entre turnos
           // (mesmo agente, próximo inbound, agente repete frase).
           const { data: recentOut } = await supabase
             .from("webinar_messages")
-            .select("sent_text")
+            .select("sent_text, sent_at")
             .eq("campaign_lead_id", args.campaignLeadId)
             .eq("direction", "outbound")
             .in("status", ["sent", "delivered", "read"])
             .order("sent_at", { ascending: false })
-            .limit(5);
+            .limit(8);
           const dupHistorical = (recentOut ?? []).find(
             (r: any) => r.sent_text && textSimilarity(r.sent_text, text) > 0.7,
           );
@@ -221,6 +221,27 @@ export async function executeAgentTools(args: {
               tool: "send_message",
               result: "error",
               detail: `dedup historico: similar a outbound recente (${text.slice(0, 40)}...)`,
+            });
+            continue;
+          }
+
+          // RATE-LIMIT TEMPORAL: protege contra concorrencia.
+          // Se houve QUALQUER outbound do agente nos ultimos 6s, descarta.
+          // Evita que 2 agentes paralelos (escapados do lock) enviem ao
+          // mesmo tempo. 6s e tempo curto suficiente pra nao atrapalhar
+          // sequencias humanas legitimas (que tem delay via humanInterMessageDelay).
+          const sixSecAgo = new Date(Date.now() - 6_000).toISOString();
+          const recentBurst = (recentOut ?? []).find(
+            (r: any) => r.sent_at && r.sent_at >= sixSecAgo,
+          );
+          if (recentBurst && sentTextsThisTurn.length === 0) {
+            // Bloqueia APENAS a 1ª msg do turno se houve outbound <6s atras
+            // (deixa o turno seguir se ja mandou 1 msg, pra nao quebrar
+            // sequencias como saudacao + pitch dentro do mesmo turno)
+            result.executed.push({
+              tool: "send_message",
+              result: "error",
+              detail: `rate_limit: outbound <6s atras, possivel concorrencia (skip)`,
             });
             continue;
           }
