@@ -18,7 +18,9 @@ import {
   ListPlus,
   CheckSquare,
   Square,
+  MessageCircle,
 } from "lucide-react";
+import { LeadConversationDrawer } from "@/components/webinar/LeadConversationDrawer";
 import { toast } from "sonner";
 import {
   addLeadManually,
@@ -57,6 +59,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
     leadId?: string;
     count?: number;
   } | null>(null);
+  const [conversationLeadId, setConversationLeadId] = useState<string | null>(null);
 
   const filteredLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -432,6 +435,13 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                       </td>
                       <td className="py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setConversationLeadId(lead.id)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            title="Ver conversa completa"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -501,6 +511,11 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
           onConfirm={executeDelete}
         />
       )}
+
+      <LeadConversationDrawer
+        leadId={conversationLeadId}
+        onClose={() => setConversationLeadId(null)}
+      />
     </div>
   );
 }

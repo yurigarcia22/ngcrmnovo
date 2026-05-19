@@ -1369,6 +1369,94 @@ export async function toggleLeadAiPause(
   }
 }
 
+// ─── Conversa do lead (visualização) ─────────────────────────────────────────
+
+export type LeadConversationMessage = {
+  id: string;
+  direction: "inbound" | "outbound";
+  text: string;
+  status: string;
+  category: string | null;
+  instance_used: string | null;
+  sent_at: string | null;
+  created_at: string;
+  ai_metadata: any;
+};
+
+export type LeadConversation = {
+  lead: {
+    id: string;
+    company_name: string | null;
+    phone: string;
+    funnel_status: string;
+    last_instance_used: string | null;
+    ai_paused: boolean;
+    auto_paused_at: string | null;
+    auto_pause_reason: string | null;
+    responsible_name: string | null;
+    responsible_email: string | null;
+    responsible_direct_phone: string | null;
+  };
+  messages: LeadConversationMessage[];
+};
+
+export async function getLeadConversation(leadId: string): Promise<{
+  success: boolean;
+  data?: LeadConversation;
+  error?: string;
+}> {
+  try {
+    const userClient = await createClient();
+    const {
+      data: { user },
+    } = await userClient.auth.getUser();
+    if (!user) return { success: false, error: "não autenticado" };
+
+    const supabase = createServiceClient();
+
+    const { data: lead, error: leadErr } = await supabase
+      .from("webinar_campaign_leads")
+      .select(
+        `id, company_name, phone, funnel_status, last_instance_used,
+         ai_paused, auto_paused_at, auto_pause_reason,
+         responsible_name, responsible_email, responsible_direct_phone`,
+      )
+      .eq("id", leadId)
+      .single();
+    if (leadErr || !lead) {
+      return { success: false, error: "lead não encontrado" };
+    }
+
+    const { data: msgs, error: msgsErr } = await supabase
+      .from("webinar_messages")
+      .select(
+        `id, direction, sent_text, status, category, instance_used,
+         sent_at, created_at, ai_metadata`,
+      )
+      .eq("campaign_lead_id", leadId)
+      .neq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(500);
+    if (msgsErr) throw msgsErr;
+
+    const messages: LeadConversationMessage[] = (msgs ?? []).map((m: any) => ({
+      id: m.id,
+      direction: m.direction,
+      text: m.sent_text ?? "",
+      status: m.status,
+      category: m.category,
+      instance_used: m.instance_used,
+      sent_at: m.sent_at,
+      created_at: m.created_at,
+      ai_metadata: m.ai_metadata ?? null,
+    }));
+
+    return { success: true, data: { lead: lead as any, messages } };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
 // ─── Stats por instância ─────────────────────────────────────────────────────
 
 export type InstanceStats = {

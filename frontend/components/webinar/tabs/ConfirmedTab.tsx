@@ -20,7 +20,9 @@ import {
   ExternalLink,
   Trash2,
   AlertCircle,
+  MessageCircle,
 } from "lucide-react";
+import { LeadConversationDrawer } from "@/components/webinar/LeadConversationDrawer";
 import { toast } from "sonner";
 import {
   listConfirmedLeads,
@@ -108,6 +110,7 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
     name: string;
   } | null>(null);
   const [deleting, startDelete] = useTransition();
+  const [conversationLeadId, setConversationLeadId] = useState<string | null>(null);
 
   function openMenu(leadId: string, anchor: HTMLElement) {
     const rect = anchor.getBoundingClientRect();
@@ -392,15 +395,25 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                         )}
                       </td>
                       <td className="px-2 py-3 text-right">
-                        <button
-                          type="button"
-                          disabled={deleting}
-                          onClick={() => handleAskDelete(lead)}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
-                          title="Excluir lead"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setConversationLeadId(lead.id)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            title="Ver conversa completa"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deleting}
+                            onClick={() => handleAskDelete(lead)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                            title="Excluir lead"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -474,6 +487,11 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
           </div>,
           document.body,
         )}
+
+      <LeadConversationDrawer
+        leadId={conversationLeadId}
+        onClose={() => setConversationLeadId(null)}
+      />
     </div>
   );
 }
