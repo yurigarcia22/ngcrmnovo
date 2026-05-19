@@ -131,6 +131,10 @@ export interface WebinarCampaignLead {
   // Lead affinity (failover de número)
   last_instance_used: string | null;
 
+  // Tracking de primeiro contato
+  first_outbound_at: string | null;
+  first_outbound_instance: string | null;
+
   // Controle de IA
   ai_paused: boolean;
 

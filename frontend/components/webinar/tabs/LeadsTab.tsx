@@ -53,6 +53,10 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeStarting, setScrapeStarting] = useState(false);
   const [search, setSearch] = useState("");
+  const [filterInstance, setFilterInstance] = useState<string>("");
+  const [filterDay, setFilterDay] = useState<string>("");
+  const [filterHourFrom, setFilterHourFrom] = useState<string>("");
+  const [filterHourTo, setFilterHourTo] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<{
     type: "single" | "bulk";
@@ -61,18 +65,68 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
   } | null>(null);
   const [conversationLeadId, setConversationLeadId] = useState<string | null>(null);
 
+  const availableInstances = useMemo(() => {
+    const s = new Set<string>();
+    for (const l of leads) {
+      if (l.first_outbound_instance) s.add(l.first_outbound_instance);
+    }
+    return Array.from(s).sort();
+  }, [leads]);
+
   const filteredLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return leads;
+    const hFrom = filterHourFrom ? parseInt(filterHourFrom, 10) : null;
+    const hTo = filterHourTo ? parseInt(filterHourTo, 10) : null;
     return leads.filter((lead) => {
-      const name = (lead.company_name ?? "").toLowerCase();
-      const phone = lead.phone ?? "";
-      const address = ((lead as any).address ?? "").toLowerCase();
-      return (
-        name.includes(q) || phone.includes(q.replace(/\D/g, "")) || address.includes(q)
-      );
+      // Busca textual
+      if (q) {
+        const name = (lead.company_name ?? "").toLowerCase();
+        const phone = lead.phone ?? "";
+        const address = ((lead as any).address ?? "").toLowerCase();
+        if (
+          !name.includes(q) &&
+          !phone.includes(q.replace(/\D/g, "")) &&
+          !address.includes(q)
+        )
+          return false;
+      }
+      // Filtro instância
+      if (filterInstance && lead.first_outbound_instance !== filterInstance) {
+        return false;
+      }
+      // Filtro dia (yyyy-MM-dd em horário SP)
+      if (filterDay) {
+        if (!lead.first_outbound_at) return false;
+        const d = new Date(lead.first_outbound_at);
+        // Pega dia em BRT
+        const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+        const dayStr = `${brt.getUTCFullYear()}-${String(brt.getUTCMonth() + 1).padStart(2, "0")}-${String(brt.getUTCDate()).padStart(2, "0")}`;
+        if (dayStr !== filterDay) return false;
+      }
+      // Filtro faixa de hora (BRT)
+      if (hFrom !== null || hTo !== null) {
+        if (!lead.first_outbound_at) return false;
+        const d = new Date(lead.first_outbound_at);
+        const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+        const h = brt.getUTCHours();
+        if (hFrom !== null && h < hFrom) return false;
+        if (hTo !== null && h > hTo) return false;
+      }
+      return true;
     });
-  }, [leads, search]);
+  }, [leads, search, filterInstance, filterDay, filterHourFrom, filterHourTo]);
+
+  const hasFilter = !!(
+    search || filterInstance || filterDay || filterHourFrom || filterHourTo
+  );
+
+  function clearAllFilters() {
+    setSearch("");
+    setFilterInstance("");
+    setFilterDay("");
+    setFilterHourFrom("");
+    setFilterHourTo("");
+  }
 
   const allFilteredSelected =
     filteredLeads.length > 0 &&
@@ -313,11 +367,11 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
       </Card>
 
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
           <div>
             <h2 className="text-sm font-bold text-slate-800">Leads da campanha</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {leads.length} cadastrados{search && ` · ${filteredLeads.length} filtrados`}
+              {leads.length} cadastrados{hasFilter && ` · ${filteredLeads.length} filtrados`}
               {selectedIds.size > 0 && ` · ${selectedIds.size} selecionados`}
             </p>
           </div>
@@ -344,6 +398,81 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
               </Button>
             )}
           </div>
+        </div>
+
+        {/* Linha de filtros: instância, dia, faixa de hora */}
+        <div className="flex items-end gap-2 mb-4 flex-wrap pb-3 border-b border-slate-100">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Instância (1º disparo)
+            </label>
+            <select
+              value={filterInstance}
+              onChange={(e) => setFilterInstance(e.target.value)}
+              className="h-8 px-2 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 min-w-[180px]"
+            >
+              <option value="">Todas</option>
+              {availableInstances.map((inst) => (
+                <option key={inst} value={inst}>
+                  {inst}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Dia do disparo
+            </label>
+            <input
+              type="date"
+              value={filterDay}
+              onChange={(e) => setFilterDay(e.target.value)}
+              className="h-8 px-2 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Hora (BRT)
+            </label>
+            <div className="flex items-center gap-1">
+              <select
+                value={filterHourFrom}
+                onChange={(e) => setFilterHourFrom(e.target.value)}
+                className="h-8 px-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                title="Hora inicial"
+              >
+                <option value="">--</option>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {String(i).padStart(2, "0")}h
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-slate-400">até</span>
+              <select
+                value={filterHourTo}
+                onChange={(e) => setFilterHourTo(e.target.value)}
+                className="h-8 px-1 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                title="Hora final"
+              >
+                <option value="">--</option>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {String(i).padStart(2, "0")}h
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {hasFilter && (
+            <button
+              onClick={clearAllFilters}
+              className="h-8 px-3 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md flex items-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              Limpar filtros
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -375,6 +504,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                   <th className="pb-2 font-semibold text-slate-600">Empresa</th>
                   <th className="pb-2 font-semibold text-slate-600">Telefone</th>
                   <th className="pb-2 font-semibold text-slate-600">Status</th>
+                  <th className="pb-2 font-semibold text-slate-600">1º disparo</th>
                   <th className="pb-2 font-semibold text-slate-600">IA</th>
                   <th className="pb-2 font-semibold text-slate-600 text-right">Ações</th>
                 </tr>
@@ -414,6 +544,33 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                         <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-indigo-50 text-indigo-700">
                           {WEBINAR_FUNNEL_LABELS[lead.funnel_status]}
                         </span>
+                      </td>
+                      <td className="py-3 text-xs">
+                        {lead.first_outbound_at ? (
+                          <div className="space-y-0.5">
+                            <div className="font-mono text-[11px] text-slate-700 tabular-nums">
+                              {new Date(lead.first_outbound_at).toLocaleString(
+                                "pt-BR",
+                                {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  timeZone: "America/Sao_Paulo",
+                                },
+                              )}
+                            </div>
+                            {lead.first_outbound_instance && (
+                              <div className="font-mono text-[10px] text-slate-500 truncate max-w-[160px]">
+                                {lead.first_outbound_instance}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-300 italic">
+                            não disparado
+                          </span>
+                        )}
                       </td>
                       <td className="py-3">
                         <button
