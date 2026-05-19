@@ -92,6 +92,14 @@ export function looksLikeAutoReply(text: string): boolean {
     /por\s+favor\s+(?:digite|escolha|selecione)/i,
     /(?:autoatendimento|menu\s+(?:principal|de\s+op[cç][oõ]es))/i,
     /(?:bem.?vindo|seja\s+bem.?vindo).{0,80}(?:digite|escolha|selecione|op[cç][aã]o)/i,
+
+    // Redirecionamento de número ("este número é exclusivo, entre em contato no outro")
+    /(?:este\s+n[uú]mero|este\s+contato)\s+(?:é|e|esta|está)\s+(?:exclusivo|apenas)/i,
+    /(?:para|p[ra])\s+(?:assuntos?|atendimentos?|servi[cç]os?)\s+(?:de|sobre|relacionad)/i,
+    /(?:entrar?\s+em\s+contato|favor\s+contat[ae]r|contat[ae]r)\s+(?:no\s+(?:n[uú]mero|whatsapp|tel)|pelo\s+(?:n[uú]mero|whatsapp|tel))/i,
+    /(?:n[uú]mero\s+(?:correto|certo|adequado))/i,
+    /(?:esta\s+(?:linha|n[uú]mero))\s+(?:n[aã]o|nao)\s+(?:atende|recebe|responde)/i,
+    /(?:agradecemos|obrigad[oa])\s+(?:o|pelo|pela)?\s*contato/i,
   ];
   return patterns.some((re) => re.test(text));
 }

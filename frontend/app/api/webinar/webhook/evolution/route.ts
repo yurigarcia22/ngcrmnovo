@@ -42,7 +42,35 @@ function phoneVariations(phone: string): string[] {
 const ERROR_FALLBACK_MESSAGE =
   "Tô com uma instabilidade aqui, me dá um minuto que eu volto.";
 
+/**
+ * Emergency fallback: SILENCIOSO por padrão.
+ *
+ * Antes: enviava "Tô com uma instabilidade..." pro lead, que poluía o
+ * histórico e confundia o LLM nas próximas chamadas (ele via a frase
+ * fora de contexto e dava follow-ups esquisitos).
+ *
+ * Agora: só LOGA o erro. O proximo inbound do lead vai disparar nova
+ * tentativa do agente — sem mensagem visivel pro lead.
+ *
+ * Mantemos a funcao pra compatibilidade e possivel override futuro.
+ */
 async function sendEmergencyFallback(
+  campaignLeadId: string,
+  text: string,
+): Promise<void> {
+  // Silencioso: apenas loga, nao envia nada pro lead.
+  console.warn(
+    "[webhook evolution] emergency_fallback SUPRIMIDO lead=" + campaignLeadId +
+    " (texto era: '" + text.slice(0, 60) + "...')",
+  );
+  return;
+  // Codigo antigo abaixo intencionalmente NAO removido — caso queira
+  // reativar pra debug.
+  // eslint-disable-next-line no-unreachable
+  await _sendFallbackImpl(campaignLeadId, text);
+}
+
+async function _sendFallbackImpl(
   campaignLeadId: string,
   text: string,
 ): Promise<void> {

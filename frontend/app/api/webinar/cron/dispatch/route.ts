@@ -73,6 +73,7 @@ async function runDispatch() {
           funnel_status,
           campaign_id,
           last_instance_used,
+          ai_paused,
           webinar_campaigns!inner (
             id,
             instance_name,
@@ -84,6 +85,7 @@ async function runDispatch() {
       )
       .eq("status", "pending")
       .eq("direction", "outbound")
+      .eq("webinar_campaign_leads.ai_paused", false)
       .lte("scheduled_at", startedAt.toISOString())
       .order("scheduled_at", { ascending: true })
       .limit(BATCH_SIZE);

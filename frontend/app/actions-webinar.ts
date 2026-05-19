@@ -1355,7 +1355,7 @@ export async function deleteCadenceStep(stepId: string, campaignId: string): Pro
 export async function toggleLeadAiPause(
   leadId: string,
   paused: boolean,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; cancelledPending?: number }> {
   try {
     const supabase = await createClient();
     const { error } = await supabase
@@ -1363,7 +1363,24 @@ export async function toggleLeadAiPause(
       .update({ ai_paused: paused })
       .eq("id", leadId);
     if (error) throw error;
-    return { success: true };
+
+    // Quando PAUSA, cancela mensagens pending do lead pra cadência nao vazar.
+    // Quando RETOMA, deixa o user reagendar via cron normal — não restaura.
+    let cancelledPending = 0;
+    if (paused) {
+      const { data: cancelled } = await supabase
+        .from("webinar_messages")
+        .update({
+          status: "cancelled",
+          error_message: "lead pausado manualmente (ai_paused=true)",
+        })
+        .eq("campaign_lead_id", leadId)
+        .eq("status", "pending")
+        .eq("direction", "outbound")
+        .select("id");
+      cancelledPending = cancelled?.length ?? 0;
+    }
+    return { success: true, cancelledPending };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };
   }
