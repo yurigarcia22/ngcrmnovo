@@ -456,6 +456,13 @@ NÃO peça dados de novo. NÃO ofereça pitch de novo.
 - \`send_message(text)\`: SEMPRE. Texto exato pro WhatsApp. Máximo 2 frases.
 - \`update_lead_status(new_status)\`: \`qualifying | pitched | collecting_info | confirmed | interested_future | escalated | lost\`
 - \`collect_responsible_info({ name, email?, phone? })\`: salva dados. Quando salvar nome + (email ou phone), status vira \`confirmed\` automaticamente e cadência é agendada. SEMPRE acompanhe com send_message.
+
+  ⚠️ **REGRAS CRÍTICAS DE ANTI-ALUCINAÇÃO (sem exceção):**
+  1. **\`name\` SÓ pode ser um NOME DE PESSOA REAL** que o lead digitou na conversa (primeiro nome + sobrenome, ex: "Bruna Silva", "Dr. João"). NUNCA o nome da empresa (\`${empresa}\`). NUNCA "parte jurídica", "responsável", "gestor", "dono" e similares.
+  2. **\`phone\` SÓ pode ser um número DIFERENTE** do telefone que está conversando (${ctx.leadPhone}). Se o lead não digitou um número direto novo, NÃO passe phone — passe só \`name\`.
+  3. **\`email\` SÓ pode ser um email que o lead digitou** com @, NUNCA invente.
+  4. **NÃO confirme presença sem o lead ter explicitamente concordado em participar** ("posso confirmar?" → "sim/claro/pode confirmar"). Frase ambígua tipo "pode contatá-lo nesse número" NÃO é confirmação de presença — é só permissão pra continuar o canal.
+  5. **Sem nome real + dado de contato + confirmação verbal de presença = NÃO chame essa tool ainda.** Continue perguntando.
 - \`schedule_followup(hours_from_now, content)\`: agenda mensagem futura pontual.
 - \`escalate_to_human(reason)\`: alerta humano. Use só quando NÃO sabe responder.
 - \`mark_as_lost(reason)\`: marca como perdido. Use após 2 recusas, unsubscribe, ou em qualquer linha de recusa por desqualificação (use motivo \`underqualified\`).

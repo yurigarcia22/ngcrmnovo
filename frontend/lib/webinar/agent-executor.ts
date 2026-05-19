@@ -384,12 +384,148 @@ export async function executeAgentTools(args: {
             continue;
           }
 
+          // ── VALIDACAO ANTI-ALUCINACAO ──────────────────────────────────
+          // Bug recorrente: LLM chama collect_responsible_info usando
+          // company_name como name e lead.phone como phone, marcando o
+          // lead como confirmed sem ele ter de fato confirmado nada.
+
+          const norm = (s: string) =>
+            s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+          const normName = norm(name);
+          const normCompany = norm(lead.company_name ?? "");
+
+          // 1) Nome nao pode ser igual nem substring forte do company_name
+          if (
+            normCompany &&
+            (normName === normCompany ||
+              normCompany.includes(normName) ||
+              normName.includes(normCompany))
+          ) {
+            result.executed.push({
+              tool: "collect_responsible_info",
+              result: "error",
+              detail: `nome rejeitado: '${name}' eh similar a company_name '${lead.company_name}' — provavel alucinacao do LLM`,
+            });
+            continue;
+          }
+
+          // 2) Comprimento minimo e maximo razoavel
+          if (normName.length < 3 || normName.length > 80) {
+            result.executed.push({
+              tool: "collect_responsible_info",
+              result: "error",
+              detail: `nome rejeitado: comprimento ${normName.length} fora do range (3-80)`,
+            });
+            continue;
+          }
+
+          // 3) Lista negra de "nao-nomes": palavras que claramente nao sao
+          //    nomes de pessoa, sao setores/cargos/descricoes
+          const BLACKLIST_NAMES = new Set([
+            "parte",
+            "parte juridica",
+            "juridica",
+            "juridico",
+            "responsavel",
+            "responsable",
+            "gestor",
+            "gestora",
+            "dono",
+            "dona",
+            "atendente",
+            "secretaria",
+            "secretario",
+            "comercial",
+            "veterinario",
+            "veterinaria",
+            "clinica",
+            "equipe",
+            "financeiro",
+            "administracao",
+            "suporte",
+            "contato",
+            "recepcao",
+            "rh",
+            "marketing",
+            "vendas",
+            "tecnica",
+            "tecnico",
+            "diretor",
+            "diretora",
+            "coordenador",
+            "coordenadora",
+            "supervisor",
+            "supervisora",
+            "gerente",
+            "encarregado",
+            "encarregada",
+          ]);
+          if (BLACKLIST_NAMES.has(normName)) {
+            result.executed.push({
+              tool: "collect_responsible_info",
+              result: "error",
+              detail: `nome rejeitado: '${name}' e cargo/setor, nao nome de pessoa`,
+            });
+            continue;
+          }
+
+          // 4) Phone nao pode ser igual ao phone do lead atual
+          //    (LLM as vezes copia leadPhone como se fosse direct_phone)
+          if (phone) {
+            const onlyDigitsA = phone.replace(/\D/g, "");
+            const onlyDigitsB = (lead.phone ?? "").replace(/\D/g, "");
+            if (onlyDigitsA && onlyDigitsA === onlyDigitsB) {
+              result.executed.push({
+                tool: "collect_responsible_info",
+                result: "error",
+                detail: `phone rejeitado: igual ao phone do lead (LLM provavelmente alucinou)`,
+              });
+              continue;
+            }
+          }
+
+          // 3) Pra marcar confirmed precisa que a conversa ja tenha pitch
+          //    mencionando o evento (data + hora). Sem isso, recusa.
+          const histText = (ctx as any).__rawHistoryText ?? "";
+          // ────────────────────────────────────────────────────────────────
+
           const updates: any = { responsible_name: name };
           if (email) updates.responsible_email = email;
           if (phone) updates.responsible_direct_phone = phone;
 
           // Se tem nome + (email OU phone), confirma e agenda cadência
           const isComplete = !!name && (!!email || !!phone);
+
+          // 4) Confirmacao so se houve pitch real
+          //    Pesquisa no historico recente menos restritivo: precisa ter
+          //    alguma menção a evento/data/aula/webinar em outbound do bot.
+          let pitchOk = true;
+          if (isComplete) {
+            const { data: recentOut } = await supabase
+              .from("webinar_messages")
+              .select("sent_text")
+              .eq("campaign_lead_id", args.campaignLeadId)
+              .eq("direction", "outbound")
+              .in("status", ["sent", "delivered", "read"])
+              .order("sent_at", { ascending: false })
+              .limit(10);
+            const allText = (recentOut ?? [])
+              .map((r: any) => r.sent_text ?? "")
+              .join(" ");
+            // Sinal de pitch: bot precisa ter mandado algo sobre o evento.
+            // Aceita 'evento', 'aula', 'webinar', 'dia X', 'às H', menção a data/hora.
+            pitchOk =
+              /evento|aula|webinar|present[a-z]+|dia\s+\d|às?\s+\d/i.test(allText);
+            if (!pitchOk) {
+              result.executed.push({
+                tool: "collect_responsible_info",
+                result: "error",
+                detail: `recusa: conversa nao tem pitch do evento ainda — nao marca confirmed`,
+              });
+              continue;
+            }
+          }
+
           if (isComplete) {
             updates.funnel_status = "confirmed";
             collectResponsibleDone = { name };
