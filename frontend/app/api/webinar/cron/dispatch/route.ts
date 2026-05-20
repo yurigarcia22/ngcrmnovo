@@ -78,7 +78,8 @@ async function runDispatch() {
             id,
             instance_name,
             instance_names,
-            status
+            status,
+            daily_cap_per_instance
           )
         )
         `,
@@ -184,8 +185,9 @@ async function runDispatch() {
       let isFailover = false;
 
       if (isRateLimited(category)) {
+        const capOverride = (campaign as any).daily_cap_per_instance ?? null;
         for (const candidate of candidateList.candidates) {
-          const claim = await claimInstance(supabase, candidate);
+          const claim = await claimInstance(supabase, candidate, capOverride);
           if (claim.granted) {
             chosen = candidate;
             isFailover =

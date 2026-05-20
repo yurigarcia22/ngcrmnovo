@@ -50,6 +50,10 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
     cal_link: campaign.cal_link ?? "",
     target_nicho: campaign.target_nicho ?? "",
     target_cities: (campaign.target_cities ?? []).join(", "),
+    daily_cap_per_instance:
+      campaign.daily_cap_per_instance != null
+        ? String(campaign.daily_cap_per_instance)
+        : "",
   });
 
   const initialSelected = new Set([
@@ -131,6 +135,9 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
       target_nicho: form.target_nicho.trim() || null,
       target_cities: form.target_cities
         ? form.target_cities.split(",").map((c) => c.trim()).filter(Boolean)
+        : null,
+      daily_cap_per_instance: form.daily_cap_per_instance
+        ? Math.max(1, Math.min(1000, parseInt(form.daily_cap_per_instance, 10) || 0))
         : null,
     });
     setSaving(false);
@@ -271,6 +278,29 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
         </Section>
 
         <Section title="Disparo (multi-instance, rotação anti-ban)">
+          <Field
+            label="Cap diário por chip"
+            hint="Quantos disparos cada chip pode fazer por dia. Vazio = usa o padrão global (40). Range: 1-1000. Acima de 80/chip aumenta risco de ban — use com cautela."
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={1000}
+                value={form.daily_cap_per_instance}
+                onChange={update("daily_cap_per_instance")}
+                placeholder="40 (padrão)"
+                className="w-32"
+              />
+              <span className="text-xs text-slate-500">disparos/chip/dia</span>
+              {form.daily_cap_per_instance && parseInt(form.daily_cap_per_instance, 10) > 80 && (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                  ⚠ alto risco
+                </span>
+              )}
+            </div>
+          </Field>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-500">

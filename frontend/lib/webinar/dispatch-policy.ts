@@ -149,10 +149,13 @@ export type ClaimResult = {
 export async function claimInstance(
   supabase: SupabaseClient,
   instanceName: string,
+  capOverride?: number | null,
 ): Promise<ClaimResult> {
-  const { data, error } = await supabase.rpc("claim_webinar_instance", {
-    p_instance_name: instanceName,
-  });
+  const rpcArgs: Record<string, any> = { p_instance_name: instanceName };
+  if (capOverride != null && capOverride > 0) {
+    rpcArgs.p_cap_override = capOverride;
+  }
+  const { data, error } = await supabase.rpc("claim_webinar_instance", rpcArgs);
   if (error) {
     return {
       granted: false,

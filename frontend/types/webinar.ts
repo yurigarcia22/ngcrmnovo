@@ -64,6 +64,8 @@ export interface WebinarCampaign {
   target_nicho: string | null;
   target_cities: string[] | null;
 
+  daily_cap_per_instance: number | null;
+
   status: WebinarStatus;
 
   total_leads: number;
@@ -94,6 +96,7 @@ export interface WebinarCampaignInput {
   instance_names?: string[] | null;
   target_nicho?: string | null;
   target_cities?: string[] | null;
+  daily_cap_per_instance?: number | null;
 }
 
 export interface WebinarCampaignLead {
