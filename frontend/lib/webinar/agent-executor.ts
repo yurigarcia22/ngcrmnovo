@@ -542,11 +542,9 @@ export async function executeAgentTools(args: {
             detail: `name=${name}${email ? ", email=" + email : ""}${phone ? ", phone=" + phone : ""}${isComplete ? " (confirmed)" : ""}`,
           });
 
-          if (isComplete) {
-            // Agenda cadência de lembretes
+          if (isComplete && campaign.cadence_enabled === true) {
+            // Agenda cadência de lembretes (SOMENTE se campanha habilitar)
             try {
-              // Recarrega lead do banco pra pegar responsible_name atualizado
-              // (evita renderizar templates com nome antigo/null)
               const { data: freshLead } = await supabase
                 .from("webinar_campaign_leads")
                 .select("*")
@@ -565,6 +563,13 @@ export async function executeAgentTools(args: {
                 detail: e?.message,
               });
             }
+          } else if (isComplete) {
+            // Cadência desativada — só registra que NÃO agendou
+            result.executed.push({
+              tool: "_schedule_reminders",
+              result: "ok",
+              detail: "skipped: cadence_enabled=false (controle manual)",
+            });
           }
 
           break;

@@ -65,6 +65,7 @@ export interface WebinarCampaign {
   target_cities: string[] | null;
 
   daily_cap_per_instance: number | null;
+  cadence_enabled: boolean;
 
   status: WebinarStatus;
 
@@ -97,6 +98,7 @@ export interface WebinarCampaignInput {
   target_nicho?: string | null;
   target_cities?: string[] | null;
   daily_cap_per_instance?: number | null;
+  cadence_enabled?: boolean;
 }
 
 export interface WebinarCampaignLead {

@@ -54,6 +54,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
       campaign.daily_cap_per_instance != null
         ? String(campaign.daily_cap_per_instance)
         : "",
+    cadence_enabled: !!campaign.cadence_enabled,
   });
 
   const initialSelected = new Set([
@@ -139,6 +140,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
       daily_cap_per_instance: form.daily_cap_per_instance
         ? Math.max(1, Math.min(1000, parseInt(form.daily_cap_per_instance, 10) || 0))
         : null,
+      cadence_enabled: form.cadence_enabled,
     });
     setSaving(false);
 
@@ -278,6 +280,33 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
         </Section>
 
         <Section title="Disparo (multi-instance, rotação anti-ban)">
+          <Field
+            label="Cadência automática de lembretes"
+            hint="Quando ATIVADA, ao confirmar um lead o sistema agenda D-1 (véspera), T-1h, T-10min e nutrição. Quando DESATIVADA (recomendado), o time gerencia os lembretes manualmente. Agente IA continua confirmando e respondendo perguntas normalmente."
+          >
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.cadence_enabled}
+                onChange={(e) =>
+                  setForm((s) => ({ ...s, cadence_enabled: e.target.checked }))
+                }
+                className="w-4 h-4 rounded border-slate-300"
+              />
+              <span className="text-sm">
+                {form.cadence_enabled ? (
+                  <span className="font-semibold text-emerald-700">
+                    Cadência ativa — sistema agenda lembretes automaticamente
+                  </span>
+                ) : (
+                  <span className="font-semibold text-slate-700">
+                    Cadência desativada — controle manual (recomendado)
+                  </span>
+                )}
+              </span>
+            </label>
+          </Field>
+
           <Field
             label="Cap diário por chip"
             hint="Quantos disparos cada chip pode fazer por dia. Vazio = usa o padrão global (40). Range: 1-1000. Acima de 80/chip aumenta risco de ban — use com cautela."
