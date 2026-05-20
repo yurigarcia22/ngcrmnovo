@@ -249,17 +249,28 @@ async function runDispatch() {
         }
       }
 
-      const evoRes = await sendTextHuman(
-        chosen,
-        lead.phone,
-        row.sent_text ?? "",
-      );
+      // Wrapper try/catch garante release mesmo em exception nao tratada
+      let evoRes: { ok: boolean; messageId?: string; error?: string };
+      try {
+        evoRes = await sendTextHuman(chosen, lead.phone, row.sent_text ?? "");
+      } catch (sendErr: any) {
+        evoRes = { ok: false, error: `exception: ${sendErr?.message ?? sendErr}` };
+      }
 
       if (!evoRes.ok) {
         // Devolve o slot da instância pra retry rápido (decrementa contador
-        // e libera cooldown em 30s)
+        // e libera cooldown em 30s). Falha NUNCA conta no cap diario.
         if (isRateLimited(category)) {
-          await releaseInstanceOnFailure(supabase, chosen);
+          try {
+            await releaseInstanceOnFailure(supabase, chosen);
+            console.log(
+              `[cron dispatch] release_on_failure OK instance=${chosen} (envio falhou — slot devolvido)`,
+            );
+          } catch (relErr: any) {
+            console.error(
+              `[cron dispatch] release_on_failure ERROR instance=${chosen}: ${relErr?.message}`,
+            );
+          }
         }
         await supabase
           .from("webinar_messages")

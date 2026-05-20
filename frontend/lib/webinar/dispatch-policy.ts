@@ -79,6 +79,41 @@ function loadWindows(): DispatchWindow[] {
 const DISPATCH_WINDOWS: DispatchWindow[] = loadWindows();
 
 /**
+ * Total de minutos uteis de disparo no dia (soma das janelas).
+ * Ex: 9:00-11:30 (150min) + 14:00-17:30 (210min) = 360min.
+ */
+export function totalDispatchWindowMinutes(): number {
+  let total = 0;
+  for (const w of DISPATCH_WINDOWS) {
+    if (w.startMinutes <= w.endMinutes) {
+      total += w.endMinutes - w.startMinutes;
+    } else {
+      total += 24 * 60 - w.startMinutes + w.endMinutes;
+    }
+  }
+  return total;
+}
+
+/**
+ * Calcula jitter dinâmico baseado no cap diário e janela útil.
+ *
+ * Ex: cap=80, janela=360min → médio 4,5min entre disparos.
+ * Range ±40% mantém anti-padrão (intervalos variáveis).
+ *
+ * Floor de seguranca: 60s minimo absoluto.
+ */
+export function computeDynamicJitter(
+  cap: number,
+  windowMinutes: number = totalDispatchWindowMinutes(),
+): { minSeconds: number; maxSeconds: number; avgSeconds: number } {
+  if (cap <= 0) return { minSeconds: 480, maxSeconds: 1080, avgSeconds: 780 };
+  const avgSeconds = Math.round((windowMinutes * 60) / cap);
+  const minSeconds = Math.max(60, Math.round(avgSeconds * 0.6));
+  const maxSeconds = Math.max(minSeconds + 30, Math.round(avgSeconds * 1.4));
+  return { minSeconds, maxSeconds, avgSeconds };
+}
+
+/**
  * Retorna true se o horário atual está DENTRO de ALGUMA janela permitida.
  * Considera fuso horário de São Paulo (campanhas brasileiras).
  *
@@ -154,6 +189,11 @@ export async function claimInstance(
   const rpcArgs: Record<string, any> = { p_instance_name: instanceName };
   if (capOverride != null && capOverride > 0) {
     rpcArgs.p_cap_override = capOverride;
+    // Jitter dinâmico: calcula baseado no cap pra distribuir disparos
+    // ao longo da janela útil (em vez de fixar 8-18min como antes).
+    const jitter = computeDynamicJitter(capOverride);
+    rpcArgs.p_min_jitter_seconds = jitter.minSeconds;
+    rpcArgs.p_max_jitter_seconds = jitter.maxSeconds;
   }
   const { data, error } = await supabase.rpc("claim_webinar_instance", rpcArgs);
   if (error) {
