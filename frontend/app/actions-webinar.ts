@@ -749,6 +749,13 @@ export async function pollCampaignScraping(campaignId: string): Promise<{
       })
       .eq("id", campaignId);
 
+    // VALIDA WHATSAPP automaticamente após o scrape terminar.
+    // Fire-and-forget: não bloqueia o retorno pro front, mas roda em background.
+    // Front pode mostrar "validando..." via getValidationStats.
+    void validateCampaignLeads(campaignId, 500).catch((err) => {
+      console.error("[scraping] auto-validate falhou:", err?.message);
+    });
+
     revalidatePath(`/webinar/${campaignId}`);
     return {
       success: true,
@@ -1548,6 +1555,228 @@ export async function getInstanceStats(campaignId: string): Promise<{
       success: true,
       data: stats,
       snapshot_at: rows?.[0]?.snapshot_at ?? null,
+    };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+// ─── Validação WhatsApp ──────────────────────────────────────────────────────
+
+export type ValidationStats = {
+  total: number;
+  validados: number;
+  com_whatsapp: number;
+  sem_whatsapp: number;
+  nao_validados: number;
+  com_site_enriquecido: number;
+};
+
+/**
+ * Valida números de WhatsApp dos leads de uma campanha em batch.
+ * - Pega leads sem whatsapp_validated_at
+ * - Pra leads com site: tenta extrair contatos extras do site
+ * - Valida todos no Evolution
+ * - Sem WhatsApp → vira lost('no_whatsapp')
+ * - Com WhatsApp → mantém status atual
+ *
+ * Limit é por chamada (default 100) — pode rodar várias vezes.
+ */
+export async function validateCampaignLeads(
+  campaignId: string,
+  limit: number = 100,
+): Promise<{
+  success: boolean;
+  data?: {
+    processed: number;
+    com_whatsapp: number;
+    sem_whatsapp: number;
+    enriched_from_site: number;
+    site_phones_added: number;
+  };
+  error?: string;
+}> {
+  try {
+    const { validateWhatsAppBatch, extractContactsFromWebsite } = await import(
+      "@/lib/webinar/whatsapp-validator"
+    );
+    const supabase = createServiceClient();
+
+    const { data: leads, error } = await supabase
+      .from("webinar_campaign_leads")
+      .select("id, phone, website")
+      .eq("campaign_id", campaignId)
+      .is("whatsapp_validated_at", null)
+      .neq("funnel_status", "lost")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    if (!leads || leads.length === 0) {
+      return {
+        success: true,
+        data: {
+          processed: 0,
+          com_whatsapp: 0,
+          sem_whatsapp: 0,
+          enriched_from_site: 0,
+          site_phones_added: 0,
+        },
+      };
+    }
+
+    // 1. Enriquece leads com website: extrai phones extras
+    let enriched_from_site = 0;
+    let site_phones_added = 0;
+    const enrichedMap = new Map<string, string[]>(); // leadId → phones extras
+
+    for (const lead of leads) {
+      if (!lead.website) continue;
+      // limita pra não saturar (3s timeout no fetch interno)
+      try {
+        const r = await extractContactsFromWebsite(lead.website);
+        if (r.phones.length > 0) {
+          enrichedMap.set(lead.id, r.phones);
+          site_phones_added += r.phones.length;
+          enriched_from_site += 1;
+          await supabase
+            .from("webinar_campaign_leads")
+            .update({
+              extra_phones: r.phones,
+              site_enriched_at: new Date().toISOString(),
+            })
+            .eq("id", lead.id);
+        } else if (r.error) {
+          await supabase
+            .from("webinar_campaign_leads")
+            .update({
+              site_enriched_at: new Date().toISOString(),
+            })
+            .eq("id", lead.id);
+        }
+      } catch {}
+    }
+
+    // 2. Constrói lista de números pra validar: phone original + phones extras
+    type ToCheck = { leadId: string; numbers: string[] };
+    const toCheckList: ToCheck[] = leads.map((l: any) => {
+      const set = new Set<string>();
+      if (l.phone) set.add(String(l.phone).replace(/\D/g, ""));
+      const extras = enrichedMap.get(l.id) ?? [];
+      for (const e of extras) {
+        set.add(String(e).replace(/\D/g, ""));
+      }
+      return { leadId: l.id, numbers: Array.from(set).filter(Boolean) };
+    });
+
+    // 3. Lista flat única pra validar em batch
+    const allNumbers = Array.from(
+      new Set(toCheckList.flatMap((c) => c.numbers)),
+    );
+
+    const valRes = await validateWhatsAppBatch(allNumbers);
+
+    // 4. Map number → exists+jid
+    const valMap = new Map<string, { exists: boolean; jid: string | null }>();
+    for (const r of valRes.results) {
+      const norm = String(r.number).replace(/\D/g, "");
+      valMap.set(norm, { exists: r.exists, jid: r.jid });
+    }
+
+    // 5. Pra cada lead, decide: tem WhatsApp? Em qual número?
+    let com_whatsapp = 0;
+    let sem_whatsapp = 0;
+
+    for (const item of toCheckList) {
+      let firstValid: { number: string; jid: string | null } | null = null;
+      for (const n of item.numbers) {
+        const v = valMap.get(n);
+        if (v?.exists) {
+          firstValid = { number: n, jid: v.jid };
+          break;
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+
+      if (firstValid) {
+        com_whatsapp += 1;
+        await supabase
+          .from("webinar_campaign_leads")
+          .update({
+            whatsapp_validated_at: nowIso,
+            whatsapp_valid: true,
+            whatsapp_jid: firstValid.jid,
+            // Se o número WhatsApp é diferente do phone original, atualiza phone
+            phone: firstValid.number,
+          })
+          .eq("id", item.leadId);
+      } else {
+        sem_whatsapp += 1;
+        await supabase
+          .from("webinar_campaign_leads")
+          .update({
+            whatsapp_validated_at: nowIso,
+            whatsapp_valid: false,
+            whatsapp_jid: null,
+            funnel_status: "lost",
+            loss_reason: "no_whatsapp_validated",
+            ai_paused: true,
+          })
+          .eq("id", item.leadId);
+      }
+    }
+
+    revalidatePath(`/webinar/${campaignId}`);
+    return {
+      success: true,
+      data: {
+        processed: leads.length,
+        com_whatsapp,
+        sem_whatsapp,
+        enriched_from_site,
+        site_phones_added,
+      },
+    };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "erro" };
+  }
+}
+
+/**
+ * Retorna stats de validação WhatsApp de uma campanha.
+ */
+export async function getValidationStats(campaignId: string): Promise<{
+  success: boolean;
+  data?: ValidationStats;
+  error?: string;
+}> {
+  try {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("webinar_campaign_leads")
+      .select("whatsapp_validated_at, whatsapp_valid, site_enriched_at")
+      .eq("campaign_id", campaignId);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{
+      whatsapp_validated_at: string | null;
+      whatsapp_valid: boolean | null;
+      site_enriched_at: string | null;
+    }>;
+    const total = rows.length;
+    const validados = rows.filter((r) => r.whatsapp_validated_at).length;
+    const com_whatsapp = rows.filter((r) => r.whatsapp_valid === true).length;
+    const sem_whatsapp = rows.filter((r) => r.whatsapp_valid === false).length;
+    const com_site_enriquecido = rows.filter((r) => r.site_enriched_at).length;
+    return {
+      success: true,
+      data: {
+        total,
+        validados,
+        com_whatsapp,
+        sem_whatsapp,
+        nao_validados: total - validados,
+        com_site_enriquecido,
+      },
     };
   } catch (e: any) {
     return { success: false, error: e?.message ?? "erro" };

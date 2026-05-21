@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Play, Pause, Wifi, WifiOff, RefreshCw, Webhook } from "lucide-react";
+import { Play, Pause, Wifi, WifiOff, RefreshCw, Webhook, ShieldCheck, Loader2 } from "lucide-react";
 import {
   updateCampaign,
   deleteCampaign,
   startCampaign,
   pauseCampaign,
   resumeCampaign,
+  validateCampaignLeads,
+  getValidationStats,
+  type ValidationStats,
 } from "@/app/actions-webinar";
 import {
   listAvailableInstances,
@@ -65,6 +68,44 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
   const [instances, setInstances] = useState<EvoInstance[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(true);
   const [syncingWebhooks, setSyncingWebhooks] = useState(false);
+
+  // Validação WhatsApp
+  const [valStats, setValStats] = useState<ValidationStats | null>(null);
+  const [validating, setValidating] = useState(false);
+
+  async function loadValidationStats() {
+    const r = await getValidationStats(campaign.id);
+    if (r.success && r.data) setValStats(r.data);
+  }
+  useEffect(() => { loadValidationStats(); }, [campaign.id]);
+  useEffect(() => {
+    if (!validating) return;
+    const id = setInterval(loadValidationStats, 3000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validating]);
+
+  async function handleValidateNow() {
+    setValidating(true);
+    try {
+      // Roda em loop até processar tudo (cada chamada processa até 100)
+      let totalProcessed = 0;
+      for (let i = 0; i < 20; i++) {
+        const r = await validateCampaignLeads(campaign.id, 100);
+        if (!r.success || !r.data) break;
+        totalProcessed += r.data.processed;
+        if (r.data.processed === 0) break;
+        await loadValidationStats();
+      }
+      toast.success(`Validação concluída — ${totalProcessed} leads processados`);
+      await loadValidationStats();
+      router.refresh();
+    } catch (e: any) {
+      toast.error(`Erro: ${e?.message ?? "?"}`);
+    } finally {
+      setValidating(false);
+    }
+  }
 
   async function syncWebhooks() {
     const list = Array.from(selectedInstances);
@@ -277,6 +318,75 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
               placeholder="https://cal.com/..."
             />
           </Field>
+        </Section>
+
+        <Section title="Validação de WhatsApp (qualidade da base)">
+          <div className="bg-emerald-50/50 border border-emerald-100 rounded-lg p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="text-sm font-bold text-slate-800">
+                  Filtra leads sem WhatsApp antes do disparo
+                </div>
+                <p className="text-xs text-slate-600 mt-1">
+                  Sistema valida cada número via Evolution. Sem WhatsApp = vira "perdido" automaticamente.
+                  Roda automaticamente ao final do scrape. Pode forçar manual abaixo.
+                </p>
+              </div>
+            </div>
+
+            {valStats ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                <div className="bg-white rounded-md p-2.5 border border-slate-100">
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Total</div>
+                  <div className="text-lg font-bold text-slate-800">{valStats.total}</div>
+                </div>
+                <div className="bg-white rounded-md p-2.5 border border-slate-100">
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-emerald-600">Com WhatsApp</div>
+                  <div className="text-lg font-bold text-emerald-600">{valStats.com_whatsapp}</div>
+                  <div className="text-[10px] text-slate-400">
+                    {valStats.total > 0
+                      ? `${Math.round((valStats.com_whatsapp / valStats.total) * 100)}%`
+                      : "-"}
+                  </div>
+                </div>
+                <div className="bg-white rounded-md p-2.5 border border-slate-100">
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-rose-600">Sem WhatsApp</div>
+                  <div className="text-lg font-bold text-rose-600">{valStats.sem_whatsapp}</div>
+                </div>
+                <div className="bg-white rounded-md p-2.5 border border-slate-100">
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-amber-600">Aguardando</div>
+                  <div className="text-lg font-bold text-amber-600">{valStats.nao_validados}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 italic mb-3">Carregando stats...</div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleValidateNow}
+                disabled={validating || (valStats?.nao_validados ?? 0) === 0}
+                variant="outline"
+                size="sm"
+                className="text-xs"
+              >
+                {validating ? (
+                  <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Validando...</>
+                ) : (
+                  <><ShieldCheck className="w-3 h-3 mr-1.5" /> Validar agora</>
+                )}
+              </Button>
+              <Button onClick={loadValidationStats} variant="outline" size="sm" className="text-xs">
+                <RefreshCw className="w-3 h-3" />
+              </Button>
+              {valStats && valStats.com_site_enriquecido > 0 && (
+                <span className="text-[11px] text-slate-500">
+                  {valStats.com_site_enriquecido} enriquecidos via site
+                </span>
+              )}
+            </div>
+          </div>
         </Section>
 
         <Section title="Disparo (multi-instance, rotação anti-ban)">
