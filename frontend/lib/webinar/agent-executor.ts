@@ -68,8 +68,9 @@ export function looksLikeAutoReply(text: string): boolean {
   if (!text) return false;
   const trimmed = text.trim();
   if (trimmed.length === 0) return true;
-  // Mensagem muito curta — comum em template buttons ("✅", "👍", "1")
-  if (trimmed.length <= 2) return true;
+  // ANTES: tratava text.length <= 2 como auto-reply.
+  // BUG: pegava "oi", "ok", "?" como auto-reply e o agente ignorava
+  // respostas humanas legítimas. Removido — agente decide o que fazer.
 
   const patterns = [
     // Sinais clássicos
@@ -95,11 +96,11 @@ export function looksLikeAutoReply(text: string): boolean {
 
     // Redirecionamento de número ("este número é exclusivo, entre em contato no outro")
     /(?:este\s+n[uú]mero|este\s+contato)\s+(?:é|e|esta|está)\s+(?:exclusivo|apenas)/i,
-    /(?:para|p[ra])\s+(?:assuntos?|atendimentos?|servi[cç]os?)\s+(?:de|sobre|relacionad)/i,
     /(?:entrar?\s+em\s+contato|favor\s+contat[ae]r|contat[ae]r)\s+(?:no\s+(?:n[uú]mero|whatsapp|tel)|pelo\s+(?:n[uú]mero|whatsapp|tel))/i,
     /(?:n[uú]mero\s+(?:correto|certo|adequado))/i,
     /(?:esta\s+(?:linha|n[uú]mero))\s+(?:n[aã]o|nao)\s+(?:atende|recebe|responde)/i,
-    /(?:agradecemos|obrigad[oa])\s+(?:o|pelo|pela)?\s*contato/i,
+    // 'agradecemos pelo contato' SO se vier com 'retornaremos' ou similar — auto-reply genuino
+    /(?:agradecemos|obrigad[oa])\s+(?:o|pelo|pela)?\s*(?:seu\s+)?contato.{0,80}(?:retornar|responder|breve|brevidade|equipe|aguarde)/i,
   ];
   return patterns.some((re) => re.test(text));
 }
