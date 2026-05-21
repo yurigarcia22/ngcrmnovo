@@ -401,9 +401,12 @@ export default function LeadsPage() {
             if (deal.status !== 'lost') return false;
         }
 
-        // 2. Filtro de Tag
+        // 2. Filtro de Tag (compara como string — select HTML sempre devolve string,
+        //    mas tag.id no banco é number)
         if (filterTag !== 'all') {
-            const hasTag = deal.deal_tags?.some((dt: any) => dt.tags?.id === filterTag);
+            const hasTag = deal.deal_tags?.some(
+                (dt: any) => String(dt.tags?.id) === String(filterTag),
+            );
             if (!hasTag) return false;
         }
 
