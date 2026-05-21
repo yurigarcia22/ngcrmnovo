@@ -174,6 +174,29 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                         </div>
                     </div>
 
+                    {/* Tags (etiquetas coloridas) */}
+                    {deal.deal_tags && deal.deal_tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                            {deal.deal_tags.map((dt: any, i: number) => {
+                                const tag = dt.tags;
+                                if (!tag) return null;
+                                return (
+                                    <span
+                                        key={tag.id ?? i}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border"
+                                        style={{
+                                            backgroundColor: `${tag.color}15`,
+                                            borderColor: `${tag.color}40`,
+                                            color: tag.color,
+                                        }}
+                                    >
+                                        {tag.name}
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     {/* Value */}
                     {deal.value > 0 && (
                         <div className="mb-4">
