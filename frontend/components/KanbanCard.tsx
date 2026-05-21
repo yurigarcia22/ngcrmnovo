@@ -1,5 +1,5 @@
 import { Draggable } from "@hello-pangea/dnd";
-import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check } from "lucide-react";
+import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
     DropdownMenu,
@@ -91,6 +91,25 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
     const cleanTitle = (title: string) => {
         return title.replace(/^Oportunidade:\s*/i, '');
     };
+
+    // Formata phone brasileiro: 5551992753409 → +55 (51) 99275-3409
+    function formatPhone(p: any): string {
+        if (!p) return "";
+        const d = String(p).replace(/\D/g, "");
+        if (d.length === 13 && d.startsWith("55")) {
+            return `+55 (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
+        }
+        if (d.length === 12 && d.startsWith("55")) {
+            return `+55 (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
+        }
+        if (d.length === 11) {
+            return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+        }
+        if (d.length === 10) {
+            return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+        }
+        return String(p);
+    }
 
     return (
         <Draggable draggableId={String(deal.id)} index={index}>
@@ -206,12 +225,58 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                         </div>
                     )}
 
-                    {/* Contact Badge (Pill) */}
-                    {deal.contacts?.name && (
-                        <div className="mb-4">
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-50 border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-blue-200 transition-colors w-auto max-w-full">
-                                <User size={12} className="text-gray-400 shrink-0" strokeWidth={2.5} />
-                                <span className="text-xs font-medium truncate">{deal.contacts.name}</span>
+                    {/* Decisor (responsible_name de custom_values) */}
+                    {deal.custom_values?.responsible_name && (
+                        <div className="flex items-center gap-2 mb-2 text-gray-700">
+                            <UserCircle2 size={14} className="text-indigo-500 shrink-0" strokeWidth={2.5} />
+                            <span className="text-xs font-semibold truncate" title={`Decisor: ${deal.custom_values.responsible_name}`}>
+                                {deal.custom_values.responsible_name}
+                            </span>
+                        </div>
+                    )}
+
+                    {/* Telefones */}
+                    <div className="flex flex-col gap-1 mb-3">
+                        {deal.contacts?.phone && (
+                            <a
+                                href={`https://wa.me/${String(deal.contacts.phone).replace(/\D/g,'')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-2 text-emerald-700 hover:text-emerald-900"
+                                title="Abrir no WhatsApp"
+                            >
+                                <Phone size={13} className="shrink-0" strokeWidth={2.5} />
+                                <span className="text-xs font-semibold tabular-nums">
+                                    {formatPhone(deal.contacts.phone)}
+                                </span>
+                            </a>
+                        )}
+                        {deal.custom_values?.responsible_direct_phone &&
+                         String(deal.custom_values.responsible_direct_phone).replace(/\D/g,'') !== String(deal.contacts?.phone || '').replace(/\D/g,'') && (
+                            <a
+                                href={`https://wa.me/${String(deal.custom_values.responsible_direct_phone).replace(/\D/g,'')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-2 text-indigo-700 hover:text-indigo-900"
+                                title="Telefone direto do decisor"
+                            >
+                                <Phone size={13} className="shrink-0" strokeWidth={2.5} />
+                                <span className="text-xs font-semibold tabular-nums">
+                                    {formatPhone(deal.custom_values.responsible_direct_phone)}
+                                </span>
+                                <span className="text-[9px] uppercase tracking-wider text-indigo-500 font-bold">direto</span>
+                            </a>
+                        )}
+                    </div>
+
+                    {/* Empresa (contato — só mostra se diferente do title) */}
+                    {deal.contacts?.name && deal.contacts.name !== deal.title && (
+                        <div className="mb-3">
+                            <div className="inline-flex items-center gap-2 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-gray-600 w-auto max-w-full">
+                                <User size={11} className="text-gray-400 shrink-0" strokeWidth={2.5} />
+                                <span className="text-[11px] font-medium truncate">{deal.contacts.name}</span>
                             </div>
                         </div>
                     )}
