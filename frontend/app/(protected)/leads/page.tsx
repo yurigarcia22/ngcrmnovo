@@ -37,16 +37,36 @@ export default function LeadsPage() {
     // Custom Fields
     const [fields, setFields] = useState<any[]>([]); // All fields definitions
 
-    const [searchTerm, setSearchTerm] = useState("");
-    const [filterStatus, setFilterStatus] = useState<'active' | 'lost'>('active');
+    // Helpers pra persistir filtros no localStorage (sobrevivem F5, navegação e volta de deal)
+    const readLs = (k: string, fallback: string) => {
+        if (typeof window === "undefined") return fallback;
+        try { return localStorage.getItem(k) ?? fallback; } catch { return fallback; }
+    };
+
+    const [searchTerm, setSearchTerm] = useState(() => readLs("filter_searchTerm", ""));
+    const [filterStatus, setFilterStatus] = useState<'active' | 'lost'>(
+        () => (readLs("filter_status", "active") as 'active' | 'lost'),
+    );
     const [tags, setTags] = useState<any[]>([]);
-    const [filterTag, setFilterTag] = useState('all');
-    const [filterDate, setFilterDate] = useState('all');
+    const [filterTag, setFilterTag] = useState(() => readLs("filter_tag", "all"));
+    const [filterDate, setFilterDate] = useState(() => readLs("filter_date", "all"));
 
     // Owner Filter (New)
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
-    const [filterOwner, setFilterOwner] = useState('loading'); // Começa loading para não mostrar 'todos' antes de saber quem sou
+    // Se já há owner salvo no LS, usa; senão começa "loading" pra setar o user logado
+    const [filterOwner, setFilterOwner] = useState(() => readLs("filter_owner", "loading"));
     const [currentUserId, setCurrentUserId] = useState<string>("");
+
+    // Persiste filtros automaticamente
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_searchTerm", searchTerm); }, [searchTerm]);
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_status", filterStatus); }, [filterStatus]);
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_tag", filterTag); }, [filterTag]);
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_date", filterDate); }, [filterDate]);
+    useEffect(() => {
+        if (typeof window !== "undefined" && filterOwner !== "loading") {
+            localStorage.setItem("filter_owner", filterOwner);
+        }
+    }, [filterOwner]);
 
     // Bulk Actions
     const [isSelectionMode, setIsSelectionMode] = useState(false);
