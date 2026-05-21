@@ -72,6 +72,10 @@ export default function LeadsPage() {
     useEffect(() => {
         if (selectedPipelineId) {
             loadBoard(selectedPipelineId);
+            // Persiste pra próxima sessão e pra preservar quando voltar de um deal
+            if (typeof window !== "undefined") {
+                localStorage.setItem("lastPipelineId", String(selectedPipelineId));
+            }
         }
     }, [selectedPipelineId]);
 
@@ -111,10 +115,23 @@ export default function LeadsPage() {
         if (pipeRes.success && pipeRes.data && pipeRes.data.length > 0) {
             setPipelines(pipeRes.data);
 
-            // If no selected pipeline, select first
+            // If no selected pipeline, prefer URL query (?pipeline=ID),
+            // then localStorage, then first pipeline.
             if (!selectedPipelineId) {
-                setSelectedPipelineId(pipeRes.data[0].id);
-                // loadBoard will be triggered by useEffect [selectedPipelineId]
+                let initialPipeline: string | null = null;
+                if (typeof window !== "undefined") {
+                    const params = new URLSearchParams(window.location.search);
+                    const fromUrl = params.get("pipeline");
+                    if (fromUrl && pipeRes.data.some((p: any) => String(p.id) === fromUrl)) {
+                        initialPipeline = fromUrl;
+                    } else {
+                        const fromStorage = localStorage.getItem("lastPipelineId");
+                        if (fromStorage && pipeRes.data.some((p: any) => String(p.id) === fromStorage)) {
+                            initialPipeline = fromStorage;
+                        }
+                    }
+                }
+                setSelectedPipelineId(initialPipeline ?? pipeRes.data[0].id);
             }
         }
 

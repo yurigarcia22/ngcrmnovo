@@ -61,17 +61,19 @@ export default function DealHeader({ deal, pipelines }: any) {
         setLoading(true);
         const res = await deleteDeal(deal.id);
         if (res.success) {
-            router.push("/leads"); // Redirect directly
+            router.push(currentPipeline?.id ? `/leads?pipeline=${currentPipeline.id}` : "/leads");
         } else {
             toast.error("Erro ao excluir negocio");
             setLoading(false);
         }
     }
 
+    const backHref = currentPipeline?.id ? `/leads?pipeline=${currentPipeline.id}` : "/leads";
+
     return (
         <header className="h-14 bg-[#2b3d51] text-white flex items-center justify-between px-4 shrink-0 shadow-md z-20">
             <div className="flex items-center gap-4 flex-1">
-                <Link href="/leads" className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
+                <Link href={backHref} className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
                     <ArrowLeft size={20} />
                 </Link>
                 <div className="flex-1">
