@@ -190,18 +190,6 @@ serve(async (req) => {
         .rpc('get_tenant_inbox_stage', { p_tenant_id: tenantId });
 
       const inboxStageId = (inboxStageRpc as number | string | null);
-
-      // Resolve tambem pipeline_id (para preencher deals.pipeline_id corretamente)
-      let pipelineId: number | null = null;
-      if (inboxStageId != null) {
-        const { data: stageRow } = await supabase
-          .from('stages')
-          .select('pipeline_id')
-          .eq('id', inboxStageId)
-          .maybeSingle();
-        pipelineId = stageRow?.pipeline_id ?? null;
-      }
-
       const stage = inboxStageId != null ? { id: inboxStageId } : null;
 
       if (!stage) {
@@ -237,13 +225,12 @@ serve(async (req) => {
           console.log(`-> Roteamento: Roleta/Fallback (${ownerId})`);
         }
 
-        const { data: newDeal } = await supabase
+        const { data: newDeal, error: insertErr } = await supabase
           .from('deals')
           .insert({
             title: `Oportunidade: ${pushName}`,
             contact_id: contactId,
             stage_id: stage.id,
-            pipeline_id: pipelineId,
             owner_id: ownerId,
             status: 'open',
             value: 0,
@@ -251,6 +238,11 @@ serve(async (req) => {
           })
           .select()
           .single();
+
+        if (insertErr || !newDeal) {
+          console.error('Erro ao criar deal:', insertErr);
+          return new Response(JSON.stringify({ error: insertErr?.message || 'Falha ao criar deal' }), { status: 500 });
+        }
 
         dealId = newDeal.id;
       }

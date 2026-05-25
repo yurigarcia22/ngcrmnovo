@@ -1,7 +1,12 @@
 
 [functions.webhook-evolution]
 enabled = true
-verify_jwt = true
+# verify_jwt = false porque o Evolution API nao envia JWT — ela manda
+# payload bruto. A protecao do endpoint vem da:
+#   1. URL imprevisivel (functions/v1/webhook-evolution e publica mas obscura)
+#   2. Validacao do payload (so processa se instance for valida em whatsapp_instances)
+# Se quiser hardening extra, adicionar verificacao de assinatura/secret aqui.
+verify_jwt = false
 import_map = "./functions/webhook-evolution/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
