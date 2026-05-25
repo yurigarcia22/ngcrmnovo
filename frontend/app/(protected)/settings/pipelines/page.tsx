@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import {
     getPipelines, createPipeline, deletePipeline,
-    getStages, createStage, updateStage, deleteStage, updateStagesOrder
+    getStages, createStage, updateStage, deleteStage, updateStagesOrder,
+    setStageFlag, setPipelineDefault
 } from "./actions";
-import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight } from "lucide-react";
+import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { cn } from "@/lib/utils";
@@ -232,29 +233,59 @@ export default function PipelinesPage() {
                                             : "bg-white border-slate-100 hover:border-blue-100"
                                     )}
                                 >
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 min-w-0">
                                         <div className={cn(
-                                            "w-2 h-8 rounded-full bg-slate-200 transition-colors",
+                                            "w-2 h-8 rounded-full bg-slate-200 transition-colors shrink-0",
                                             selectedPipelineId === pipe.id && "bg-blue-500"
                                         )} />
-                                        <span className={cn(
-                                            "font-medium transition-colors",
-                                            selectedPipelineId === pipe.id ? "text-blue-900" : "text-slate-600"
-                                        )}>
-                                            {pipe.name}
-                                        </span>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className={cn(
+                                                "font-medium transition-colors truncate",
+                                                selectedPipelineId === pipe.id ? "text-blue-900" : "text-slate-600"
+                                            )}>
+                                                {pipe.name}
+                                            </span>
+                                            {pipe.is_default && (
+                                                <span className="text-[10px] font-bold text-amber-600 flex items-center gap-1 mt-0.5">
+                                                    <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                                                    PADRÃO
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {selectedPipelineId === pipe.id && (
-                                        <Button
-                                            onClick={(e) => handleDeletePipeline(pipe.id, e)}
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                    )}
+                                    <div className="flex items-center gap-1">
+                                        {!pipe.is_default && (
+                                            <Button
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    const res = await setPipelineDefault(pipe.id);
+                                                    if (res.success) {
+                                                        toast.success("Pipeline marcado como padrão");
+                                                        loadPipelines();
+                                                    } else {
+                                                        toast.error(res.error ?? "Erro");
+                                                    }
+                                                }}
+                                                variant="ghost"
+                                                size="icon"
+                                                title="Tornar padrão"
+                                                className="h-8 w-8 text-slate-400 hover:text-amber-500 hover:bg-amber-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <Star className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                        {selectedPipelineId === pipe.id && (
+                                            <Button
+                                                onClick={(e) => handleDeletePipeline(pipe.id, e)}
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -332,6 +363,7 @@ export default function PipelinesPage() {
                                                             stage={stage}
                                                             onUpdate={handleUpdateStage}
                                                             onDelete={handleDeleteStage}
+                                                            onReload={() => loadStages(selectedPipelineId!)}
                                                             dragHandleProps={provided.dragHandleProps}
                                                             isDragging={snapshot.isDragging}
                                                         />
@@ -352,10 +384,11 @@ export default function PipelinesPage() {
 }
 
 // Subcomponent for each Stage Row
-function StageItem({ stage, onUpdate, onDelete, dragHandleProps, isDragging }: {
+function StageItem({ stage, onUpdate, onDelete, onReload, dragHandleProps, isDragging }: {
     stage: any,
     onUpdate: any,
     onDelete: any,
+    onReload: () => void,
     dragHandleProps?: any,
     isDragging?: boolean
 }) {
@@ -370,10 +403,25 @@ function StageItem({ stage, onUpdate, onDelete, dragHandleProps, isDragging }: {
         setIsEditing(false);
     }
 
+    async function toggleFlag(flag: "is_inbox" | "is_won" | "is_lost") {
+        const next = !stage[flag];
+        const res = await setStageFlag(String(stage.id), flag, next);
+        if (res.success) {
+            const label = flag === "is_inbox" ? "Entrada" : flag === "is_won" ? "Ganho" : "Perda";
+            toast.success(`${stage.name}: ${label} ${next ? "ativado" : "desativado"}`);
+            onReload();
+        } else {
+            toast.error(res.error ?? "Erro");
+        }
+    }
+
     return (
         <div className={cn(
             "group bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 transition-all duration-200",
-            isDragging ? "shadow-lg border-blue-400 rotate-1 scale-102 z-50" : "hover:border-blue-300 hover:shadow-md"
+            isDragging ? "shadow-lg border-blue-400 rotate-1 scale-102 z-50" : "hover:border-blue-300 hover:shadow-md",
+            stage.is_inbox && "border-l-4 border-l-indigo-500",
+            stage.is_won && "border-l-4 border-l-emerald-500",
+            stage.is_lost && "border-l-4 border-l-rose-500"
         )}>
             <div
                 {...dragHandleProps}
@@ -418,6 +466,31 @@ function StageItem({ stage, onUpdate, onDelete, dragHandleProps, isDragging }: {
                 )}
             </div>
 
+            {/* Flag pills (Inbox / Won / Lost) */}
+            <div className="flex items-center gap-1 mr-2">
+                <FlagPill
+                    label="Entrada"
+                    icon={<Inbox className="w-3 h-3" />}
+                    active={!!stage.is_inbox}
+                    activeClass="bg-indigo-100 text-indigo-700 border-indigo-300"
+                    onClick={() => toggleFlag("is_inbox")}
+                />
+                <FlagPill
+                    label="Ganho"
+                    icon={<Trophy className="w-3 h-3" />}
+                    active={!!stage.is_won}
+                    activeClass="bg-emerald-100 text-emerald-700 border-emerald-300"
+                    onClick={() => toggleFlag("is_won")}
+                />
+                <FlagPill
+                    label="Perda"
+                    icon={<Frown className="w-3 h-3" />}
+                    active={!!stage.is_lost}
+                    activeClass="bg-rose-100 text-rose-700 border-rose-300"
+                    onClick={() => toggleFlag("is_lost")}
+                />
+            </div>
+
             {/* Actions */}
             <div className="flex items-center gap-2">
                 {isEditing ? (
@@ -446,4 +519,34 @@ function StageItem({ stage, onUpdate, onDelete, dragHandleProps, isDragging }: {
             </div>
         </div>
     )
+}
+
+function FlagPill({
+    label,
+    icon,
+    active,
+    activeClass,
+    onClick,
+}: {
+    label: string;
+    icon: React.ReactNode;
+    active: boolean;
+    activeClass: string;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            title={`Marcar como ${label}`}
+            className={cn(
+                "inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all",
+                active
+                    ? activeClass
+                    : "bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600"
+            )}
+        >
+            {icon}
+            {label}
+        </button>
+    );
 }

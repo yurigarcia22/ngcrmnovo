@@ -2,10 +2,12 @@ import { Suspense } from "react";
 import { getDashboardData } from "@/app/(protected)/dashboard/actions";
 import { getTeamMembers } from "@/app/actions";
 import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
+import { getOnboardingState } from "@/app/(protected)/dashboard/onboarding";
 import { DashboardHeader, DashboardFilterBar } from "./components/header";
 import { StatCard, MessagesCard } from "./components/cards";
 import { DealsStageChart } from "./components/radial-chart";
 import { WonLeadsWidget } from "./components/WonLeadsWidget";
+import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,7 @@ export default async function DashboardPage(props: {
 
   const companyFetch = await getCompanyDetails();
   const companyName = companyFetch.success ? companyFetch.name : "CRM";
+  const onboarding = await getOnboardingState();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-8 font-sans">
@@ -29,6 +32,11 @@ export default async function DashboardPage(props: {
       <div className="relative z-10">
         {/* 1. Header & Filters */}
         <DashboardHeader />
+
+        {/* Onboarding banner (so aparece se o tenant nao tem >=4 passos feitos) */}
+        {onboarding.needsOnboarding && (
+          <OnboardingBanner steps={onboarding.steps} />
+        )}
 
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">{companyName}</h1>

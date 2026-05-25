@@ -22,7 +22,15 @@ import {
 import { logout } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 
-export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean }) {
+import type { TenantModulesMap } from "@/lib/modules";
+
+export default function Sidebar({
+    initialOpen = true,
+    modules,
+}: {
+    initialOpen?: boolean;
+    modules: TenantModulesMap;
+}) {
     const [open, setOpen] = useState(initialOpen);
     const [isMounted, setIsMounted] = useState(false);
 
@@ -86,55 +94,74 @@ export default function Sidebar({ initialOpen = true }: { initialOpen?: boolean 
 
             {/* Navigation Links */}
             <div className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-1.5 scroll-smooth">
-                <Option
-                    Icon={LayoutDashboard}
-                    title="Dashboard"
-                    href="/dashboard" /* Standardize main route if used, commonly / or /dashboard */
-                    isActive={pathname === "/" || pathname === "/dashboard"}
-                    open={open}
-                />
+                {modules.dashboard && (
+                    <Option
+                        Icon={LayoutDashboard}
+                        title="Dashboard"
+                        href="/dashboard"
+                        isActive={pathname === "/" || pathname === "/dashboard"}
+                        open={open}
+                    />
+                )}
 
-                {open && <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Comercial</div>}
+                {(modules.leads || modules.cold_call || modules.webinar) && open && (
+                    <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        Comercial
+                    </div>
+                )}
 
-                <Option
-                    Icon={Users}
-                    title="Leads"
-                    href="/leads"
-                    isActive={pathname.startsWith("/leads")}
-                    open={open}
-                />
-                <Option
-                    Icon={Phone}
-                    title="Cold Call"
-                    href="/cold-call"
-                    isActive={pathname.startsWith("/cold-call")}
-                    open={open}
-                />
-                <Option
-                    Icon={Megaphone}
-                    title="Webinar"
-                    href="/webinar"
-                    isActive={pathname.startsWith("/webinar")}
-                    open={open}
-                />
+                {modules.leads && (
+                    <Option
+                        Icon={Users}
+                        title="Leads"
+                        href="/leads"
+                        isActive={pathname.startsWith("/leads")}
+                        open={open}
+                    />
+                )}
+                {modules.cold_call && (
+                    <Option
+                        Icon={Phone}
+                        title="Cold Call"
+                        href="/cold-call"
+                        isActive={pathname.startsWith("/cold-call")}
+                        open={open}
+                    />
+                )}
+                {modules.webinar && (
+                    <Option
+                        Icon={Megaphone}
+                        title="Webinar"
+                        href="/webinar"
+                        isActive={pathname.startsWith("/webinar")}
+                        open={open}
+                    />
+                )}
 
+                {(modules.chat || modules.emails) && open && (
+                    <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        Comunicação
+                    </div>
+                )}
 
-                {open && <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Comunicação</div>}
-
-                <Option
-                    Icon={MessageSquare}
-                    title="Conversas"
-                    href="/chat"
-                    isActive={pathname.startsWith("/chat")}
-                    open={open}
-                />
-                <Option
-                    Icon={Mail}
-                    title="E-mails"
-                    href="/emails"
-                    isActive={pathname.startsWith("/emails")}
-                    open={open}
-                />
+                {modules.chat && (
+                    <Option
+                        Icon={MessageSquare}
+                        title="Conversas"
+                        href="/chat"
+                        isActive={pathname.startsWith("/chat")}
+                        open={open}
+                    />
+                )}
+                {modules.emails && (
+                    <Option
+                        Icon={Mail}
+                        title="E-mails"
+                        href="/emails"
+                        isActive={pathname.startsWith("/emails")}
+                        open={open}
+                    />
+                )}
             </div>
 
             {/* Footer / Settings Area */}

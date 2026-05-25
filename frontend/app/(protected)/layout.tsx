@@ -1,20 +1,16 @@
-import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { cookies } from "next/headers";
+import { getTenantContext } from "@/lib/tenant-context";
 
 export default async function ProtectedLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    const supabase = await createClient();
+    const ctx = await getTenantContext();
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    if (!ctx) {
         redirect("/login");
     }
 
@@ -24,7 +20,7 @@ export default async function ProtectedLayout({
 
     return (
         <div className="flex h-screen" suppressHydrationWarning>
-            <Sidebar initialOpen={initialOpen} />
+            <Sidebar initialOpen={initialOpen} modules={ctx.modules} />
             <main className="flex-1 overflow-y-auto h-full">
                 {children}
             </main>

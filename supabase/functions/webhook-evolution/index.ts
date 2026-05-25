@@ -38,21 +38,10 @@ serve(async (req) => {
     }
 
     if (!tenantId) {
-      // Se não achou tenant, podemos tentar buscar em 'tenants' via evolution_instance_name (legacy)
-      // Ou simplesmente abortar para não sujar o banco com dados sem tenant
-      const { data: tenantFallback } = await supabase
-        .from('tenants')
-        .select('id')
-        .eq('evolution_instance_name', instanceName)
-        .maybeSingle();
-
-      if (tenantFallback) {
-        tenantId = tenantFallback.id;
-        console.log('-> Fallback Legacy: Tenant encontrado via tabela tenants.');
-      } else {
-        console.error("IGORANDO MENSAGEM: Tenant não identificado.");
-        return new Response(JSON.stringify({ message: 'Ignored: Unknown Tenant' }), { status: 200 });
-      }
+      // Sem tenant identificado: aborta. (Fallback legacy via tenants.evolution_instance_name
+      // foi removido na migration de fase 0 — coluna nao existe mais.)
+      console.error(`IGNORANDO MENSAGEM: instancia ${instanceName} nao encontrada em whatsapp_instances.`);
+      return new Response(JSON.stringify({ message: 'Ignored: Unknown Tenant' }), { status: 200 });
     }
 
     // --- 1. Tratamento de Status de Conexão ---
@@ -193,12 +182,32 @@ serve(async (req) => {
 
     // SE CRIAR NOVO DEAL
     if (!dealId) {
-      const { data: stage } = await supabase
-        .from('stages')
-        .select('id')
-        .eq('position', 1)
-        .limit(1)
-        .single();
+      // FIX CRITICO: busca a stage de entrada do pipeline DEFAULT do tenant.
+      // Antes esta query rodava sem filtro de tenant, podendo atribuir deal
+      // do tenant A a stage do tenant B (vazamento entre tenants).
+      // get_tenant_inbox_stage retorna bigint (stages.id e bigint, nao uuid).
+      const { data: inboxStageRpc } = await supabase
+        .rpc('get_tenant_inbox_stage', { p_tenant_id: tenantId });
+
+      const inboxStageId = (inboxStageRpc as number | string | null);
+
+      // Resolve tambem pipeline_id (para preencher deals.pipeline_id corretamente)
+      let pipelineId: number | null = null;
+      if (inboxStageId != null) {
+        const { data: stageRow } = await supabase
+          .from('stages')
+          .select('pipeline_id')
+          .eq('id', inboxStageId)
+          .maybeSingle();
+        pipelineId = stageRow?.pipeline_id ?? null;
+      }
+
+      const stage = inboxStageId != null ? { id: inboxStageId } : null;
+
+      if (!stage) {
+        console.error(`Tenant ${tenantId} nao tem stage de entrada configurada (pipeline default + is_inbox).`);
+        return new Response(JSON.stringify({ message: 'Ignored: no inbox stage' }), { status: 200 });
+      }
 
       if (stage) {
         let ownerId = null;
@@ -234,6 +243,7 @@ serve(async (req) => {
             title: `Oportunidade: ${pushName}`,
             contact_id: contactId,
             stage_id: stage.id,
+            pipeline_id: pipelineId,
             owner_id: ownerId,
             status: 'open',
             value: 0,

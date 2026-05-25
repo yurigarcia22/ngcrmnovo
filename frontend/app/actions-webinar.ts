@@ -20,6 +20,7 @@ import {
   getScrapeJob,
   normalizeBrazilianPhone,
 } from "@/lib/webinar/scraper";
+import { isModuleEnabled } from "@/lib/modules";
 
 async function getTenantId(): Promise<string | null> {
   const supabase = await createClient();
@@ -34,7 +35,15 @@ async function getTenantId(): Promise<string | null> {
     .eq("id", user.id)
     .single();
 
-  return profile?.tenant_id ?? null;
+  if (!profile?.tenant_id) return null;
+
+  // Bloqueia qualquer action de webinar se o modulo estiver off para
+  // este tenant. Defesa em profundidade: layout ja redireciona, mas
+  // server actions podem ser chamadas direto via POST.
+  const enabled = await isModuleEnabled(profile.tenant_id, "webinar");
+  if (!enabled) return null;
+
+  return profile.tenant_id;
 }
 
 // ─── Campaigns ───────────────────────────────────────────────────────────────

@@ -89,11 +89,8 @@ export async function getBoardData(pipelineId?: string) {
         if (stagesError) throw stagesError;
 
         // C. Fetch Deals for these Stages
-        // We filter deals that belong to ANY of the stages in this pipeline.
-        // Or simpler: We can just filter by tenant, but that would return deals from OTHER pipelines too if we don't filter by stage IDs.
-        // Assuming deals have 'stage_id', we must filter by the stages found above.
-
         const stageIds = stages.map(s => s.id);
+        const inboxStageIds = stages.filter(s => s.is_inbox).map(s => s.id);
 
         // If no stages, no deals
         let deals: any[] = [];
@@ -119,7 +116,40 @@ export async function getBoardData(pipelineId?: string) {
                 .order("updated_at", { ascending: false });
 
             if (dealsError) throw dealsError;
-            deals = dealsData;
+            deals = dealsData ?? [];
+        }
+
+        // C2. Enriquece deals do INBOX com preview da ultima mensagem.
+        // Pra evitar 1 query por deal, busca todas as ultimas mensagens
+        // dos deals do inbox em uma query unica e mapeia por deal_id.
+        if (inboxStageIds.length > 0 && deals.length > 0) {
+            const inboxDealIds = deals
+                .filter(d => inboxStageIds.includes(d.stage_id))
+                .map(d => d.id);
+
+            if (inboxDealIds.length > 0) {
+                const { data: lastMessages } = await supabase
+                    .from("messages")
+                    .select("deal_id, content, type, direction, created_at")
+                    .in("deal_id", inboxDealIds)
+                    .eq("tenant_id", tenantId)
+                    .order("created_at", { ascending: false });
+
+                // Constroi mapa deal_id -> primeira (mais recente) msg
+                const lastMsgByDeal = new Map<string, any>();
+                for (const m of lastMessages ?? []) {
+                    if (!lastMsgByDeal.has(m.deal_id)) {
+                        lastMsgByDeal.set(m.deal_id, m);
+                    }
+                }
+
+                deals = deals.map(d => {
+                    if (inboxStageIds.includes(d.stage_id)) {
+                        return { ...d, last_message: lastMsgByDeal.get(d.id) ?? null };
+                    }
+                    return d;
+                });
+            }
         }
 
         // D. Fetch Field Definitions (for card display)

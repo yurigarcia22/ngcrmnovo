@@ -19,6 +19,8 @@ import FilterBar from "@/components/kanban/FilterBar";
 import { DragDropContext, Draggable } from "@hello-pangea/dnd";
 import { StrictModeDroppable } from "@/components/StrictModeDroppable";
 import KanbanCard from "@/components/KanbanCard";
+import InboxKanbanCard from "@/components/InboxKanbanCard";
+import { Inbox } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -202,15 +204,25 @@ export default function LeadsPage() {
         const dealId = draggableId; // UUID é string, não converter para int
         // CONVERSÃO CORRIGIDA: stage_id no banco é numérico (BigInt), então convertemos
         const newStageId = Number(destination.droppableId);
+        const oldStageId = Number(source.droppableId);
 
-        console.log('Movendo Deal:', dealId, 'Para Estágio:', newStageId);
+        // Detecta se o deal saiu do INBOX para outra stage
+        const oldStage = stages.find(s => Number(s.id) === oldStageId);
+        const newStage = stages.find(s => Number(s.id) === newStageId);
+        const isPromoting = oldStage?.is_inbox === true && newStage?.is_inbox === false;
+
+        console.log('Movendo Deal:', dealId, 'Para Estágio:', newStageId, isPromoting ? '[PROMOVIDO]' : '');
 
         // Optimistic UI: Atualiza estado local imediatamente
         const oldDeals = [...deals];
         const updatedDeals = deals.map((deal) => {
             // Comparação segura convertendo ambos para string
             if (String(deal.id) === dealId) {
-                return { ...deal, stage_id: newStageId };
+                const next: any = { ...deal, stage_id: newStageId };
+                if (isPromoting && !deal.promoted_at) {
+                    next.promoted_at = new Date().toISOString();
+                }
+                return next;
             }
             return deal;
         });
@@ -225,10 +237,22 @@ export default function LeadsPage() {
                 new_stage: newStageId
             });
 
-            // Atualiza no Supabase (Stage)
+            // Monta update payload
+            const updatePayload: any = { stage_id: newStageId };
+            if (isPromoting) {
+                // Marca timestamp da primeira saida do inbox (so se ainda nao marcado).
+                // O check de deal.promoted_at e feito do lado do client porque
+                // o RLS impede leitura cruzada — confiamos no estado em memoria.
+                const currentDeal = oldDeals.find(d => String(d.id) === dealId);
+                if (!currentDeal?.promoted_at) {
+                    updatePayload.promoted_at = new Date().toISOString();
+                }
+            }
+
+            // Atualiza no Supabase (Stage + promoted_at se aplicavel)
             const { data, error } = await supabase
                 .from("deals")
-                .update({ stage_id: newStageId })
+                .update(updatePayload)
                 .eq("id", dealId)
                 .select();
 
@@ -242,10 +266,9 @@ export default function LeadsPage() {
             }
 
             // Lógica de GANHO (WIN)
-            // Verifica se é a última etapa
-            const lastStage = stages[stages.length - 1];
-            // Comparação solta (==) para garantir que string "1" == number 1
-            if (lastStage && newStageId == lastStage.id) {
+            // Antes: "última stage = won" (frágil — quebrava se houvesse stage "No Show" no fim).
+            // Agora: stage marcada explicitamente com is_won=true.
+            if (newStage?.is_won === true) {
                 // Dispara Confetes!
                 const duration = 3 * 1000;
                 const animationEnd = Date.now() + duration;
@@ -571,9 +594,10 @@ export default function LeadsPage() {
                             const stageDeals = filteredDeals.filter((deal) => String(deal.stage_id) === String(stage.id));
                             const stageValue = stageDeals.reduce((sum, deal) => sum + Number(deal.value || 0), 0);
 
+                            const isInbox = stage.is_inbox === true;
                             return (
                                 <StrictModeDroppable key={stage.id} droppableId={String(stage.id)}>
-                                    {(provided) => (
+                                    {(provided, dropSnapshot) => (
                                         <div
                                             ref={provided.innerRef}
                                             {...provided.droppableProps}
@@ -581,11 +605,23 @@ export default function LeadsPage() {
                                         >
                                             {/* Header da Coluna */}
                                             <div className="mb-3 px-1">
-                                                {/* Color Line (Top Border Effect) */}
-                                                <div className="h-1 w-full rounded-full mb-3 opacity-80" style={{ backgroundColor: stage.color }}></div>
+                                                {isInbox ? (
+                                                    /* Header DESTACADO da Lead Entrada */
+                                                    <div className="h-1 w-full rounded-full mb-3 bg-gradient-to-r from-indigo-500 to-indigo-400"></div>
+                                                ) : (
+                                                    <div className="h-1 w-full rounded-full mb-3 opacity-80" style={{ backgroundColor: stage.color }}></div>
+                                                )}
 
                                                 <div className="flex justify-between items-start">
-                                                    <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider">{stage.name}</h3>
+                                                    <h3 className={`font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 ${isInbox ? 'text-indigo-700' : 'text-gray-700'}`}>
+                                                        {isInbox && <Inbox className="w-3.5 h-3.5" />}
+                                                        {stage.name}
+                                                        {isInbox && (
+                                                            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] bg-indigo-100 text-indigo-700 font-bold">
+                                                                ENTRADA
+                                                            </span>
+                                                        )}
+                                                    </h3>
                                                     <div className="flex flex-col items-end">
                                                         <span className="text-[10px] text-gray-400 font-medium flex items-center gap-2">
                                                             {stageDeals.length} leads
@@ -611,22 +647,41 @@ export default function LeadsPage() {
                                                         )}
                                                     </div>
                                                 </div>
+                                                {isInbox && (
+                                                    <p className="text-[10px] text-indigo-600/70 mt-1 leading-tight">
+                                                        Conversas novas chegam aqui. Arraste para promover a deal.
+                                                    </p>
+                                                )}
                                             </div>
 
                                             {/* Área dos Cards (Background Container) */}
-                                            <div className="flex-1 overflow-y-auto bg-gray-100/50 rounded-xl p-2 border border-black/5 space-y-3 custom-scrollbar scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-                                                {stageDeals.map((deal, index) => (
-                                                    <KanbanCard
-                                                        key={deal.id}
-                                                        deal={deal}
-                                                        index={index}
-                                                        fields={fields}
-                                                        // onClick={() => { }} // Navigation handled internally by KanbanCard
-                                                        isSelectionMode={isSelectionMode}
-                                                        isSelected={selectedDeals.includes(deal.id)}
-                                                        onToggleSelection={toggleSelection}
-                                                    />
-                                                ))}
+                                            <div className={`flex-1 overflow-y-auto rounded-xl p-2 border space-y-3 custom-scrollbar scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent transition-colors ${
+                                                isInbox
+                                                    ? 'bg-indigo-50/40 border-indigo-200/60'
+                                                    : 'bg-gray-100/50 border-black/5'
+                                            } ${dropSnapshot.isDraggingOver ? 'ring-2 ring-indigo-300' : ''}`}>
+                                                {stageDeals.map((deal, index) =>
+                                                    isInbox ? (
+                                                        <InboxKanbanCard
+                                                            key={deal.id}
+                                                            deal={deal}
+                                                            index={index}
+                                                            isSelectionMode={isSelectionMode}
+                                                            isSelected={selectedDeals.includes(deal.id)}
+                                                            onToggleSelection={toggleSelection}
+                                                        />
+                                                    ) : (
+                                                        <KanbanCard
+                                                            key={deal.id}
+                                                            deal={deal}
+                                                            index={index}
+                                                            fields={fields}
+                                                            isSelectionMode={isSelectionMode}
+                                                            isSelected={selectedDeals.includes(deal.id)}
+                                                            onToggleSelection={toggleSelection}
+                                                        />
+                                                    )
+                                                )}
                                                 {provided.placeholder}
                                             </div>
                                         </div>

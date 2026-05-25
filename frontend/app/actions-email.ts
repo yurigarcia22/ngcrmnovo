@@ -9,6 +9,21 @@ import nodemailer from "nodemailer";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { getTenantId } from "./actions";
+import { isModuleEnabled } from "@/lib/modules";
+
+/**
+ * Wrapper de getTenantId que tambem garante que o modulo "emails"
+ * esta ligado para o tenant atual. Defesa em profundidade contra
+ * chamadas diretas a server actions de email com modulo off.
+ */
+async function getEmailTenantId(): Promise<string> {
+    const tenantId = await getTenantId();
+    const enabled = await isModuleEnabled(tenantId, "emails");
+    if (!enabled) {
+        throw new Error('Modulo "E-mails" nao esta ativo para esta empresa.');
+    }
+    return tenantId;
+}
 
 // --- Helper: get admin Supabase client ---
 function getAdminClient() {
@@ -43,7 +58,7 @@ async function getCurrentUserId(): Promise<string | null> {
 
 export async function getEmailAccounts() {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const { data, error } = await supabase
@@ -80,7 +95,7 @@ export async function createEmailAccount(formData: {
     is_default?: boolean;
 }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const userId = await getCurrentUserId();
         const supabase = getAdminClient();
 
@@ -149,7 +164,7 @@ export async function updateEmailAccount(id: string, formData: {
     is_active?: boolean;
 }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const updateData: any = { ...formData, updated_at: new Date().toISOString() };
@@ -189,7 +204,7 @@ export async function updateEmailAccount(id: string, formData: {
 
 export async function deleteEmailAccount(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const { error } = await supabase
@@ -208,7 +223,7 @@ export async function deleteEmailAccount(id: string) {
 
 export async function testEmailConnection(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         // Fetch account with encrypted password
@@ -309,7 +324,7 @@ export async function testEmailConnection(id: string) {
 
 export async function setDefaultEmailAccount(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         // Unset all defaults
@@ -336,7 +351,7 @@ export async function setDefaultEmailAccount(id: string) {
 
 export async function getEmailTemplates(filters?: { search?: string; category?: string }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         let query = supabase
@@ -369,7 +384,7 @@ export async function createEmailTemplate(formData: {
     visibility?: string;
 }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const userId = await getCurrentUserId();
         const supabase = getAdminClient();
 
@@ -409,7 +424,7 @@ export async function updateEmailTemplate(id: string, formData: {
     visibility?: string;
 }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const userId = await getCurrentUserId();
         const supabase = getAdminClient();
 
@@ -442,7 +457,7 @@ export async function updateEmailTemplate(id: string, formData: {
 
 export async function duplicateEmailTemplate(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const userId = await getCurrentUserId();
         const supabase = getAdminClient();
 
@@ -482,7 +497,7 @@ export async function duplicateEmailTemplate(id: string) {
 
 export async function archiveEmailTemplate(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const { error } = await supabase
@@ -500,7 +515,7 @@ export async function archiveEmailTemplate(id: string) {
 
 export async function deleteEmailTemplate(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const { error } = await supabase
@@ -536,7 +551,7 @@ export async function sendEmail(composerData: {
     thread_id?: string;
 }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const userId = await getCurrentUserId();
         const supabase = getAdminClient();
 
@@ -673,7 +688,7 @@ export async function sendEmail(composerData: {
 
 export async function syncEmailInbox(accountId?: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         // Get accounts to sync
@@ -857,7 +872,7 @@ export async function syncEmailInbox(accountId?: string) {
 
 export async function getEmailInbox(filters?: { account_id?: string; search?: string; page?: number; limit?: number }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
         const limit = filters?.limit || 50;
         const offset = ((filters?.page || 1) - 1) * limit;
@@ -885,7 +900,7 @@ export async function getEmailInbox(filters?: { account_id?: string; search?: st
 
 export async function getEmailSent(filters?: { account_id?: string; search?: string; page?: number; limit?: number }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
         const limit = filters?.limit || 50;
         const offset = ((filters?.page || 1) - 1) * limit;
@@ -913,7 +928,7 @@ export async function getEmailSent(filters?: { account_id?: string; search?: str
 
 export async function deleteEmailMessage(id: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const { error } = await supabase
@@ -932,7 +947,7 @@ export async function deleteEmailMessage(id: string) {
 
 export async function getEmailThread(threadId: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const { data: thread, error: threadError } = await supabase
@@ -962,7 +977,7 @@ export async function getEmailThread(threadId: string) {
 
 export async function getEmailsByEntity(entityType: 'lead' | 'contact' | 'opportunity', entityId: string) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
 
         const columnMap = {
@@ -1022,7 +1037,7 @@ export async function createEmailLog(
 
 export async function getEmailLogs(filters?: { account_id?: string; log_type?: string; page?: number; limit?: number }) {
     try {
-        const tenantId = await getTenantId();
+        const tenantId = await getEmailTenantId();
         const supabase = getAdminClient();
         const limit = filters?.limit || 100;
         const offset = ((filters?.page || 1) - 1) * limit;

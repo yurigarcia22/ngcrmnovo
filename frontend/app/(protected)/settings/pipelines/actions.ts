@@ -184,6 +184,95 @@ export async function deleteStage(stageId: string) {
     }
 }
 
+/**
+ * Marca/desmarca uma stage como is_inbox, is_won ou is_lost.
+ * Garante exclusividade no pipeline: ao marcar X como is_inbox=true,
+ * todas as outras stages do mesmo pipeline ficam is_inbox=false.
+ */
+export async function setStageFlag(
+    stageId: string,
+    flag: "is_inbox" | "is_won" | "is_lost",
+    value: boolean
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Descobre pipeline_id da stage
+        const { data: stage } = await supabase
+            .from("stages")
+            .select("id, pipeline_id, tenant_id")
+            .eq("id", stageId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+
+        if (!stage) return { success: false, error: "Stage nao encontrada." };
+
+        if (value) {
+            // Desmarca todas as outras do mesmo pipeline
+            await supabase
+                .from("stages")
+                .update({ [flag]: false })
+                .eq("pipeline_id", stage.pipeline_id)
+                .eq("tenant_id", tenantId)
+                .neq("id", stageId);
+        }
+
+        const { error } = await supabase
+            .from("stages")
+            .update({ [flag]: value })
+            .eq("id", stageId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        revalidatePath("/settings/pipelines");
+        revalidatePath("/leads");
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Marca um pipeline como default (e desmarca os outros do tenant).
+ * O pipeline default e o que o webhook do WhatsApp usa para criar
+ * deals novos.
+ */
+export async function setPipelineDefault(
+    pipelineId: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Desmarca todos os outros pipelines do tenant
+        await supabase
+            .from("pipelines")
+            .update({ is_default: false })
+            .eq("tenant_id", tenantId)
+            .neq("id", pipelineId);
+
+        const { error } = await supabase
+            .from("pipelines")
+            .update({ is_default: true })
+            .eq("id", pipelineId)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+        revalidatePath("/settings/pipelines");
+        revalidatePath("/leads");
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
 export async function updateStagesOrder(items: { id: string; position: number; pipeline_id: string }[]) {
     try {
         const tenantId = await getTenantId();

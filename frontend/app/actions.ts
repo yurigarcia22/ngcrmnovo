@@ -1599,7 +1599,7 @@ export async function getWhatsappInstances() {
     }
 }
 
-// --- HELPER: Promote to Lead (Create Deal) ---
+// --- HELPER: Promote to Lead (move deal out of inbox stage) ---
 export async function promoteToLead(dealId: string, title?: string, value?: number, meetingDate?: string) {
     try {
         const tenantId = await getTenantId();
@@ -1608,24 +1608,31 @@ export async function promoteToLead(dealId: string, title?: string, value?: numb
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        // 1. Get First Pipeline & Stage
-        const { data: pipelines } = await supabase
+        // Busca o pipeline DEFAULT do tenant + stages ordenadas.
+        // Antes pegava o primeiro pipeline criado, que nao necessariamente
+        // e o default. Agora usa a flag is_default.
+        const { data: pipeline } = await supabase
             .from("pipelines")
-            .select("id, stages(id, position)")
+            .select("id, stages(id, position, is_inbox)")
             .eq("tenant_id", tenantId)
-            .order("created_at", { ascending: true })
-            .limit(1)
-            .single();
+            .eq("is_default", true)
+            .maybeSingle();
 
-        let stageId = null;
-        if (pipelines?.stages && pipelines.stages.length > 0) {
-            stageId = pipelines.stages.sort((a: any, b: any) => a.position - b.position)[0].id;
+        let stageId: string | null = null;
+        if (pipeline?.stages && pipeline.stages.length > 0) {
+            const sorted = [...pipeline.stages].sort(
+                (a: any, b: any) => a.position - b.position
+            );
+            // Pega a primeira stage que NAO seja a inbox.
+            const target = sorted.find((s: any) => !s.is_inbox);
+            stageId = target?.id ?? sorted[0]?.id ?? null;
         }
 
-        // 2. Update Deal
+        // Atualiza deal: titulo + value + stage + promoted_at
         const updates: any = {
             title: title || "Novo Lead",
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            promoted_at: new Date().toISOString(),
         };
         if (value) updates.value = value;
         if (stageId) updates.stage_id = stageId;
