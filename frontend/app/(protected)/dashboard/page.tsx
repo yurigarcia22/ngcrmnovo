@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getDashboardData } from "@/app/(protected)/dashboard/actions";
+import { getDashboardData, getSellersPerformance } from "@/app/(protected)/dashboard/actions";
 import { getTeamMembers } from "@/app/actions";
 import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
 import { getOnboardingState } from "@/app/(protected)/dashboard/onboarding";
@@ -10,6 +10,8 @@ import { WonLeadsWidget } from "./components/WonLeadsWidget";
 import { KpiCard } from "./components/KpiCard";
 import { ConversionFunnel } from "./components/ConversionFunnel";
 import { TopSellers } from "./components/TopSellers";
+import { SellersPerformanceTable } from "./components/SellersPerformanceTable";
+import { ResponseQualityCard } from "./components/ResponseQualityCard";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
     Trophy, Wallet, Target, Coins, Clock, CheckSquare,
@@ -98,10 +100,17 @@ async function DashboardContent({
     period: string; userId: string; startDate?: string; endDate?: string;
     modules: Record<string, boolean> | null;
 }) {
-    const data = await getDashboardData({ period, userId, startDate, endDate });
+    const [data, perfRes] = await Promise.all([
+        getDashboardData({ period, userId, startDate, endDate }),
+        getSellersPerformance({ period, startDate, endDate }),
+    ]);
+    const perfData = perfRes.success ? perfRes.data : null;
+    const sellers = perfData?.sellers ?? [];
+    const quality = perfData?.quality ?? null;
 
     const showColdCall = modules?.cold_call === true && (data.coldMetrics?.total ?? 0) > 0;
     const showTopSellers = userId === "all" && (data.topSellers?.length ?? 0) > 0;
+    const showSellersTable = userId === "all" && sellers.length > 1;
 
     return (
         <div className="space-y-6">
@@ -139,6 +148,16 @@ async function DashboardContent({
                     accent="purple"
                 />
             </div>
+
+            {/* === QUALIDADE DO ATENDIMENTO (somatorio do tenant) === */}
+            {quality && (
+                <ResponseQualityCard quality={quality} />
+            )}
+
+            {/* === PERFORMANCE POR VENDEDOR (so quando filtro = todos) === */}
+            {showSellersTable && (
+                <SellersPerformanceTable sellers={sellers} />
+            )}
 
             {/* === SECOND ROW: MENSAGENS + FUNIL === */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

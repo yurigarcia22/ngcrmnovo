@@ -394,3 +394,207 @@ export async function getWonDealsDetails(filters?: { period?: string; userId?: s
         return { success: false, error: error.message };
     }
 }
+
+// =====================================================================
+// PERFORMANCE BY SELLER + RESPONSE QUALITY (Pacotes 1 + 2)
+// =====================================================================
+export async function getSellersPerformance(filters?: {
+    period?: string;
+    startDate?: string;
+    endDate?: string;
+}) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { period = "today", startDate: customStart, endDate: customEnd } = filters || {};
+        const brT = new Date(Date.now() - 3 * 3600 * 1000);
+        const sYear = brT.getUTCFullYear();
+        const sMonth = brT.getUTCMonth();
+        const sDay = brT.getUTCDate();
+
+        let startDate = new Date(Date.UTC(sYear, sMonth, sDay, 3, 0, 0)).toISOString();
+        let endDate = new Date(Date.UTC(sYear, sMonth, sDay, 26, 59, 59)).toISOString();
+
+        if (period === "yesterday") {
+            const y = new Date(brT);
+            y.setUTCDate(brT.getUTCDate() - 1);
+            startDate = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 3, 0, 0)).toISOString();
+            endDate = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 26, 59, 59)).toISOString();
+        } else if (period === "week") {
+            const w = new Date(brT);
+            w.setUTCDate(brT.getUTCDate() - 7);
+            startDate = new Date(Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate(), 3, 0, 0)).toISOString();
+        } else if (period === "month") {
+            startDate = new Date(Date.UTC(sYear, sMonth, 1, 3, 0, 0)).toISOString();
+        } else if (period === "custom" && customStart && customEnd) {
+            const [cy, cm, cd] = customStart.split('-').map(Number);
+            const [ey, em, ed] = customEnd.split('-').map(Number);
+            startDate = new Date(Date.UTC(cy, cm - 1, cd, 3, 0, 0)).toISOString();
+            endDate = new Date(Date.UTC(ey, em - 1, ed, 26, 59, 59)).toISOString();
+        } else if (period === "all") {
+            startDate = new Date(0).toISOString();
+        }
+
+        const [
+            { data: profiles },
+            { data: deals },
+            { data: tasks },
+            { data: messages },
+        ] = await Promise.all([
+            supabase
+                .from("profiles")
+                .select("id, full_name, avatar_url")
+                .eq("tenant_id", tenantId)
+                .eq("is_active", true),
+            supabase
+                .from("deals")
+                .select("id, owner_id, status, value, closed_at, created_at")
+                .eq("tenant_id", tenantId),
+            supabase
+                .from("tasks")
+                .select("id, assigned_to, is_completed, due_date")
+                .eq("tenant_id", tenantId),
+            supabase
+                .from("messages")
+                .select("id, deal_id, contact_id, direction, created_at, deals!inner(owner_id, tenant_id)")
+                .eq("tenant_id", tenantId)
+                .gte("created_at", startDate)
+                .lte("created_at", endDate),
+        ]);
+
+        const inRange = (iso?: string | null) => iso ? (iso >= startDate && iso <= endDate) : false;
+        const nowMs = Date.now();
+
+        const sellers = (profiles ?? []).map((p: any) => {
+            const myDeals = (deals ?? []).filter((d: any) => d.owner_id === p.id);
+            const open = myDeals.filter((d: any) => d.status !== "won" && d.status !== "lost");
+            const wonInPeriod = myDeals.filter((d: any) => d.status === "won" && inRange(d.closed_at));
+            const lostInPeriod = myDeals.filter((d: any) => d.status === "lost" && inRange(d.closed_at));
+
+            const myTasks = (tasks ?? []).filter((t: any) => t.assigned_to === p.id);
+            const pendingTasks = myTasks.filter((t: any) => !t.is_completed);
+            const overdueTasks = pendingTasks.filter((t: any) =>
+                t.due_date && new Date(t.due_date).getTime() < nowMs
+            );
+
+            const myMsgs = (messages ?? []).filter((m: any) => m.deals?.owner_id === p.id);
+            const sent = myMsgs.filter((m: any) => m.direction === "outbound");
+            const received = myMsgs.filter((m: any) => m.direction === "inbound");
+            const uniqueContactsReached = new Set(sent.map((m: any) => m.contact_id)).size;
+
+            const pipeline = open.reduce((s: number, d: any) => s + Number(d.value || 0), 0);
+            const wonValue = wonInPeriod.reduce((s: number, d: any) => s + Number(d.value || 0), 0);
+            const closed = wonInPeriod.length + lostInPeriod.length;
+            const conversionRate = closed > 0 ? Math.round((wonInPeriod.length / closed) * 100) : 0;
+
+            const byDeal: Record<string, any[]> = {};
+            for (const m of myMsgs as any[]) {
+                if (!byDeal[m.deal_id]) byDeal[m.deal_id] = [];
+                byDeal[m.deal_id].push(m);
+            }
+
+            const responseTimes: number[] = [];
+            for (const dealMsgs of Object.values(byDeal)) {
+                const sorted = (dealMsgs as any[]).sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                );
+                for (let i = 0; i < sorted.length - 1; i++) {
+                    if (sorted[i].direction === "inbound" && sorted[i + 1].direction === "outbound") {
+                        const delta = (new Date(sorted[i + 1].created_at).getTime() - new Date(sorted[i].created_at).getTime()) / 1000;
+                        if (delta > 0 && delta < 48 * 3600) responseTimes.push(delta);
+                    }
+                }
+            }
+            const avgResponseSec = responseTimes.length > 0
+                ? responseTimes.reduce((s, t) => s + t, 0) / responseTimes.length
+                : 0;
+
+            return {
+                id: p.id,
+                name: p.full_name ?? "Sem nome",
+                avatar: p.avatar_url ?? null,
+                openDeals: open.length,
+                pipelineValue: pipeline,
+                wonCount: wonInPeriod.length,
+                wonValue,
+                conversionRate,
+                pendingTasks: pendingTasks.length,
+                overdueTasks: overdueTasks.length,
+                sentMessages: sent.length,
+                receivedMessages: received.length,
+                uniqueContactsReached,
+                avgResponseSeconds: Math.round(avgResponseSec),
+            };
+        });
+
+        sellers.sort((a: any, b: any) => b.wonValue - a.wonValue);
+
+        const allSent = (messages ?? []).filter((m: any) => m.direction === "outbound");
+        const allReceived = (messages ?? []).filter((m: any) => m.direction === "inbound");
+        const allUniqueContacts = new Set(allSent.map((m: any) => m.contact_id)).size;
+
+        const slaBuckets = { under5min: 0, under1h: 0, under24h: 0, over24h: 0 };
+        const dealsAll: Record<string, any[]> = {};
+        for (const m of (messages ?? []) as any[]) {
+            if (!dealsAll[m.deal_id]) dealsAll[m.deal_id] = [];
+            dealsAll[m.deal_id].push(m);
+        }
+
+        const allResponseTimes: number[] = [];
+        const conversationsWithInbound = new Set<string>();
+        const conversationsAnswered = new Set<string>();
+
+        for (const [dealId, dealMsgs] of Object.entries(dealsAll)) {
+            const sorted = (dealMsgs as any[]).sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+            let hadInbound = false;
+            let answered = false;
+            for (let i = 0; i < sorted.length; i++) {
+                if (sorted[i].direction === "inbound") hadInbound = true;
+                if (hadInbound && sorted[i].direction === "outbound") answered = true;
+                if (i < sorted.length - 1 && sorted[i].direction === "inbound" && sorted[i + 1].direction === "outbound") {
+                    const delta = (new Date(sorted[i + 1].created_at).getTime() - new Date(sorted[i].created_at).getTime()) / 1000;
+                    if (delta <= 0) continue;
+                    allResponseTimes.push(delta);
+                    if (delta < 300) slaBuckets.under5min++;
+                    else if (delta < 3600) slaBuckets.under1h++;
+                    else if (delta < 86400) slaBuckets.under24h++;
+                    else slaBuckets.over24h++;
+                }
+            }
+            if (hadInbound) conversationsWithInbound.add(dealId);
+            if (answered) conversationsAnswered.add(dealId);
+        }
+
+        const avgFirstResponseSec = allResponseTimes.length > 0
+            ? Math.round(allResponseTimes.reduce((s, t) => s + t, 0) / allResponseTimes.length)
+            : 0;
+
+        const responseRate = conversationsWithInbound.size > 0
+            ? Math.round((conversationsAnswered.size / conversationsWithInbound.size) * 100)
+            : 0;
+
+        return {
+            success: true,
+            data: {
+                sellers,
+                quality: {
+                    totalSent: allSent.length,
+                    totalReceived: allReceived.length,
+                    uniqueLeadsReached: allUniqueContacts,
+                    avgFirstResponseSec,
+                    responseRate,
+                    slaBuckets,
+                },
+            },
+        };
+    } catch (e: any) {
+        console.error("getSellersPerformance Error:", e);
+        return { success: false, error: e?.message ?? "Erro", data: null };
+    }
+}
