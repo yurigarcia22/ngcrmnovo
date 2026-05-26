@@ -58,7 +58,15 @@ export function StatCard({ title, value, subtitle, className, children, trend, t
     );
 }
 
-export function MessagesCard({ conversationsCount = 0, unansweredCount = 0 }: { conversationsCount?: number, unansweredCount?: number }) {
+function formatResponseTime(sec?: number | null): string {
+    if (!sec || sec <= 0) return "—";
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.round(sec / 60)}min`;
+    if (sec < 86400) return `${(sec / 3600).toFixed(1)}h`;
+    return `${(sec / 86400).toFixed(1)}d`;
+}
+
+export function MessagesCard({ conversationsCount = 0, unansweredCount = 0, avgResponseSec }: { conversationsCount?: number, unansweredCount?: number, avgResponseSec?: number | null }) {
     return (
         <div className="relative overflow-hidden rounded-2xl p-6 h-full transition-all duration-300 bg-[#0f172a]/60 backdrop-blur-xl border border-white/5 hover:border-white/10 hover:bg-[#0f172a]/80 group">
             {/* Gradient Glow */}
@@ -91,7 +99,7 @@ export function MessagesCard({ conversationsCount = 0, unansweredCount = 0 }: { 
             <div className="mt-6 pt-4 border-t border-white/5">
                 <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-400">Tempo médio de resposta</span>
-                    <span className="text-white font-mono font-medium">-- min</span>
+                    <span className="text-white font-mono font-medium">{formatResponseTime(avgResponseSec)}</span>
                 </div>
             </div>
         </div>

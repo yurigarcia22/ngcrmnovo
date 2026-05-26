@@ -231,6 +231,7 @@ async function DashboardContent({
                     <MessagesCard
                         conversationsCount={data.conversationsCount}
                         unansweredCount={data.unansweredChatsCount}
+                        avgResponseSec={quality?.avgFirstResponseSec}
                     />
                 </div>
                 <div className="lg:col-span-7">
