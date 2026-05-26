@@ -1,9 +1,12 @@
 "use client";
 
-import { TrendingUp, TrendingDown, Minus, type LucideIcon } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface Props {
-    icon: LucideIcon;
+    /** Elemento JSX do icone (ex: <Trophy />). NAO passe o componente direto
+     *  (icon={Trophy}) pois Server -> Client components nao serializa funcoes. */
+    icon: ReactNode;
     label: string;
     value: string;
     sub?: string;
@@ -23,7 +26,7 @@ const accentColors = {
     purple: { ring: "ring-purple-500/30", bg: "bg-purple-500/10", icon: "text-purple-300" },
 } as const;
 
-export function KpiCard({ icon: Icon, label, value, sub, changePct, changeLabel, accent = "indigo" }: Props) {
+export function KpiCard({ icon, label, value, sub, changePct, changeLabel, accent = "indigo" }: Props) {
     const c = accentColors[accent];
     const hasChange = typeof changePct === "number";
     const isPositive = hasChange && changePct! > 0;
@@ -35,8 +38,8 @@ export function KpiCard({ icon: Icon, label, value, sub, changePct, changeLabel,
                 <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                     {label}
                 </div>
-                <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center shrink-0`}>
-                    <Icon className={`w-4 h-4 ${c.icon}`} />
+                <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center shrink-0 ${c.icon}`}>
+                    {icon}
                 </div>
             </div>
 
