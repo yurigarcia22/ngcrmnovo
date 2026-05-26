@@ -17,10 +17,34 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { listEvolutionInstances, setEvolutionWebhook } from "@/lib/webinar/evolution";
+import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
 const CRM_WEBHOOK_URL = process.env.N8N_WEBINAR_WEBHOOK_URL ?? "";
+
+/**
+ * Lista instance_names registradas em public.whatsapp_instances.
+ * Essas pertencem ao CRM principal — webhook delas aponta para a
+ * Edge Function `webhook-evolution`, NAO para o webinar. O guard
+ * NUNCA deve sobrescrever elas (essa era a causa raiz das mensagens
+ * do CRM nao chegarem em /leads e /chat).
+ */
+async function getCrmManagedInstances(): Promise<Set<string>> {
+  try {
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    );
+    const { data } = await admin
+      .from("whatsapp_instances")
+      .select("instance_name");
+    return new Set((data ?? []).map((r: any) => r.instance_name));
+  } catch {
+    return new Set();
+  }
+}
 
 export async function GET(_req: NextRequest) {
   return run();
@@ -63,8 +87,21 @@ async function run() {
   }
 
   const results: Result[] = [];
+  const crmManaged = await getCrmManagedInstances();
 
   for (const inst of instances) {
+    // PROTECAO: instancias do CRM principal (registradas em
+    // whatsapp_instances) tem webhook proprio apontando para a Edge
+    // Function. Nunca sobrescrever — ja deu vazamento antes.
+    if (crmManaged.has(inst.name)) {
+      results.push({
+        instance_name: inst.name,
+        status: "skipped",
+        error: "crm_managed",
+      });
+      continue;
+    }
+
     if (inst.connectionStatus !== "open") {
       results.push({
         instance_name: inst.name,
