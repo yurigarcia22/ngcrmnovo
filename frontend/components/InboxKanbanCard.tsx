@@ -73,8 +73,19 @@ export default function InboxKanbanCard({
                     >
                         {/* Avatar + Nome + Tempo */}
                         <div className="flex items-start gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0">
-                                {initials(contactName)}
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0">
+                                {deal?.contacts?.photo_url ? (
+                                    <img
+                                        src={deal.contacts.photo_url}
+                                        alt={contactName}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                    />
+                                ) : (
+                                    initials(contactName)
+                                )}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">

@@ -1381,7 +1381,8 @@ export async function getConversations(search?: string, ownerId?: string) {
                 contacts!inner (
                     id,
                     name,
-                    phone
+                    phone,
+                    photo_url
                 ),
                 messages (
                     id,

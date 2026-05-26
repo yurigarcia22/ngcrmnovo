@@ -99,7 +99,7 @@ export async function getBoardData(pipelineId?: string) {
                 .from("deals")
                 .select(`
                     *,
-                    contacts (name, phone),
+                    contacts (name, phone, photo_url),
                     deal_contacts (id, name, phone, email, title),
                     deal_members (id, user_id, profiles(full_name, avatar_url)),
                     owner:owner_id (full_name, avatar_url),

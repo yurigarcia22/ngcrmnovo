@@ -428,8 +428,8 @@ export default function ChatPage() {
                                 >
                                     <div className="relative shrink-0">
                                         <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 ring-2 ring-transparent group-hover:ring-blue-100 transition-all">
-                                            {conv.contacts?.profile_pic_url ? (
-                                                <img src={conv.contacts.profile_pic_url} className="w-full h-full object-cover" alt="Avatar" />
+                                            {conv.contacts?.photo_url ? (
+                                                <img src={conv.contacts.photo_url} className="w-full h-full object-cover" alt="Avatar" />
                                             ) : (
                                                 <div className="flex items-center justify-center w-full h-full text-gray-400">
                                                     <User size={24} />
@@ -490,8 +490,8 @@ export default function ChatPage() {
 
                     <div className="p-8 flex flex-col items-center border-b border-gray-100 bg-white relative">
                         <div className="w-32 h-32 rounded-full overflow-hidden mb-4 ring-4 ring-gray-50 shadow-inner group relative">
-                            {selectedDeal.contacts?.profile_pic_url ? (
-                                <img src={selectedDeal.contacts.profile_pic_url} className="w-full h-full object-cover" />
+                            {selectedDeal.contacts?.photo_url ? (
+                                <img src={selectedDeal.contacts.photo_url} className="w-full h-full object-cover" />
                             ) : (
                                 <div className="w-full h-full bg-gray-100 flex items-center justify-center">
                                     <User size={48} className="text-gray-300" />
