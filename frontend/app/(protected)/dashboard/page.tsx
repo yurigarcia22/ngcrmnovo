@@ -109,7 +109,11 @@ async function DashboardContent({
     const quality = perfData?.quality ?? null;
 
     const showColdCall = modules?.cold_call === true && (data.coldMetrics?.total ?? 0) > 0;
-    const showTopSellers = userId === "all" && (data.topSellers?.length ?? 0) > 0;
+    const topSellersData = sellers
+        .filter((s: any) => s.wonValue > 0)
+        .slice(0, 5)
+        .map((s: any) => ({ name: s.name, count: s.wonCount, value: s.wonValue }));
+    const showTopSellers = userId === "all" && topSellersData.length > 0;
     const showSellersTable = userId === "all" && sellers.length > 1;
 
     return (
@@ -195,7 +199,7 @@ async function DashboardContent({
 
                 {showTopSellers ? (
                     <div className="lg:col-span-6">
-                        <TopSellers sellers={data.topSellers} />
+                        <TopSellers sellers={topSellersData} />
                     </div>
                 ) : (
                     <div className="lg:col-span-6">
