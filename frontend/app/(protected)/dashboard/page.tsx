@@ -12,6 +12,7 @@ import { ConversionFunnel } from "./components/ConversionFunnel";
 import { TopSellers } from "./components/TopSellers";
 import { SellersPerformanceTable } from "./components/SellersPerformanceTable";
 import { ResponseQualityCard } from "./components/ResponseQualityCard";
+import { SafeBlock } from "./components/SafeBlock";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
     Trophy, Wallet, Target, Coins, Clock, CheckSquare,
@@ -182,59 +183,94 @@ async function DashboardContent({
     const showTopSellers = userId === "all" && topSellersData.length > 0;
     const showSellersTable = userId === "all" && sellers.length > 1;
 
+    // === MODO DEBUG VISUAL (temporario) ===
+    // Mostra os dados crus pra confirmar que o problema é no JSX/componentes
+    const isDebug = period === "debug";
+    if (isDebug) {
+        return (
+            <div className="bg-white/[0.04] rounded-2xl p-6 border border-white/10">
+                <h3 className="text-white font-bold mb-3">Debug data</h3>
+                <pre className="text-[10px] text-emerald-300 whitespace-pre-wrap overflow-auto max-h-[600px]">
+                    {JSON.stringify({ data, perfData, sellers, quality, showColdCall, showTopSellers, showSellersTable }, null, 2)}
+                </pre>
+            </div>
+        );
+    }
+
+    // === ETAPA DE BISSECAO: o erro pode estar em algum componente especifico.
+    //     Cada novo componente adicionado vai dentro de um SafeBlock.
+    //     Quando o SafeBlock pegar, vamos saber qual é o culpado.
+
     return (
         <div className="space-y-6">
 
-            {/* === HERO ROW: 4 KPIs PRINCIPAIS === */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <KpiCard
-                    icon={Trophy}
-                    label="Receita ganha"
-                    value={formatCurrencyCompact(data.wonValue)}
-                    sub={`${data.wonDeals} ${data.wonDeals === 1 ? "deal" : "deals"}`}
-                    changePct={data.wonValueChangePct}
-                    changeLabel=""
-                    accent="emerald"
-                />
-                <KpiCard
-                    icon={Wallet}
-                    label="Pipeline aberto"
-                    value={formatCurrencyCompact(data.totalOpenValue)}
-                    sub={`${data.totalLeads} ${data.totalLeads === 1 ? "lead" : "leads"}`}
-                    accent="indigo"
-                />
-                <KpiCard
-                    icon={Target}
-                    label="Conversão"
-                    value={`${data.conversionRate}%`}
-                    sub={`${data.wonDeals} ganhos · ${data.lostDeals} perdidos`}
-                    accent="blue"
-                />
-                <KpiCard
-                    icon={Coins}
-                    label="Ticket médio"
-                    value={data.avgTicket > 0 ? formatCurrencyCompact(data.avgTicket) : "—"}
-                    sub="por deal fechado"
-                    accent="purple"
-                />
+            {/* Dados raw — se isso carrega, fetch e setup estao OK */}
+            <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-4">
+                <h3 className="text-emerald-300 font-bold text-sm">✓ Fetch OK</h3>
+                <div className="text-[11px] text-emerald-200 mt-2 grid grid-cols-2 gap-2">
+                    <div>Won R$: {data.wonValue}</div>
+                    <div>Pipeline R$: {data.totalOpenValue}</div>
+                    <div>Conversão %: {data.conversionRate}</div>
+                    <div>Ticket médio: {data.avgTicket}</div>
+                    <div>Stages: {data.leadsByStage?.length ?? 0}</div>
+                    <div>Sellers: {sellers.length}</div>
+                    <div>Quality: {quality ? "sim" : "não"}</div>
+                    <div>Modules: {modules ? Object.keys(modules).length : "null"}</div>
+                </div>
             </div>
 
-            {/* === QUALIDADE DO ATENDIMENTO === */}
+            {/* === BLOCO 1: KPI principais === */}
+            <SafeBlock label="Bloco 1 — KpiCards principais">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <KpiCard
+                        icon={Trophy}
+                        label="Receita ganha"
+                        value={formatCurrencyCompact(data.wonValue)}
+                        sub={`${data.wonDeals} ${data.wonDeals === 1 ? "deal" : "deals"}`}
+                        changePct={data.wonValueChangePct}
+                        changeLabel=""
+                        accent="emerald"
+                    />
+                    <KpiCard
+                        icon={Wallet}
+                        label="Pipeline aberto"
+                        value={formatCurrencyCompact(data.totalOpenValue)}
+                        sub={`${data.totalLeads} ${data.totalLeads === 1 ? "lead" : "leads"}`}
+                        accent="indigo"
+                    />
+                    <KpiCard
+                        icon={Target}
+                        label="Conversão"
+                        value={`${data.conversionRate}%`}
+                        sub={`${data.wonDeals} ganhos · ${data.lostDeals} perdidos`}
+                        accent="blue"
+                    />
+                    <KpiCard
+                        icon={Coins}
+                        label="Ticket médio"
+                        value={data.avgTicket > 0 ? formatCurrencyCompact(data.avgTicket) : "—"}
+                        sub="por deal fechado"
+                        accent="purple"
+                    />
+                </div>
+            </SafeBlock>
+
+            {/* === BLOCO 2: Qualidade do Atendimento === */}
             {quality && (
-                <SafeBlock label="ResponseQualityCard">
+                <SafeBlock label="Bloco 2 — ResponseQualityCard">
                     <ResponseQualityCard quality={quality} />
                 </SafeBlock>
             )}
 
-            {/* === PERFORMANCE POR VENDEDOR === */}
+            {/* === BLOCO 3: Performance Vendedores === */}
             {showSellersTable && (
-                <SafeBlock label="SellersPerformanceTable">
+                <SafeBlock label="Bloco 3 — SellersPerformanceTable">
                     <SellersPerformanceTable sellers={sellers} />
                 </SafeBlock>
             )}
 
-            {/* === SECOND ROW: MENSAGENS + FUNIL === */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* === BLOCO 4: Mensagens + Funil === */}
+            <SafeBlock label="Bloco 4 — MessagesCard + ConversionFunnel"><div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 <div className="lg:col-span-5">
                     <MessagesCard
                         conversationsCount={data.conversationsCount}
@@ -244,10 +280,10 @@ async function DashboardContent({
                 <div className="lg:col-span-7">
                     <ConversionFunnel data={data.leadsByStage} />
                 </div>
-            </div>
+            </div></SafeBlock>
 
-            {/* === THIRD ROW: ATIVIDADE + WON DETAIL + TOP SELLERS === */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* === BLOCO 5: Tarefas + Espera + TopSellers/Won === */}
+            <SafeBlock label="Bloco 5 — Tarefas + Espera + TopSellers/Won"><div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 <div className="lg:col-span-3">
                     <KpiCard
                         icon={CheckSquare}
@@ -283,10 +319,11 @@ async function DashboardContent({
                         />
                     </div>
                 )}
-            </div>
+            </div></SafeBlock>
 
-            {/* === COLD CALL (so se modulo ativo + tem dados) === */}
+            {/* === BLOCO 6: COLD CALL === */}
             {showColdCall && (
+                <SafeBlock label="Bloco 6 — Cold Call">
                 <div className="bg-white/[0.04] backdrop-blur-sm rounded-2xl p-6 border border-white/10">
                     <div className="flex items-center gap-3 mb-5">
                         <div className="w-1 h-6 bg-indigo-400 rounded-full" />
@@ -332,6 +369,7 @@ async function DashboardContent({
                         />
                     </div>
                 </div>
+                </SafeBlock>
             )}
 
         </div>
