@@ -1601,6 +1601,53 @@ export async function getWhatsappInstances() {
 }
 
 // =====================================================================
+// UNREAD MESSAGES
+// =====================================================================
+
+/** Conta total de mensagens inbound nao lidas do tenant atual. */
+export async function getUnreadCount(): Promise<{ success: boolean; count?: number; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { count, error } = await supabase
+            .from("messages")
+            .select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenantId)
+            .eq("direction", "inbound")
+            .is("read_at", null);
+        if (error) return { success: false, error: error.message };
+        return { success: true, count: count ?? 0 };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+/** Marca todas as mensagens inbound de um deal como lidas. */
+export async function markDealMessagesRead(dealId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { error } = await supabase
+            .from("messages")
+            .update({ read_at: new Date().toISOString() })
+            .eq("deal_id", dealId)
+            .eq("tenant_id", tenantId)
+            .eq("direction", "inbound")
+            .is("read_at", null);
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+// =====================================================================
 // CONTACT PANEL (/chat sidebar)
 // =====================================================================
 

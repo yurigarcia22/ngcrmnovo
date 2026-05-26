@@ -20,6 +20,8 @@ import {
     Megaphone
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
+import { getUnreadCount } from "@/app/actions";
+import { createClient } from "@/utils/supabase/client";
 import { cn } from "@/lib/utils";
 
 import type { TenantModulesMap } from "@/lib/modules";
@@ -33,6 +35,45 @@ export default function Sidebar({
 }) {
     const [open, setOpen] = useState(initialOpen);
     const [isMounted, setIsMounted] = useState(false);
+    const [unread, setUnread] = useState(0);
+
+    // Carrega contagem de nao lidas + realtime + atualizacao do titulo
+    useEffect(() => {
+        let cancelled = false;
+        const refresh = async () => {
+            const res = await getUnreadCount();
+            if (!cancelled && res.success) setUnread(res.count ?? 0);
+        };
+        refresh();
+
+        // Subscribe a inserts e updates em messages
+        const supabase = createClient();
+        const channel = supabase
+            .channel("sidebar_unread")
+            .on(
+                "postgres_changes",
+                { event: "INSERT", schema: "public", table: "messages" },
+                refresh,
+            )
+            .on(
+                "postgres_changes",
+                { event: "UPDATE", schema: "public", table: "messages" },
+                refresh,
+            )
+            .subscribe();
+
+        return () => {
+            cancelled = true;
+            supabase.removeChannel(channel);
+        };
+    }, []);
+
+    // Atualiza o titulo do navegador quando ha mensagens nao lidas
+    useEffect(() => {
+        if (typeof document === "undefined") return;
+        const base = "CRM NG";
+        document.title = unread > 0 ? `(${unread}) ${base}` : base;
+    }, [unread]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -151,6 +192,7 @@ export default function Sidebar({
                         href="/chat"
                         isActive={pathname.startsWith("/chat")}
                         open={open}
+                        notifs={unread > 0 ? unread : undefined}
                     />
                 )}
                 {modules.emails && (

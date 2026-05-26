@@ -285,9 +285,31 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
                                         rows={4}
                                         value={content}
                                         onChange={(e) => setContent(e.target.value)}
-                                        placeholder="Digite a mensagem completa..."
+                                        placeholder="Ex: Olá {{primeiro_nome}}, tudo bem?"
                                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800 resize-none"
                                     />
+                                </div>
+                                <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded text-[11px] text-blue-700">
+                                    <strong>Variáveis disponíveis:</strong>{" "}
+                                    {[
+                                        "{{nome}}",
+                                        "{{primeiro_nome}}",
+                                        "{{telefone}}",
+                                        "{{email}}",
+                                        "{{empresa}}",
+                                        "{{valor}}",
+                                        "{{titulo_deal}}",
+                                        "{{vendedor}}",
+                                    ].map((v) => (
+                                        <button
+                                            key={v}
+                                            type="button"
+                                            onClick={() => setContent(content + v)}
+                                            className="inline-block mx-0.5 my-0.5 px-1.5 py-0.5 bg-white border border-blue-200 rounded font-mono hover:bg-blue-100 transition-colors"
+                                        >
+                                            {v}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 

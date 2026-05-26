@@ -152,8 +152,37 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         }
     }
 
+    /**
+     * Substitui variaveis no formato {{chave}} pelos valores do deal/contact.
+     * Variaveis suportadas: nome, primeiro_nome, telefone, email, empresa,
+     * valor, valor_extenso, titulo_deal, vendedor.
+     */
+    function renderTemplate(template: string): string {
+        const contact = deal?.contacts ?? {};
+        const ownerName = deal?.owner?.full_name ?? "";
+        const firstName = (contact.name ?? "").split(" ")[0];
+        const valorNum = Number(deal?.value ?? 0);
+        const valorFmt = valorNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+        const vars: Record<string, string> = {
+            nome: contact.name ?? "",
+            primeiro_nome: firstName,
+            telefone: contact.phone ?? "",
+            email: contact.email ?? "",
+            empresa: deal?.companies?.name ?? contact.company ?? "",
+            valor: valorFmt,
+            titulo_deal: deal?.title ?? "",
+            vendedor: ownerName,
+        };
+
+        return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (match, key) => {
+            const k = key.toLowerCase();
+            return vars[k] !== undefined ? vars[k] : match;
+        });
+    }
+
     function handleQuickReply(content: string) {
-        setNewMessage(content);
+        setNewMessage(renderTemplate(content));
         inputRef.current?.focus();
     }
 

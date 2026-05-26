@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact } from '@/app/actions';
+import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact, markDealMessagesRead } from '@/app/actions';
 import ChatWindow from '@/components/ChatWindow';
 import ChatContactPanel from '@/components/chat/ChatContactPanel';
 import { createClient } from '@/utils/supabase/client';
@@ -93,24 +93,39 @@ export default function ChatPage() {
         }
     }, [urlDealId, conversations, selectedDeal]);
 
-    // Realtime Subscription
+    // Realtime Subscription + notificacao sonora ao receber inbound
     useEffect(() => {
         console.log("Subscribing to global messages for list updates...");
+
+        // Pre-carrega audio uma vez
+        let audio: HTMLAudioElement | null = null;
+        try {
+            audio = new Audio("/sounds/notification.mp3");
+            audio.volume = 0.4;
+        } catch { /* ignore */ }
+
+        const playSound = () => {
+            if (!audio) return;
+            audio.currentTime = 0;
+            audio.play().catch(() => { /* autoplay block — ignora */ });
+        };
 
         const channel = supabase
             .channel('chat_list_updates')
             .on('postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'messages' },
                 (payload: any) => {
-                    console.log("[ChatList] New message received!", payload.new);
+                    const msg = payload.new;
+                    // Toca som apenas se for inbound (cliente respondeu)
+                    if (msg?.direction === "inbound") {
+                        playSound();
+                    }
                     loadConversations();
                 }
             )
             .on('postgres_changes',
                 { event: 'UPDATE', schema: 'public', table: 'deals' },
-                (payload: any) => {
-                    console.log("[ChatList] Deal updated!", payload.new);
-                    // Update visible details without full reload if possible
+                () => {
                     loadConversations();
                 }
             )
@@ -120,6 +135,15 @@ export default function ChatPage() {
             supabase.removeChannel(channel);
         };
     }, []);
+
+    // Marca msgs como lidas quando seleciona conversa
+    useEffect(() => {
+        if (selectedDeal?.id) {
+            markDealMessagesRead(selectedDeal.id).then(() => {
+                // Atualiza badge da sidebar (atraves do realtime de UPDATE em messages)
+            });
+        }
+    }, [selectedDeal?.id]);
 
     async function loadConversations() {
         // Pass "filterInstance" logic? 
