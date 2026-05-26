@@ -40,13 +40,42 @@ export default async function DashboardPage(props: { searchParams: SearchParams 
     const startDate = searchParams.startDate as string | undefined;
     const endDate = searchParams.endDate as string | undefined;
 
-    const [companyFetch, onboarding, ctx] = await Promise.all([
-        getCompanyDetails(),
-        getOnboardingState(),
-        getTenantContext(),
-    ]);
-    const companyName = companyFetch.success ? companyFetch.name : "CRM";
-    const modules = ctx?.modules ?? null;
+    // Captura erro em qualquer setup pre-render
+    let companyName = "CRM";
+    let onboarding: any = { needsOnboarding: false, steps: {} };
+    let modules: Record<string, boolean> | null = null;
+    let setupError: string | null = null;
+    let setupWhere: string | null = null;
+
+    try {
+        setupWhere = "getCompanyDetails";
+        const companyFetch = await getCompanyDetails();
+        companyName = companyFetch.success ? companyFetch.name : "CRM";
+
+        setupWhere = "getOnboardingState";
+        onboarding = await getOnboardingState();
+
+        setupWhere = "getTenantContext";
+        const ctx = await getTenantContext();
+        modules = ctx?.modules ?? null;
+
+        setupWhere = null;
+    } catch (e: any) {
+        setupError = `[${setupWhere}] ${e?.message ?? String(e)}\n\n${e?.stack ?? ""}`;
+    }
+
+    if (setupError) {
+        return (
+            <div className="min-h-screen bg-slate-900 text-white p-8">
+                <div className="max-w-3xl mx-auto bg-rose-950/40 border border-rose-500/40 rounded-2xl p-6">
+                    <h2 className="text-rose-300 font-bold mb-2">Erro server-side capturado (setup)</h2>
+                    <pre className="text-[11px] text-rose-200 whitespace-pre-wrap font-mono break-all">
+                        {setupError}
+                    </pre>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-6 lg:p-8 font-sans">
@@ -190,14 +219,18 @@ async function DashboardContent({
                 />
             </div>
 
-            {/* === QUALIDADE DO ATENDIMENTO (somatorio do tenant) === */}
+            {/* === QUALIDADE DO ATENDIMENTO === */}
             {quality && (
-                <ResponseQualityCard quality={quality} />
+                <SafeBlock label="ResponseQualityCard">
+                    <ResponseQualityCard quality={quality} />
+                </SafeBlock>
             )}
 
-            {/* === PERFORMANCE POR VENDEDOR (so quando filtro = todos) === */}
+            {/* === PERFORMANCE POR VENDEDOR === */}
             {showSellersTable && (
-                <SellersPerformanceTable sellers={sellers} />
+                <SafeBlock label="SellersPerformanceTable">
+                    <SellersPerformanceTable sellers={sellers} />
+                </SafeBlock>
             )}
 
             {/* === SECOND ROW: MENSAGENS + FUNIL === */}
