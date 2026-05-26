@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 
 // --- PIPELINES ---
 
-export async function getPipelines() {
+export async function getPipelines(kind?: "deals" | "cold_call") {
     try {
         const tenantId = await getTenantId();
         const supabase = createClient(
@@ -14,11 +14,14 @@ export async function getPipelines() {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const { data, error } = await supabase
+        let query = supabase
             .from("pipelines")
             .select("*")
-            .eq("tenant_id", tenantId)
-            .order("created_at", { ascending: true });
+            .eq("tenant_id", tenantId);
+
+        if (kind) query = query.eq("kind", kind);
+
+        const { data, error } = await query.order("created_at", { ascending: true });
 
         if (error) throw error;
         return { success: true, data };
@@ -28,7 +31,7 @@ export async function getPipelines() {
     }
 }
 
-export async function createPipeline(name: string) {
+export async function createPipeline(name: string, kind: "deals" | "cold_call" = "deals") {
     try {
         const tenantId = await getTenantId();
         const supabase = createClient(
@@ -39,25 +42,34 @@ export async function createPipeline(name: string) {
         // 1. Cria o pipeline
         const { data: pipeline, error } = await supabase
             .from("pipelines")
-            .insert({ name, tenant_id: tenantId })
+            .insert({ name, tenant_id: tenantId, kind })
             .select()
             .single();
 
         if (error) throw error;
 
-        // 2. Cria 5 stages padrao:
-        //    - Lead Entrada (is_inbox=true)  - onde mensagens novas caem
-        //    - Qualificacao
-        //    - Negociacao
-        //    - Fechamento (is_won=true)  - marca como ganho automaticamente
-        //    - Perdido (is_lost=true)    - marca como perda automaticamente
-        const defaultStages = [
-            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Lead Entrada", position: 0, color: "#6366f1", is_inbox: true,  is_won: false, is_lost: false },
-            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Qualificação", position: 1, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false },
-            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Negociação",   position: 2, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false },
-            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Fechamento",   position: 3, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false },
-            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Perdido",      position: 4, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true  },
-        ];
+        // 2. Stages padrao conforme o kind do funil
+        let defaultStages: any[];
+        if (kind === "cold_call") {
+            defaultStages = [
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Novo",             position: 0, color: "#94a3b8", is_inbox: true,  is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 1",      position: 1, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 2+",     position: 2, color: "#f97316", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Contato feito",    position: 3, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Falou c/ decisor", position: 4, color: "#8b5cf6", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Reunião marcada",  position: 5, color: "#06b6d4", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Convertido",       position: 6, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Descartado",      position: 7, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true  },
+            ];
+        } else {
+            defaultStages = [
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Lead Entrada", position: 0, color: "#6366f1", is_inbox: true,  is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Qualificação", position: 1, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Negociação",   position: 2, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Fechamento",   position: 3, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Perdido",      position: 4, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true  },
+            ];
+        }
 
         const { error: stagesError } = await supabase
             .from("stages")
@@ -65,7 +77,6 @@ export async function createPipeline(name: string) {
 
         if (stagesError) {
             console.error("Erro ao criar stages padrao:", stagesError);
-            // Nao bloqueia: pipeline ja foi criado, vendedor adiciona manual depois
         }
 
         revalidatePath("/settings/pipelines");

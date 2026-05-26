@@ -26,10 +26,12 @@ export default function PipelinesPage() {
     // Filter states
     const [newPipelineName, setNewPipelineName] = useState("");
     const [isCreatingPipeline, setIsCreatingPipeline] = useState(false);
+    const [activeKind, setActiveKind] = useState<"deals" | "cold_call">("deals");
 
     useEffect(() => {
         loadPipelines();
-    }, []);
+        setSelectedPipelineId(null); // Reset selecao ao trocar tab
+    }, [activeKind]);
 
     useEffect(() => {
         if (selectedPipelineId) {
@@ -48,7 +50,7 @@ export default function PipelinesPage() {
 
     async function loadPipelines() {
         setLoading(true);
-        const res = await getPipelines();
+        const res = await getPipelines(activeKind);
         if (res.success) {
             setPipelines(res.data || []);
         }
@@ -70,7 +72,7 @@ export default function PipelinesPage() {
         e.preventDefault();
         if (!newPipelineName.trim()) return;
 
-        const res = await createPipeline(newPipelineName);
+        const res = await createPipeline(newPipelineName, activeKind);
         if (res.success) {
             setNewPipelineName("");
             setIsCreatingPipeline(false);
@@ -183,10 +185,10 @@ export default function PipelinesPage() {
                         <div>
                             <CardTitle className="text-xl flex items-center gap-2">
                                 <LayoutTemplate className="w-5 h-5 text-blue-600" />
-                                Funis de Vendas
+                                Funis
                             </CardTitle>
                             <CardDescription className="mt-1">
-                                Gerencie seus processos comerciais
+                                Gerencie os funis de venda e prospecção
                             </CardDescription>
                         </div>
                         <Button
@@ -196,6 +198,32 @@ export default function PipelinesPage() {
                         >
                             <Plus className="w-5 h-5" />
                         </Button>
+                    </div>
+
+                    {/* TABS Vendas / Prospecção */}
+                    <div className="flex gap-1 mt-4 p-1 bg-slate-100 rounded-lg">
+                        <button
+                            onClick={() => setActiveKind("deals")}
+                            className={cn(
+                                "flex-1 px-3 py-1.5 text-xs font-bold rounded-md transition-all",
+                                activeKind === "deals"
+                                    ? "bg-white text-blue-700 shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
+                            )}
+                        >
+                            Vendas
+                        </button>
+                        <button
+                            onClick={() => setActiveKind("cold_call")}
+                            className={cn(
+                                "flex-1 px-3 py-1.5 text-xs font-bold rounded-md transition-all",
+                                activeKind === "cold_call"
+                                    ? "bg-white text-indigo-700 shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
+                            )}
+                        >
+                            Prospecção (Cold Call)
+                        </button>
                     </div>
                 </CardHeader>
 

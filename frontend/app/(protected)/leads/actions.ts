@@ -16,6 +16,7 @@ export async function getPipelines() {
             .from("pipelines")
             .select("*, stages(id, name, position)")
             .eq("tenant_id", tenantId)
+            .eq("kind", "deals")  // /leads so mostra funis de venda
             .order("created_at", { ascending: true });
 
         if (error) throw error;
@@ -42,6 +43,7 @@ export async function getBoardData(pipelineId?: string) {
                 .from("pipelines")
                 .select("id")
                 .eq("tenant_id", tenantId)
+                .eq("kind", "deals")
                 .order("created_at", { ascending: true })
                 .limit(1)
                 .single();
