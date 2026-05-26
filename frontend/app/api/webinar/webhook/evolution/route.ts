@@ -512,6 +512,24 @@ export async function POST(req: NextRequest) {
       .order("created_at", { ascending: true });
 
     const campaign = lead.webinar_campaigns;
+
+    // CRITICO: Se a campanha nao esta ATIVA, o agente nao responde.
+    // Antes da correcao, IA respondia mesmo com campanha 'paused',
+    // 'finished' ou 'archived' — gerando mensagens automaticas
+    // indesejadas (especialmente em testes / depois de encerrar evento).
+    if (campaign?.status !== "active") {
+      console.log(
+        "[webhook evolution] campaign=" + campaign?.id +
+        " status=" + campaign?.status + " — agente ignorado (campanha nao ativa)",
+      );
+      return NextResponse.json({
+        ok: true,
+        skipped: "campaign_not_active",
+        campaignStatus: campaign?.status,
+        leadId: lead.id,
+      });
+    }
+
     const eventDate = campaign.event_date ? new Date(campaign.event_date) : null;
 
     const ctx: AgentContext = {
