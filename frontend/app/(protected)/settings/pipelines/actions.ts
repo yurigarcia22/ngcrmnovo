@@ -36,15 +36,40 @@ export async function createPipeline(name: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const { data, error } = await supabase
+        // 1. Cria o pipeline
+        const { data: pipeline, error } = await supabase
             .from("pipelines")
             .insert({ name, tenant_id: tenantId })
             .select()
             .single();
 
         if (error) throw error;
+
+        // 2. Cria 5 stages padrao:
+        //    - Lead Entrada (is_inbox=true)  - onde mensagens novas caem
+        //    - Qualificacao
+        //    - Negociacao
+        //    - Fechamento (is_won=true)  - marca como ganho automaticamente
+        //    - Perdido (is_lost=true)    - marca como perda automaticamente
+        const defaultStages = [
+            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Lead Entrada", position: 0, color: "#6366f1", is_inbox: true,  is_won: false, is_lost: false },
+            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Qualificação", position: 1, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false },
+            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Negociação",   position: 2, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false },
+            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Fechamento",   position: 3, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false },
+            { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Perdido",      position: 4, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true  },
+        ];
+
+        const { error: stagesError } = await supabase
+            .from("stages")
+            .insert(defaultStages);
+
+        if (stagesError) {
+            console.error("Erro ao criar stages padrao:", stagesError);
+            // Nao bloqueia: pipeline ja foi criado, vendedor adiciona manual depois
+        }
+
         revalidatePath("/settings/pipelines");
-        return { success: true, data };
+        return { success: true, data: pipeline };
     } catch (error: any) {
         return { success: false, error: error.message };
     }
