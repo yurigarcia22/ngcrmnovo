@@ -9,7 +9,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
     updateContact, updateContactNotes, getContactStats, getContactDealHistory,
-    snoozeDeal, setDealResolved, getTeamMembers, updateDeal,
+    snoozeDeal, setDealResolved, getTeamMembers, updateDeal, createTask,
 } from "@/app/actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -64,6 +64,15 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
 
     // Snooze
     const [showSnooze, setShowSnooze] = useState(false);
+
+    // Schedule (Agendar)
+    const [showSchedule, setShowSchedule] = useState(false);
+    const [scheduleDesc, setScheduleDesc] = useState("");
+    const [scheduleAt, setScheduleAt] = useState("");
+    const [scheduling, setScheduling] = useState(false);
+
+    // Status menu
+    const [showStatusMenu, setShowStatusMenu] = useState(false);
 
     useEffect(() => {
         if (!contact?.id) return;
@@ -131,14 +140,54 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
         }
     }
 
-    async function doResolve() {
-        const isResolved = !!deal.resolved_at;
-        const res = await setDealResolved(deal.id, !isResolved);
+    async function doResolve(resolved: boolean) {
+        const res = await setDealResolved(deal.id, resolved);
         if (res.success) {
-            toast.success(isResolved ? "Conversa reaberta" : "Conversa marcada como resolvida");
+            toast.success(resolved ? "Conversa marcada como resolvida" : "Conversa reaberta");
+            setShowStatusMenu(false);
             onChange?.();
         } else {
             toast.error(res.error ?? "Erro");
+        }
+    }
+
+    async function openSchedule(preset?: { desc: string; hoursAhead: number }) {
+        const now = new Date();
+        if (preset) {
+            now.setHours(now.getHours() + preset.hoursAhead);
+            setScheduleDesc(preset.desc);
+        } else {
+            // default: amanhã 9h
+            now.setDate(now.getDate() + 1);
+            now.setHours(9, 0, 0, 0);
+            setScheduleDesc("");
+        }
+        const iso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        setScheduleAt(iso);
+        setShowSchedule(true);
+        setShowStatusMenu(false);
+    }
+
+    async function doSchedule() {
+        if (!scheduleAt) {
+            toast.error("Defina uma data/hora");
+            return;
+        }
+        if (!scheduleDesc.trim()) {
+            toast.error("Descreva o que fazer");
+            return;
+        }
+        setScheduling(true);
+        const res = await createTask(deal.id, scheduleDesc.trim(), scheduleAt);
+        setScheduling(false);
+        if (res.success) {
+            toast.success("Agendado!");
+            setShowSchedule(false);
+            setScheduleDesc("");
+            setScheduleAt("");
+            onChange?.();
+        } else {
+            toast.error(res.error ?? "Erro ao agendar");
         }
     }
 
@@ -373,7 +422,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                         <QuickAction
                             icon={<Calendar size={13} />}
                             label="Agendar"
-                            onClick={() => router.push(`/deals/${deal.id}`)}
+                            onClick={() => openSchedule()}
                         />
                         <QuickAction
                             icon={<Forward size={13} />}
@@ -386,12 +435,60 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                             onClick={() => setShowSnooze(true)}
                             active={!!deal.snoozed_until && new Date(deal.snoozed_until).getTime() > Date.now()}
                         />
-                        <QuickAction
-                            icon={<CheckCircle2 size={13} />}
-                            label={deal.resolved_at ? "Reabrir" : "Resolvida"}
-                            onClick={doResolve}
-                            active={!!deal.resolved_at}
-                        />
+                        <div className="relative">
+                            <QuickAction
+                                icon={<CheckCircle2 size={13} />}
+                                label={deal.resolved_at ? "Status: ✓" : "Status"}
+                                onClick={() => setShowStatusMenu(!showStatusMenu)}
+                                active={!!deal.resolved_at || showStatusMenu}
+                            />
+                            {showStatusMenu && (
+                                <>
+                                    <button
+                                        onClick={() => setShowStatusMenu(false)}
+                                        className="fixed inset-0 z-30 cursor-default"
+                                        tabIndex={-1}
+                                        aria-label="Fechar menu"
+                                    />
+                                    <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-xl z-40 py-1 animate-in fade-in slide-in-from-top-1">
+                                        {!deal.resolved_at ? (
+                                            <>
+                                                <button
+                                                    onClick={() => openSchedule({ desc: "Retornar conversa", hoursAhead: 2 })}
+                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-blue-50 text-gray-700"
+                                                >
+                                                    <Clock size={13} className="text-blue-500" />
+                                                    Marcar para retornar
+                                                </button>
+                                                <button
+                                                    onClick={() => openSchedule({ desc: "Follow-up", hoursAhead: 24 })}
+                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-amber-50 text-gray-700"
+                                                >
+                                                    <Calendar size={13} className="text-amber-500" />
+                                                    Agendar follow-up
+                                                </button>
+                                                <div className="my-1 border-t border-gray-100" />
+                                                <button
+                                                    onClick={() => doResolve(true)}
+                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-emerald-50 text-gray-700"
+                                                >
+                                                    <CheckCircle2 size={13} className="text-emerald-500" />
+                                                    Marcar como resolvida
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                onClick={() => doResolve(false)}
+                                                className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"
+                                            >
+                                                <CheckCircle2 size={13} className="text-gray-400" />
+                                                Reabrir conversa
+                                            </button>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -406,6 +503,81 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                     </button>
                 </div>
             </div>
+
+            {/* SCHEDULE MODAL */}
+            {showSchedule && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-2xl">
+                        <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                            <Calendar className="text-blue-500" size={18} /> Agendar
+                        </h3>
+
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                            O que fazer?
+                        </label>
+                        <input
+                            type="text"
+                            value={scheduleDesc}
+                            onChange={(e) => setScheduleDesc(e.target.value)}
+                            placeholder="Ex: Retornar ligação, enviar proposta..."
+                            autoFocus
+                            className="w-full px-3 py-2 mb-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                        />
+
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                            Quando?
+                        </label>
+                        <input
+                            type="datetime-local"
+                            value={scheduleAt}
+                            onChange={(e) => setScheduleAt(e.target.value)}
+                            className="w-full px-3 py-2 mb-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+                        />
+
+                        <div className="flex gap-1 flex-wrap mb-3">
+                            {[
+                                { label: "Em 1h", hours: 1 },
+                                { label: "Em 4h", hours: 4 },
+                                { label: "Amanhã 9h", hours: -1 },
+                                { label: "Em 3 dias", hours: 72 },
+                            ].map((preset) => (
+                                <button
+                                    key={preset.label}
+                                    onClick={() => {
+                                        const d = new Date();
+                                        if (preset.hours === -1) {
+                                            d.setDate(d.getDate() + 1);
+                                            d.setHours(9, 0, 0, 0);
+                                        } else {
+                                            d.setHours(d.getHours() + preset.hours);
+                                        }
+                                        setScheduleAt(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+                                    }}
+                                    className="px-2 py-1 text-[10px] bg-gray-100 hover:bg-blue-50 hover:text-blue-700 rounded transition-colors"
+                                >
+                                    {preset.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setShowSchedule(false)}
+                                className="flex-1 px-3 py-2 text-xs text-gray-500 hover:bg-gray-100 rounded"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={doSchedule}
+                                disabled={scheduling}
+                                className="flex-1 px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded"
+                            >
+                                {scheduling ? "..." : "Agendar"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* SNOOZE MODAL */}
             {showSnooze && (
