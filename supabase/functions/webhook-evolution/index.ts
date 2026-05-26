@@ -141,21 +141,52 @@ serve(async (req) => {
     }
 
     // --- 5. Busca ou Cria Contato (Scoped by Tenant) ---
-    let searchPhones = [phone];
-    if (phone.startsWith('55')) {
-      if (phone.length === 13 && phone[4] === '9') searchPhones.push(phone.substring(0, 4) + phone.substring(5));
-      else if (phone.length === 12) searchPhones.push(phone.substring(0, 4) + '9' + phone.substring(4));
+    // Normaliza para formato canonico BR: sempre 13 chars com nono digito.
+    // Telefones do BR sem o "9" (12 chars) sao reescritos para 13.
+    let canonicalPhone = phone;
+    if (phone.startsWith('55') && phone.length === 12) {
+      // 55 + DDD + 8 digitos -> 55 + DDD + "9" + 8 digitos
+      canonicalPhone = phone.substring(0, 4) + '9' + phone.substring(4);
     }
 
-    let { data: contact } = await supabase
-      .from('contacts')
-      .select('id, photo_url')
-      .in('phone', searchPhones)
-      .eq('tenant_id', tenantId)
-      .limit(1)
-      .maybeSingle();
+    // Lookup tenta canonical primeiro, depois variacoes legacy.
+    const searchPhones = [canonicalPhone];
+    if (canonicalPhone !== phone) searchPhones.push(phone);
+    if (canonicalPhone.length === 13 && canonicalPhone[4] === '9') {
+      searchPhones.push(canonicalPhone.substring(0, 4) + canonicalPhone.substring(5));
+    }
 
-    let contactId = contact?.id;
+    // Busca todos os matches e prioriza: (1) com foto, (2) canonical, (3) qualquer
+    const { data: candidates } = await supabase
+      .from('contacts')
+      .select('id, phone, photo_url')
+      .in('phone', searchPhones)
+      .eq('tenant_id', tenantId);
+
+    let contact: { id: string; phone: string; photo_url: string | null } | null = null;
+    if (candidates && candidates.length > 0) {
+      contact =
+        candidates.find((c) => c.phone === canonicalPhone) ??
+        candidates.find((c) => c.photo_url && c.photo_url.length > 0) ??
+        candidates[0];
+
+      // Backfill: se o contact achado nao esta no formato canonico,
+      // atualiza para o canonico (mantem ID, apenas normaliza o phone).
+      if (contact && contact.phone !== canonicalPhone) {
+        // So atualiza se nao houver conflito (canonical ja existir noutro contact)
+        const conflict = candidates.find(
+          (c) => c.id !== contact!.id && c.phone === canonicalPhone,
+        );
+        if (!conflict) {
+          await supabase
+            .from('contacts')
+            .update({ phone: canonicalPhone })
+            .eq('id', contact.id);
+        }
+      }
+    }
+
+    let contactId: string | undefined = contact?.id;
     const hasPhoto = !!(contact?.photo_url && contact.photo_url.length > 0);
 
     // Helper: pega foto de perfil do WhatsApp via Evolution API
@@ -175,7 +206,6 @@ serve(async (req) => {
         );
         if (!r.ok) return null;
         const j = await r.json();
-        // resposta tipica: { wuid: '...', profilePictureUrl: 'https://...' }
         return j?.profilePictureUrl ?? null;
       } catch {
         return null;
@@ -183,13 +213,13 @@ serve(async (req) => {
     }
 
     if (!contactId) {
-      // Contact novo: tenta pegar foto antes de inserir
+      // Contact novo: insere sempre no formato canonico
       const photoUrl = await fetchProfilePictureUrl();
       const { data: newContact, error } = await supabase
         .from('contacts')
         .insert({
           name: pushName,
-          phone,
+          phone: canonicalPhone,
           tenant_id: tenantId,
           photo_url: photoUrl ?? '',
         })
@@ -198,7 +228,7 @@ serve(async (req) => {
       if (error) throw error;
       contactId = newContact.id;
     } else if (!hasPhoto) {
-      // Contact existente sem foto: tenta puxar uma vez (fire-and-forget)
+      // Contact existente sem foto: tenta puxar uma vez
       const photoUrl = await fetchProfilePictureUrl();
       if (photoUrl) {
         await supabase
