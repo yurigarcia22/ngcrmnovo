@@ -83,11 +83,32 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                     };
 
                     setItems(prev => {
-                        // Check if already exists (deduplication)
+                        // 1) Deduplica por ID real
                         if (prev.some(i => i.id === newItem.id)) return prev;
-                        // Replace temp item if content matches? Hard to guarantee.
-                        // Simple approach: Add new real item, sort again.
-                        return [newItem, ...prev].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+                        // 2) Substitui item OPTIMISTIC (temp-...) que bate por
+                        //    content + direction + janela de tempo (10s).
+                        //    Evita duplicacao quando voce envia uma msg: o temp
+                        //    item entrou primeiro, agora o real chega via realtime.
+                        const matchingTempIdx = prev.findIndex(i =>
+                            i.isTemp === true &&
+                            i.direction === newItem.direction &&
+                            i.content === newItem.content &&
+                            Math.abs(new Date(i.created_at).getTime() - new Date(newItem.created_at).getTime()) < 10000
+                        );
+
+                        let next: TimelineItem[];
+                        if (matchingTempIdx >= 0) {
+                            // Substitui temp pelo real (mantem posicao na lista)
+                            next = [...prev];
+                            next[matchingTempIdx] = newItem;
+                        } else {
+                            next = [newItem, ...prev];
+                        }
+
+                        return next.sort((a, b) =>
+                            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                        );
                     });
                 }
             )
