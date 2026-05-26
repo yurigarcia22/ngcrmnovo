@@ -92,11 +92,14 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         let msgQuery = supabase.from("messages").select("contact_id").eq("tenant_id", tenantId).gte("created_at", startDate).lte("created_at", endDate);
 
         // 7. Latest Messages (for Unanswered & Wait Time)
-        // We fetch a bit more to ensure we get enough distinct contacts
+        // Limita aos ultimos 30 dias para nao contar conversas mortas
+        // (lixo de notificacao, leads esquecidos antigos).
+        const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
         const latestMsgQuery = supabase
             .from("messages")
-            .select("contact_id, direction, created_at, content")
+            .select("contact_id, direction, created_at, content, deals!inner(resolved_at, status)")
             .eq("tenant_id", tenantId)
+            .gte("created_at", thirtyDaysAgoIso)
             .order("contact_id", { ascending: true })
             .order("created_at", { ascending: false });
 
@@ -204,8 +207,13 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         const conversationsCount = uniqueContacts.size;
 
         // Unanswered & Wait Time
+        // Ignora msgs em deals resolvidos ou ja fechados (won/lost).
         const lastMsgMap = new Map();
         latestMessages?.forEach((msg: any) => {
+            const deal = msg.deals;
+            // Pula se deal esta resolvida ou fechada
+            if (deal?.resolved_at) return;
+            if (deal?.status === "won" || deal?.status === "lost") return;
             if (!lastMsgMap.has(msg.contact_id)) {
                 lastMsgMap.set(msg.contact_id, msg);
             }
