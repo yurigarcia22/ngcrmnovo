@@ -117,6 +117,38 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
 
         let tenantQuery = supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
 
+        // 10. Lost Deals (no periodo)
+        let lostQuery = supabase
+            .from("deals")
+            .select("value", { count: "exact" })
+            .eq("status", "lost")
+            .eq("tenant_id", tenantId);
+        if (userId && userId !== "all") lostQuery = lostQuery.eq("owner_id", userId);
+        if (period !== "all") lostQuery = lostQuery.gte("closed_at", startDate).lte("closed_at", endDate);
+
+        // 11. Won Deals do periodo anterior (mesma duracao) para comparativo
+        const periodDurationMs = new Date(endDate).getTime() - new Date(startDate).getTime();
+        const prevStart = new Date(new Date(startDate).getTime() - periodDurationMs).toISOString();
+        const prevEnd = startDate;
+        let wonPrevQuery = supabase
+            .from("deals")
+            .select("value", { count: "exact" })
+            .eq("status", "won")
+            .eq("tenant_id", tenantId);
+        if (userId && userId !== "all") wonPrevQuery = wonPrevQuery.eq("owner_id", userId);
+        if (period !== "all") wonPrevQuery = wonPrevQuery.gte("closed_at", prevStart).lte("closed_at", prevEnd);
+
+        // 12. Won deals por owner (top vendedores) - so se userId === "all"
+        let topSellersQuery = (userId === "all" || !userId)
+            ? supabase
+                .from("deals")
+                .select("owner_id, value, profiles:owner_id(full_name)")
+                .eq("status", "won")
+                .eq("tenant_id", tenantId)
+                .gte("closed_at", startDate)
+                .lte("closed_at", endDate)
+            : null;
+
         // Execute all in parallel
         const [
             { count: totalLeads },
@@ -128,7 +160,10 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             { data: latestMessages },
             { count: coldLeadsCount },
             { data: activityNotes },
-            { data: tenantData }
+            { data: tenantData },
+            { count: lostDeals, data: lostDealsData },
+            { count: wonDealsPrev, data: wonDealsPrevData },
+            topSellersResult,
         ] = await Promise.all([
             leadsQuery,
             openValueQuery,
@@ -139,7 +174,10 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             latestMsgQuery,
             coldLeadsQuery,
             coldActivityQuery,
-            tenantQuery
+            tenantQuery,
+            lostQuery,
+            wonPrevQuery,
+            topSellersQuery ?? Promise.resolve({ data: [] as any[] }),
         ]);
 
 
@@ -214,12 +252,53 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         });
 
 
+        // === METRICAS DERIVADAS ===
+        const lostValue = (lostDealsData ?? []).reduce((s: number, d: any) => s + Number(d.value || 0), 0);
+        const wonValuePrev = (wonDealsPrevData ?? []).reduce((s: number, d: any) => s + Number(d.value || 0), 0);
+
+        // Variacao percentual vs periodo anterior
+        const wonValueChangePct = wonValuePrev > 0
+            ? Math.round(((wonValue - wonValuePrev) / wonValuePrev) * 100)
+            : (wonValue > 0 ? 100 : 0);
+
+        // Taxa de conversao: ganhos / (ganhos + perdidos)
+        const totalClosed = (wonDeals || 0) + (lostDeals || 0);
+        const conversionRate = totalClosed > 0
+            ? Math.round(((wonDeals || 0) / totalClosed) * 100)
+            : 0;
+
+        // Ticket medio (so ganhos)
+        const avgTicket = (wonDeals || 0) > 0 ? wonValue / (wonDeals as number) : 0;
+
+        // Top vendedores (so quando userId=all)
+        const topSellersMap = new Map<string, { name: string; count: number; value: number }>();
+        const topSellersData = (topSellersResult as any)?.data ?? [];
+        for (const d of topSellersData) {
+            const id = d.owner_id;
+            if (!id) continue;
+            const name = d.profiles?.full_name ?? "Sem dono";
+            const prev = topSellersMap.get(id) ?? { name, count: 0, value: 0 };
+            prev.count += 1;
+            prev.value += Number(d.value || 0);
+            topSellersMap.set(id, prev);
+        }
+        const topSellers = Array.from(topSellersMap.values())
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5);
+
         return {
             tenantName: tenantData?.name || "Minha Empresa",
             totalLeads: totalLeads || 0,
             totalOpenValue,
             wonDeals: wonDeals || 0,
             wonValue,
+            wonValuePrev,
+            wonValueChangePct,
+            lostDeals: lostDeals || 0,
+            lostValue,
+            conversionRate,
+            avgTicket,
+            topSellers,
             leadsByStage: distByStage,
             lastLeads: [],
             tasksCount: tasksCount || 0,
@@ -243,6 +322,13 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             totalOpenValue: 0,
             wonDeals: 0,
             wonValue: 0,
+            wonValuePrev: 0,
+            wonValueChangePct: 0,
+            lostDeals: 0,
+            lostValue: 0,
+            conversionRate: 0,
+            avgTicket: 0,
+            topSellers: [] as { name: string; count: number; value: number }[],
             leadsByStage: [],
             lastLeads: [],
             tasksCount: 0,

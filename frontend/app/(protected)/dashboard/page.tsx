@@ -3,252 +3,277 @@ import { getDashboardData } from "@/app/(protected)/dashboard/actions";
 import { getTeamMembers } from "@/app/actions";
 import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
 import { getOnboardingState } from "@/app/(protected)/dashboard/onboarding";
+import { getTenantContext } from "@/lib/tenant-context";
 import { DashboardHeader, DashboardFilterBar } from "./components/header";
-import { StatCard, MessagesCard } from "./components/cards";
-import { DealsStageChart } from "./components/radial-chart";
+import { MessagesCard } from "./components/cards";
 import { WonLeadsWidget } from "./components/WonLeadsWidget";
+import { KpiCard } from "./components/KpiCard";
+import { ConversionFunnel } from "./components/ConversionFunnel";
+import { TopSellers } from "./components/TopSellers";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
+import {
+    Trophy, Wallet, Target, Coins, Clock, CheckSquare,
+    Phone, PhoneCall, Users, UserCheck, CalendarCheck,
+} from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
-export default async function DashboardPage(props: {
-  searchParams: SearchParams
+function formatCurrency(v: number): string {
+    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatCurrencyCompact(v: number): string {
+    if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 10_000) return `R$ ${(v / 1000).toFixed(0)}k`;
+    if (v >= 1_000) return `R$ ${(v / 1000).toFixed(1)}k`;
+    return formatCurrency(v);
+}
+
+export default async function DashboardPage(props: { searchParams: SearchParams }) {
+    const searchParams = await props.searchParams;
+    const period = (searchParams.period as string) || "today";
+    const userId = (searchParams.userId as string) || "all";
+    const startDate = searchParams.startDate as string | undefined;
+    const endDate = searchParams.endDate as string | undefined;
+
+    const [companyFetch, onboarding, ctx] = await Promise.all([
+        getCompanyDetails(),
+        getOnboardingState(),
+        getTenantContext(),
+    ]);
+    const companyName = companyFetch.success ? companyFetch.name : "CRM";
+    const modules = ctx?.modules ?? null;
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-6 lg:p-8 font-sans">
+            <div className="relative z-10 max-w-[1600px] mx-auto">
+                <DashboardHeader />
+
+                {onboarding.needsOnboarding && (
+                    <OnboardingBanner steps={onboarding.steps} />
+                )}
+
+                <div className="mb-8 mt-4">
+                    <h1 className="text-3xl lg:text-4xl font-bold text-white tracking-tight">{companyName}</h1>
+                    <p className="text-blue-200/60 text-sm mt-1">Visão Geral de Performance</p>
+                    <div className="mt-5">
+                        <Suspense fallback={<div className="h-10 bg-white/10 rounded-full w-64 animate-pulse" />}>
+                            <FilterWrapper period={period} userId={userId} startDate={startDate} endDate={endDate} />
+                        </Suspense>
+                    </div>
+                </div>
+
+                <Suspense fallback={<DashboardSkeleton />}>
+                    <DashboardContent
+                        period={period}
+                        userId={userId}
+                        startDate={startDate}
+                        endDate={endDate}
+                        modules={modules}
+                    />
+                </Suspense>
+            </div>
+        </div>
+    );
+}
+
+async function FilterWrapper({ period, userId, startDate, endDate }: { period: string; userId: string; startDate?: string; endDate?: string }) {
+    const { data: users } = await getTeamMembers();
+    return (
+        <DashboardFilterBar
+            currentPeriod={period}
+            currentUserId={userId}
+            users={users || []}
+            currentStartDate={startDate}
+            currentEndDate={endDate}
+        />
+    );
+}
+
+async function DashboardContent({
+    period, userId, startDate, endDate, modules,
+}: {
+    period: string; userId: string; startDate?: string; endDate?: string;
+    modules: Record<string, boolean> | null;
 }) {
-  const searchParams = await props.searchParams;
-  const period = searchParams.period as string || "today";
-  const userId = searchParams.userId as string || "all";
-  const startDate = searchParams.startDate as string | undefined;
-  const endDate = searchParams.endDate as string | undefined;
+    const data = await getDashboardData({ period, userId, startDate, endDate });
 
-  const companyFetch = await getCompanyDetails();
-  const companyName = companyFetch.success ? companyFetch.name : "CRM";
-  const onboarding = await getOnboardingState();
+    const showColdCall = modules?.cold_call === true && (data.coldMetrics?.total ?? 0) > 0;
+    const showTopSellers = userId === "all" && (data.topSellers?.length ?? 0) > 0;
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-8 font-sans">
+    return (
+        <div className="space-y-6">
 
-      <div className="relative z-10">
-        {/* 1. Header & Filters */}
-        <DashboardHeader />
+            {/* === HERO ROW: 4 KPIs PRINCIPAIS === */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <KpiCard
+                    icon={Trophy}
+                    label="Receita ganha"
+                    value={formatCurrencyCompact(data.wonValue)}
+                    sub={`${data.wonDeals} ${data.wonDeals === 1 ? "deal" : "deals"}`}
+                    changePct={data.wonValueChangePct}
+                    changeLabel=""
+                    accent="emerald"
+                />
+                <KpiCard
+                    icon={Wallet}
+                    label="Pipeline aberto"
+                    value={formatCurrencyCompact(data.totalOpenValue)}
+                    sub={`${data.totalLeads} ${data.totalLeads === 1 ? "lead" : "leads"}`}
+                    accent="indigo"
+                />
+                <KpiCard
+                    icon={Target}
+                    label="Conversão"
+                    value={`${data.conversionRate}%`}
+                    sub={`${data.wonDeals} ganhos · ${data.lostDeals} perdidos`}
+                    accent="blue"
+                />
+                <KpiCard
+                    icon={Coins}
+                    label="Ticket médio"
+                    value={data.avgTicket > 0 ? formatCurrencyCompact(data.avgTicket) : "—"}
+                    sub="por deal fechado"
+                    accent="purple"
+                />
+            </div>
 
-        {/* Onboarding banner (so aparece se o tenant nao tem >=4 passos feitos) */}
-        {onboarding.needsOnboarding && (
-          <OnboardingBanner steps={onboarding.steps} />
-        )}
+            {/* === SECOND ROW: MENSAGENS + FUNIL === */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-5">
+                    <MessagesCard
+                        conversationsCount={data.conversationsCount}
+                        unansweredCount={data.unansweredChatsCount}
+                    />
+                </div>
+                <div className="lg:col-span-7">
+                    <ConversionFunnel data={data.leadsByStage} />
+                </div>
+            </div>
 
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">{companyName}</h1>
-          <p className="text-blue-200/60 font-medium">Visão Geral de Performance</p>
-          <div className="mt-6 flex justify-center">
-            <Suspense fallback={<div className="h-10 bg-white/10 rounded-full w-64 animate-pulse" />}>
-              <FilterWrapper period={period} userId={userId} startDate={startDate} endDate={endDate} />
-            </Suspense>
-          </div>
+            {/* === THIRD ROW: ATIVIDADE + WON DETAIL + TOP SELLERS === */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-3">
+                    <KpiCard
+                        icon={CheckSquare}
+                        label="Tarefas pendentes"
+                        value={String(data.tasksCount)}
+                        sub="acompanhar"
+                        accent="amber"
+                    />
+                </div>
+                <div className="lg:col-span-3">
+                    <KpiCard
+                        icon={Clock}
+                        label="Maior espera"
+                        value={data.longestWaitTime}
+                        sub="fila de atendimento"
+                        accent="rose"
+                    />
+                </div>
+
+                {showTopSellers ? (
+                    <div className="lg:col-span-6">
+                        <TopSellers sellers={data.topSellers} />
+                    </div>
+                ) : (
+                    <div className="lg:col-span-6">
+                        <WonLeadsWidget
+                            wonDealsCount={data.wonDeals}
+                            formattedWonValue={formatCurrency(data.wonValue)}
+                            period={period}
+                            userId={userId}
+                            startDate={startDate}
+                            endDate={endDate}
+                        />
+                    </div>
+                )}
+            </div>
+
+            {/* === COLD CALL (so se modulo ativo + tem dados) === */}
+            {showColdCall && (
+                <div className="bg-white/[0.04] backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+                    <div className="flex items-center gap-3 mb-5">
+                        <div className="w-1 h-6 bg-indigo-400 rounded-full" />
+                        <h2 className="text-base font-bold text-white tracking-wide uppercase">
+                            Prospecção (Cold Call)
+                        </h2>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                        <ColdCard
+                            icon={Users}
+                            label="Importados"
+                            value={data.coldMetrics?.total ?? 0}
+                            color="text-white"
+                        />
+                        <ColdCard
+                            icon={Phone}
+                            label="Ligações"
+                            value={data.coldMetrics?.calls ?? 0}
+                            color="text-yellow-300"
+                            pct={data.coldMetrics?.total ? Math.round((data.coldMetrics.calls / data.coldMetrics.total) * 100) : 0}
+                        />
+                        <ColdCard
+                            icon={PhoneCall}
+                            label="Conexões"
+                            value={data.coldMetrics?.connections ?? 0}
+                            color="text-orange-300"
+                            pct={data.coldMetrics?.calls ? Math.round((data.coldMetrics.connections / data.coldMetrics.calls) * 100) : 0}
+                        />
+                        <ColdCard
+                            icon={UserCheck}
+                            label="Com decisor"
+                            value={data.coldMetrics?.decisionMakers ?? 0}
+                            color="text-cyan-300"
+                            pct={data.coldMetrics?.connections ? Math.round(((data.coldMetrics.decisionMakers || 0) / data.coldMetrics.connections) * 100) : 0}
+                        />
+                        <ColdCard
+                            icon={CalendarCheck}
+                            label="Reuniões"
+                            value={data.coldMetrics?.meetings ?? 0}
+                            color="text-emerald-300"
+                            pct={data.coldMetrics?.decisionMakers ? Math.round((data.coldMetrics.meetings / data.coldMetrics.decisionMakers) * 100) : 0}
+                        />
+                    </div>
+                </div>
+            )}
+
         </div>
-
-        <Suspense fallback={<DashboardSkeleton />}>
-          <DashboardContent period={period} userId={userId} startDate={startDate} endDate={endDate} />
-        </Suspense>
-      </div>
-    </div>
-  );
+    );
 }
 
-async function FilterWrapper({ period, userId, startDate, endDate }: { period: string, userId: string, startDate?: string, endDate?: string }) {
-  const { data: users } = await getTeamMembers();
-  return (
-    <DashboardFilterBar
-      currentPeriod={period}
-      currentUserId={userId}
-      users={users || []}
-      currentStartDate={startDate}
-      currentEndDate={endDate}
-    />
-  )
-}
-
-async function DashboardContent({ period, userId, startDate, endDate }: { period: string, userId: string, startDate?: string, endDate?: string }) {
-  const data = await getDashboardData({ period, userId, startDate, endDate });
-
-  const formattedPipeline = new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(data.totalOpenValue);
-
-  const formattedWonValue = new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(data.wonValue);
-
-  const getSubtext = () => {
-    if (period === 'today') return 'hoje';
-    if (period === 'yesterday') return 'ontem';
-    if (period === 'week') return 'esta semana';
-    if (period === 'month') return 'este mês';
-    if (period === 'custom' && startDate && endDate) {
-      if (startDate === endDate) return `em ${startDate.split('-').reverse().join('/')}`;
-      return `de ${startDate.split('-').reverse().join('/')} até ${endDate.split('-').reverse().join('/')}`;
-    }
-    return 'período selecionado';
-  }
-  const subtext = getSubtext();
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 max-w-[1600px] mx-auto">
-
-      {/* --- ROW 1: KEY METRICS --- */}
-
-      {/* 1. Mensagens (Large) */}
-      <div className="md:col-span-12 lg:col-span-4 h-full">
-        <MessagesCard
-          conversationsCount={data.conversationsCount}
-          unansweredCount={data.unansweredChatsCount}
-        />
-      </div>
-
-      {/* 2. Leads Ativos (Pipeline) */}
-      <div className="md:col-span-6 lg:col-span-2">
-        <StatCard title="LEADS ATIVOS" value={data.totalLeads} trend="neutral" trendValue="Pipeline">
-          <div className="mt-4">
-            <div className="text-4xl font-bold text-white">{data.totalLeads}</div>
-            <p className="text-sm font-medium text-pink-400 mt-1">{formattedPipeline}</p>
-          </div>
-        </StatCard>
-      </div>
-
-      {/* 3. Leads Ganhos */}
-      <div className="md:col-span-6 lg:col-span-2">
-        <WonLeadsWidget
-          wonDealsCount={data.wonDeals}
-          formattedWonValue={formattedWonValue}
-          period={period}
-          userId={userId}
-          startDate={startDate}
-          endDate={endDate}
-        />
-      </div>
-
-      {/* 4. Chart (Distribuição) */}
-      <div className="md:col-span-12 lg:col-span-4 row-span-2">
-        <DealsStageChart data={data.leadsByStage} />
-      </div>
-
-
-      {/* --- ROW 2: SECONDARY & COLD CALL --- */}
-
-      {/* Tarefas */}
-      <div className="md:col-span-6 lg:col-span-2">
-        <StatCard title="TAREFAS PENDENTES" value={data.tasksCount} subtitle="Total pendente" className="h-full">
-          <div className="mt-4">
-            <div className="text-4xl font-bold text-indigo-400">{data.tasksCount}</div>
-          </div>
-        </StatCard>
-      </div>
-
-      {/* Tempo Espera */}
-      <div className="md:col-span-6 lg:col-span-2">
-        <StatCard title="MAIOR ESPERA" value={data.longestWaitTime} subtitle="Fila de atendimento" className="h-full">
-          <div className="mt-4">
-            <div className="text-3xl font-bold text-amber-400">{data.longestWaitTime}</div>
-          </div>
-        </StatCard>
-      </div>
-
-      {/* Conversas Totais (Small Stat) */}
-      <div className="md:col-span-6 lg:col-span-2">
-        <StatCard title="CONVERSAS TOTAIS" value={data.conversationsCount} subtitle={subtext} className="h-full">
-          <div className="mt-4">
-            <div className="text-4xl font-bold text-blue-400">{data.conversationsCount}</div>
-          </div>
-        </StatCard>
-      </div>
-
-      <div className="md:col-span-6 lg:col-span-2">
-        {/* Spacer or another small stat if needed */}
-      </div>
-
-
-      {/* --- ROW 3: COLD CALL SECTION (Full Width) --- */}
-      <div className="col-span-12 mt-4">
-        <div className="bg-[#1e1b4b]/50 rounded-3xl p-8 border border-indigo-500/20 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-3xl rounded-full -mr-20 -mt-20 pointer-events-none"></div>
-
-          <div className="flex items-center gap-4 mb-6 relative z-10">
-            <div className="h-8 w-1 bg-indigo-500 rounded-full"></div>
-            <h2 className="text-xl font-bold text-white tracking-wide">MÉTRICAS DE PROSPECÇÃO (COLD CALL)</h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 relative z-10">
-            {/* Total Leads */}
-            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">LEADS IMPORTADOS</h3>
-              <div className="text-2xl font-bold text-white">{data.coldMetrics?.total || 0}</div>
-              <p className="text-[10px] text-gray-500 mt-2">{subtext}</p>
+function ColdCard({
+    icon: Icon, label, value, color, pct,
+}: {
+    icon: typeof Users; label: string; value: number; color: string; pct?: number;
+}) {
+    return (
+        <div className="bg-[#0f172a]/40 p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors relative">
+            {typeof pct === "number" && (
+                <div className="absolute top-2 right-2 text-[9px] font-bold text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                    {pct}%
+                </div>
+            )}
+            <Icon className="w-4 h-4 text-gray-500 mb-2" />
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                {label}
             </div>
-
-            {/* Ligações */}
-            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
-              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
-                {data.coldMetrics?.total ? Math.round(((data.coldMetrics.calls) / data.coldMetrics.total) * 100) : 0}%
-              </div>
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">LIGAÇÕES FEITAS</h3>
-              <div className="text-2xl font-bold text-yellow-400">{data.coldMetrics?.calls || 0}</div>
-              <p className="text-[10px] text-gray-500 mt-1">
-                de leads
-              </p>
-            </div>
-
-            {/* Conexões */}
-            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
-              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
-                {data.coldMetrics?.calls ? Math.round(((data.coldMetrics.connections) / data.coldMetrics.calls) * 100) : 0}%
-              </div>
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">CONEXÕES</h3>
-              <div className="text-2xl font-bold text-orange-400">{data.coldMetrics?.connections || 0}</div>
-              <p className="text-[10px] text-gray-500 mt-1">
-                de ligações
-              </p>
-            </div>
-
-            {/* Conexão com Decisor */}
-            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
-              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
-                {data.coldMetrics?.connections ? Math.round(((data.coldMetrics.decisionMakers || 0) / data.coldMetrics.connections) * 100) : 0}%
-              </div>
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">CONEXÃO COM O DECISOR</h3>
-              <div className="text-2xl font-bold text-cyan-400">{data.coldMetrics?.decisionMakers || 0}</div>
-              <p className="text-[10px] text-gray-500 mt-1">
-                de conexões
-              </p>
-            </div>
-
-            {/* Reuniões */}
-            <div className="bg-[#0f172a]/40 p-5 rounded-2xl border border-white/5 hover:bg-[#0f172a]/60 transition-colors relative group">
-              <div className="absolute top-2 right-2 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full group-hover:bg-emerald-400/20 transition-colors">
-                {data.coldMetrics?.decisionMakers ? Math.round(((data.coldMetrics.meetings) / data.coldMetrics.decisionMakers) * 100) : 0}%
-              </div>
-              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">REUNIÕES</h3>
-              <div className="text-2xl font-bold text-emerald-400">{data.coldMetrics?.meetings || 0}</div>
-              <p className="text-[10px] text-gray-500 mt-1">
-                de decisores
-              </p>
-            </div>
-          </div>
+            <div className={`text-xl font-bold ${color}`}>{value}</div>
         </div>
-      </div>
-
-    </div>
-  );
+    );
 }
 
 function DashboardSkeleton() {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-pulse">
-      <div className="lg:col-span-2 h-64 bg-white/10 rounded-xl"></div>
-      <div className="h-64 bg-white/10 rounded-xl"></div>
-      <div className="h-64 bg-white/10 rounded-xl"></div>
-    </div>
-  )
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+            {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-32 bg-white/[0.05] rounded-2xl border border-white/10" />
+            ))}
+            <div className="lg:col-span-5 h-64 bg-white/[0.05] rounded-2xl border border-white/10" />
+            <div className="lg:col-span-7 h-64 bg-white/[0.05] rounded-2xl border border-white/10" />
+        </div>
+    );
 }
