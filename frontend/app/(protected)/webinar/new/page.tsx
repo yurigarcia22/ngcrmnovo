@@ -1,17 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Megaphone } from "lucide-react";
+import { ArrowLeft, Megaphone, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { createCampaign } from "@/app/actions-webinar";
+import { createCampaign, listWebinarInstances } from "@/app/actions-webinar";
+
+interface AvailableInstance {
+  instance_name: string;
+  custom_name: string | null;
+  status: string;
+  purpose: string;
+}
 
 export default function NewCampaignPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [instances, setInstances] = useState<AvailableInstance[]>([]);
+  const [instancesLoading, setInstancesLoading] = useState(true);
+
+  useEffect(() => {
+    listWebinarInstances().then((res) => {
+      if (res.success && res.data) setInstances(res.data);
+      setInstancesLoading(false);
+    });
+  }, []);
+
   const [form, setForm] = useState({
     name: "",
     theme: "",
@@ -160,14 +177,36 @@ export default function NewCampaignPage() {
 
           <Section title="Disparo" subtitle="Qual chip vai mandar as mensagens">
             <Field
-              label="Instance Evolution"
-              hint="Nome exato da instance no Evolution (ex: TIM - WEBINAR, INSTA-AUTOMATIC)"
+              label="Instância WhatsApp"
+              hint="Apenas instâncias cadastradas no CRM aparecem aqui. Crie em Configurações → WhatsApp e marque como disponível para Webinar."
             >
-              <Input
-                value={form.instance_name}
-                onChange={update("instance_name")}
-                placeholder="INSTA-AUTOMATIC"
-              />
+              {instancesLoading ? (
+                <div className="text-sm text-slate-400">Carregando instâncias...</div>
+              ) : instances.length === 0 ? (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div>
+                    <strong>Nenhuma instância disponível.</strong>
+                    <p className="text-xs mt-0.5">
+                      Vá em <Link href="/settings/whatsapp" className="underline font-semibold">Configurações → WhatsApp</Link>, conecte uma instância e marque ela como "Webinar" ou "Ambos".
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <select
+                  value={form.instance_name}
+                  onChange={(e) => setForm((s) => ({ ...s, instance_name: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                >
+                  <option value="">— Selecione —</option>
+                  {instances.map((i) => (
+                    <option key={i.instance_name} value={i.instance_name}>
+                      {i.custom_name ?? i.instance_name}
+                      {i.status !== "connected" ? `  (${i.status})` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
             </Field>
           </Section>
 

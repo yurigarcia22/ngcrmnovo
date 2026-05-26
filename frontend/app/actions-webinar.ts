@@ -46,6 +46,35 @@ async function getTenantId(): Promise<string | null> {
   return profile.tenant_id;
 }
 
+/**
+ * Lista as instancias WhatsApp do tenant atual que podem ser usadas
+ * no webinar (purpose 'webinar' ou 'both'). Substitui a logica antiga
+ * de listar TODAS as instancias da Evolution.
+ */
+export async function listWebinarInstances(): Promise<{
+  success: boolean;
+  data?: { instance_name: string; custom_name: string | null; status: string; purpose: string }[];
+  error?: string;
+}> {
+  try {
+    const tenantId = await getTenantId();
+    if (!tenantId) return { success: false, error: "Tenant nao identificado." };
+
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("whatsapp_instances")
+      .select("instance_name, custom_name, status, purpose")
+      .eq("tenant_id", tenantId)
+      .in("purpose", ["webinar", "both"])
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return { success: true, data: data ?? [] };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "Erro desconhecido" };
+  }
+}
+
 // ─── Campaigns ───────────────────────────────────────────────────────────────
 
 export async function listCampaigns(): Promise<{

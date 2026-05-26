@@ -253,6 +253,64 @@ export async function deleteInstance(instanceName: string) {
     }
 }
 
+/**
+ * Define para que serve uma instancia WhatsApp:
+ *   'crm'     - usada apenas para receber/enviar pelas telas /chat e /leads
+ *   'webinar' - usada apenas para campanhas do modulo webinar
+ *   'both'    - ambos os usos (cuidado: pode dar conflito de webhook)
+ */
+export async function setInstancePurpose(
+    instanceName: string,
+    purpose: "crm" | "webinar" | "both"
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabaseAdmin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabaseAdmin
+            .from("whatsapp_instances")
+            .update({ purpose })
+            .eq("instance_name", instanceName)
+            .eq("tenant_id", tenantId);
+
+        if (error) throw error;
+
+        // Reaplica o webhook conforme o novo purpose
+        const evolutionUrl = process.env.EVOLUTION_API_URL;
+        const evolutionToken = process.env.EVOLUTION_API_TOKEN;
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+        if (evolutionUrl && evolutionToken && supabaseUrl) {
+            // CRM: aponta para Edge Function direto.
+            // Webinar/both: aponta para endpoint do webinar (cron mantem).
+            const webhookUrl = (purpose === "crm")
+                ? `${supabaseUrl}/functions/v1/webhook-evolution`
+                : (process.env.N8N_WEBINAR_WEBHOOK_URL ?? `${supabaseUrl}/functions/v1/webhook-evolution`);
+
+            await fetch(`${evolutionUrl}/webhook/set/${instanceName}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", apikey: evolutionToken },
+                body: JSON.stringify({
+                    webhook: {
+                        enabled: true,
+                        url: webhookUrl,
+                        webhookByEvents: false,
+                        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE"],
+                    },
+                }),
+            }).catch(() => {});
+        }
+
+        revalidatePath('/settings/whatsapp');
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
 export async function refreshInstanceStatus(instanceName: string) {
     try {
         const evolutionUrl = process.env.EVOLUTION_API_URL;

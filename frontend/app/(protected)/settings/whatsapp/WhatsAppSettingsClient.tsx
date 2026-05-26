@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { setupInstance, deleteInstance, refreshInstanceStatus } from "./actions";
-import { Loader2, Smartphone, Plus, Trash2, User, RefreshCw, X, QrCode as QrIcon } from "lucide-react";
+import { setupInstance, deleteInstance, refreshInstanceStatus, setInstancePurpose } from "./actions";
+import { Loader2, Smartphone, Plus, Trash2, User, RefreshCw, X, QrCode as QrIcon, Briefcase, Megaphone, Boxes } from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ interface Instance {
     owner_profile_id?: string;
     phone_number?: string;
     profile_pic_url?: string;
+    purpose?: "crm" | "webinar" | "both";
     owner?: {
         full_name: string;
         avatar_url: string;
@@ -217,6 +218,50 @@ export default function WhatsAppSettingsClient({
                                 <p className="text-sm font-medium text-gray-700 truncate">
                                     {instance.owner?.full_name || "Geral da Empresa"}
                                 </p>
+                            </div>
+                        </div>
+
+                        {/* Purpose selector — define onde esta instancia atua */}
+                        <div className="mb-3">
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                                Uso desta conexão
+                            </label>
+                            <div className="grid grid-cols-3 gap-1">
+                                {([
+                                    { key: "crm" as const, label: "CRM", icon: Briefcase },
+                                    { key: "webinar" as const, label: "Webinar", icon: Megaphone },
+                                    { key: "both" as const, label: "Ambos", icon: Boxes },
+                                ]).map(({ key, label, icon: Icon }) => {
+                                    const active = (instance.purpose ?? "crm") === key;
+                                    return (
+                                        <button
+                                            key={key}
+                                            onClick={async () => {
+                                                const res = await setInstancePurpose(instance.instance_name, key);
+                                                if (res.success) {
+                                                    setInstances((prev) =>
+                                                        prev.map((i) =>
+                                                            i.instance_name === instance.instance_name
+                                                                ? { ...i, purpose: key }
+                                                                : i,
+                                                        ),
+                                                    );
+                                                    toast.success(`Marcada como ${label}`);
+                                                } else {
+                                                    toast.error(res.error ?? "Erro");
+                                                }
+                                            }}
+                                            className={`flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-semibold rounded-md border transition-colors ${
+                                                active
+                                                    ? "bg-indigo-50 text-indigo-700 border-indigo-300"
+                                                    : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
+                                            }`}
+                                        >
+                                            <Icon className="w-3 h-3" />
+                                            {label}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 
