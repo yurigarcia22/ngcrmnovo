@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact } from '@/app/actions';
 import ChatWindow from '@/components/ChatWindow';
+import ChatContactPanel from '@/components/chat/ChatContactPanel';
 import { createClient } from '@/utils/supabase/client';
 import { Search, MessageSquare, User, Tag, Calendar, ChevronRight, Filter, Phone, Plus, AlertTriangle, Trash2, Pencil, X, Check } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -527,115 +528,16 @@ export default function ChatPage() {
                 )}
             </div>
 
-            {/* RIGHT: Lead Details */}
+            {/* RIGHT: Contact Panel (redesigned) */}
             {selectedDeal && (
-                <div className="w-[350px] bg-white border-l border-gray-200 flex flex-col animate-in slide-in-from-right-10 duration-200 shadow-xl z-10">
-                    <div className="h-16 px-6 bg-gray-50 flex items-center justify-between shrink-0 border-b border-gray-200">
-                        <span className="text-gray-700 font-medium">Dados do Contato</span>
-                    </div>
-
-                    <div className="p-8 flex flex-col items-center border-b border-gray-100 bg-white relative">
-                        <div className="w-32 h-32 rounded-full overflow-hidden mb-4 ring-4 ring-gray-50 shadow-inner group relative">
-                            {selectedDeal.contacts?.photo_url ? (
-                                <img src={selectedDeal.contacts.photo_url} className="w-full h-full object-cover" />
-                            ) : (
-                                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                                    <User size={48} className="text-gray-300" />
-                                </div>
-                            )}
-                        </div>
-
-                        {/* EDITABLE NAME */}
-                        {!isEditingContact ? (
-                            <div className="flex items-center gap-2 group cursor-pointer hover:bg-gray-50 px-2 py-1 rounded transition-colors" onClick={() => { setEditContactName(selectedDeal.contacts?.name || ""); setIsEditingContact(true); }}>
-                                <h2 className="text-xl text-gray-800 font-semibold text-center">{selectedDeal.contacts?.name || "Sem Nome"}</h2>
-                                <Pencil size={14} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-2 w-full px-4 mb-1">
-                                <input
-                                    className="w-full p-2 border border-blue-400 rounded text-center font-semibold focus:outline-none focus:ring-2 focus:ring-blue-100 text-sm"
-                                    value={editContactName}
-                                    onChange={e => setEditContactName(e.target.value)}
-                                    autoFocus
-                                    onBlur={() => { if (!editContactName.trim()) setIsEditingContact(false); }}
-                                />
-                                <button onMouseDown={handleUpdateContactName} className="p-2 bg-green-500 text-white rounded hover:bg-green-600 shadow-sm"><Check size={16} /></button>
-                                <button onMouseDown={() => setIsEditingContact(false)} className="p-2 bg-gray-200 text-gray-600 rounded hover:bg-gray-300 shadow-sm"><X size={16} /></button>
-                            </div>
-                        )}
-
-                        <p className="text-gray-500 text-lg mt-1 font-light">{selectedDeal.contacts?.phone}</p>
-                    </div>
-
-                    <div className="p-4 space-y-6 overflow-y-auto custom-scrollbar flex-1 bg-white">
-
-                        {/* PROMOTE TO LEAD SECTION */}
-                        <div className="space-y-2">
-                            <label className="text-xs text-blue-600 uppercase font-bold tracking-wider mb-2 block px-1">Ações</label>
-
-                            {selectedDeal.stage_id ? (
-                                <div className="space-y-2">
-                                    <button
-                                        onClick={() => router.push(`/deals/${selectedDeal.id}`)}
-                                        className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 shadow-sm border border-gray-200 transition-all font-bold text-sm"
-                                    >
-                                        <Tag size={16} strokeWidth={2.5} />
-                                        Ir para Negociação
-                                    </button>
-                                </div>
-                            ) : (
-                                <button
-                                    onClick={openPromoteModal}
-                                    className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-200 transition-all font-bold text-sm"
-                                >
-                                    <Plus size={16} strokeWidth={3} />
-                                    Criar Lead
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="space-y-2 pt-4">
-                            <label className="text-xs text-blue-600 uppercase font-bold tracking-wider mb-2 block px-1">Negócio Atual</label>
-
-                            <div className="bg-gray-50 border border-gray-100 p-4 rounded-xl space-y-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-white rounded-lg shadow-sm text-gray-400"><Tag size={16} /></div>
-                                    <div className="flex flex-col">
-                                        <span className="text-xs text-gray-400">Título</span>
-                                        <span className="text-gray-700 font-medium text-sm">{selectedDeal.title || "Sem título"}</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-white rounded-lg shadow-sm text-gray-400"><span className="font-bold text-xs">R$</span></div>
-                                    <div className="flex flex-col">
-                                        <span className="text-xs text-gray-400">Valor</span>
-                                        <span className="text-gray-700 font-medium text-sm">{Number(selectedDeal.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-white rounded-lg shadow-sm text-gray-400"><Calendar size={16} /></div>
-                                    <div className="flex flex-col">
-                                        <span className="text-xs text-gray-400">Data</span>
-                                        <span className="text-gray-700 font-medium text-sm">{selectedDeal.created_at ? new Date(selectedDeal.created_at).toLocaleDateString() : 'N/A'}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* DELETE CONTACT SECTION - Bottom */}
-                        <div className="pt-6 border-t border-gray-100 mt-4 pb-4">
-                            <button
-                                onClick={() => { setDeleteWithDeal(true); setShowDeleteModal(true); }}
-                                className="w-full flex items-center justify-center gap-2 p-3 border border-red-100 rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-all text-sm font-medium"
-                            >
-                                <Trash2 size={16} />
-                                Excluir Contato
-                            </button>
-                        </div>
-
-                    </div>
-                </div>
+                <ChatContactPanel
+                    deal={selectedDeal}
+                    onContactUpdated={(patch) => {
+                        setSelectedDeal((s: any) => s ? ({ ...s, contacts: { ...s.contacts, ...patch } }) : s);
+                    }}
+                    onDelete={() => { setDeleteWithDeal(true); setShowDeleteModal(true); }}
+                    onChange={() => { /* refresh conversas if needed */ }}
+                />
             )}
         </div>
     );

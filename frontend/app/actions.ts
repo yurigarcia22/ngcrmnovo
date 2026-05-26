@@ -1600,6 +1600,163 @@ export async function getWhatsappInstances() {
     }
 }
 
+// =====================================================================
+// CONTACT PANEL (/chat sidebar)
+// =====================================================================
+
+/** Estatisticas rapidas de um contato para o painel direito do /chat */
+export async function getContactStats(contactId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const [msgsRes, dealsRes] = await Promise.all([
+            supabase
+                .from("messages")
+                .select("id, direction, created_at", { count: "exact" })
+                .eq("contact_id", contactId)
+                .eq("tenant_id", tenantId)
+                .order("created_at", { ascending: false })
+                .limit(200),
+            supabase
+                .from("deals")
+                .select("id, status, value, created_at")
+                .eq("contact_id", contactId)
+                .eq("tenant_id", tenantId),
+        ]);
+
+        const msgs = msgsRes.data ?? [];
+        const inbound = msgs.filter((m: any) => m.direction === "inbound").length;
+        const outbound = msgs.filter((m: any) => m.direction === "outbound").length;
+
+        // Ultima resposta do CLIENTE (inbound)
+        const lastInbound = msgs.find((m: any) => m.direction === "inbound");
+
+        const deals = dealsRes.data ?? [];
+        const wonDeals = deals.filter((d: any) => d.status === "won");
+        const totalWon = wonDeals.reduce((s: number, d: any) => s + Number(d.value || 0), 0);
+
+        return {
+            success: true,
+            data: {
+                total_messages: msgsRes.count ?? msgs.length,
+                inbound,
+                outbound,
+                last_inbound_at: lastInbound?.created_at ?? null,
+                total_deals: deals.length,
+                won_deals: wonDeals.length,
+                total_won_value: totalWon,
+                first_contact_at: deals.length
+                    ? deals.reduce((acc: string, d: any) =>
+                        new Date(d.created_at) < new Date(acc) ? d.created_at : acc,
+                        deals[0].created_at)
+                    : null,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+/** Outros deals do mesmo contato (historico) — exclui o deal atual */
+export async function getContactDealHistory(contactId: string, excludeDealId?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        let query = supabase
+            .from("deals")
+            .select(`
+                id, title, value, status, created_at, stage_id, closed_at,
+                stages (name, color, is_won, is_lost)
+            `)
+            .eq("contact_id", contactId)
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+        if (excludeDealId) query = query.neq("id", excludeDealId);
+
+        const { data, error } = await query;
+        if (error) throw error;
+        return { success: true, data: data ?? [] };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+/** Salva nota livre no contato */
+export async function updateContactNotes(contactId: string, notes: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("contacts")
+            .update({ notes })
+            .eq("id", contactId)
+            .eq("tenant_id", tenantId);
+
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+/** Snooze deal: oculta da lista de conversas ate hora X */
+export async function snoozeDeal(dealId: string, snoozeUntilIso: string | null) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("deals")
+            .update({ snoozed_until: snoozeUntilIso })
+            .eq("id", dealId)
+            .eq("tenant_id", tenantId);
+
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+/** Marca/desmarca conversa como resolvida */
+export async function setDealResolved(dealId: string, resolved: boolean) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("deals")
+            .update({ resolved_at: resolved ? new Date().toISOString() : null })
+            .eq("id", dealId)
+            .eq("tenant_id", tenantId);
+
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
 // --- Pin/Unpin Message ---
 export async function toggleMessagePin(messageId: string, pinned: boolean) {
     try {
