@@ -100,13 +100,50 @@ async function DashboardContent({
     period: string; userId: string; startDate?: string; endDate?: string;
     modules: Record<string, boolean> | null;
 }) {
-    const [data, perfRes] = await Promise.all([
-        getDashboardData({ period, userId, startDate, endDate }),
-        getSellersPerformance({ period, startDate, endDate }),
-    ]);
-    const perfData = perfRes.success ? perfRes.data : null;
+    // Captura erro aqui em vez de lancar, pra mostrar mensagem real
+    let data: any = null;
+    let perfRes: any = null;
+    let serverError: string | null = null;
+    let errorWhere: string | null = null;
+
+    try {
+        errorWhere = "getDashboardData";
+        data = await getDashboardData({ period, userId, startDate, endDate });
+        errorWhere = "getSellersPerformance";
+        perfRes = await getSellersPerformance({ period, startDate, endDate });
+        errorWhere = null;
+    } catch (e: any) {
+        serverError = `[${errorWhere}] ${e?.message ?? String(e)}\n\n${e?.stack ?? ""}`;
+    }
+
+    if (serverError) {
+        return (
+            <div className="bg-rose-950/40 border border-rose-500/40 rounded-2xl p-6">
+                <h3 className="text-rose-300 font-bold mb-2">Erro server-side capturado</h3>
+                <pre className="text-[11px] text-rose-200 whitespace-pre-wrap font-mono break-all">
+                    {serverError}
+                </pre>
+            </div>
+        );
+    }
+
+    const perfData = perfRes?.success ? perfRes.data : null;
     const sellers = perfData?.sellers ?? [];
     const quality = perfData?.quality ?? null;
+
+    // Debug: tipos das chaves principais
+    try {
+        const _check = {
+            data_keys: Object.keys(data ?? {}),
+            data_wonValue_type: typeof data?.wonValue,
+            data_leadsByStage_isArray: Array.isArray(data?.leadsByStage),
+            data_coldMetrics: !!data?.coldMetrics,
+            perfRes_success: perfRes?.success,
+            sellers_count: sellers.length,
+            quality_present: !!quality,
+        };
+        console.log("[Dashboard Debug]", _check);
+    } catch {}
 
     const showColdCall = modules?.cold_call === true && (data.coldMetrics?.total ?? 0) > 0;
     const topSellersData = sellers
