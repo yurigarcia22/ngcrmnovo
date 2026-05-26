@@ -25,6 +25,8 @@ export default function ChatPage() {
     const [instances, setInstances] = useState<any[]>([]);
     const [filterOwner, setFilterOwner] = useState<string>("all");
     const [filterInstance, setFilterInstance] = useState<string>("all");
+    const [quickFilter, setQuickFilter] = useState<"all" | "unanswered" | "mine" | "today">("all");
+    const [currentUserId, setCurrentUserId] = useState<string>("");
 
     // Promote Lead State
     const [isPromoting, setIsPromoting] = useState(false);
@@ -42,15 +44,17 @@ export default function ChatPage() {
 
     useEffect(() => {
         async function fetchFilters() {
-            const [teamRes, instRes] = await Promise.all([
+            const [teamRes, instRes, { data: session }] = await Promise.all([
                 getTeamMembers(),
-                getWhatsappInstances()
+                getWhatsappInstances(),
+                supabase.auth.getSession(),
             ]);
             if (teamRes.success && teamRes.data) setTeamMembers(teamRes.data);
             if (instRes.success && instRes.data) setInstances(instRes.data);
+            if (session?.session?.user?.id) setCurrentUserId(session.session.user.id);
         }
         fetchFilters();
-    }, []);
+    }, [supabase]);
 
     // Debounce search + Filter effect
     useEffect(() => {
@@ -397,6 +401,31 @@ export default function ChatPage() {
                         </div>
                     </div>
 
+                    {/* Quick filter chips */}
+                    <div className="flex gap-1 flex-wrap">
+                        {([
+                            { key: "all", label: "Todas" },
+                            { key: "unanswered", label: "Sem resposta" },
+                            { key: "mine", label: "Minhas" },
+                            { key: "today", label: "Hoje" },
+                        ] as const).map((f) => {
+                            const active = quickFilter === f.key;
+                            return (
+                                <button
+                                    key={f.key}
+                                    onClick={() => setQuickFilter(f.key)}
+                                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors ${
+                                        active
+                                            ? "bg-blue-600 text-white"
+                                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                    }`}
+                                >
+                                    {f.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+
                     {/* Search Bar */}
                     <div className="bg-gray-50 rounded-lg flex items-center px-3 py-1.5 ring-1 ring-gray-200 focus-within:ring-2 focus-within:ring-blue-400 transition-all">
                         <Search size={18} className="text-gray-400 mr-3" />
@@ -414,7 +443,24 @@ export default function ChatPage() {
                     {loading && conversations.length === 0 ? (
                         <div className="p-4 text-center text-gray-400 text-sm animate-pulse">Carregando conversas...</div>
                     ) : (
-                        conversations.map(conv => {
+                        conversations.filter((conv) => {
+                            if (quickFilter === "all") return true;
+                            if (quickFilter === "mine") {
+                                return currentUserId && conv.owner_id === currentUserId;
+                            }
+                            if (quickFilter === "unanswered") {
+                                // Ultima msg inbound = aguardando resposta
+                                return conv.last_message?.direction === "inbound";
+                            }
+                            if (quickFilter === "today") {
+                                const last = conv.last_message?.created_at || conv.updated_at;
+                                if (!last) return false;
+                                const d = new Date(last);
+                                const today = new Date();
+                                return d.toDateString() === today.toDateString();
+                            }
+                            return true;
+                        }).map(conv => {
                             const active = selectedDeal?.id === conv.id;
                             const personName = conv.contacts?.name || conv.title || "Desconhecido";
                             const lastMsgTime = formatTime(conv.last_message?.created_at || conv.updated_at);

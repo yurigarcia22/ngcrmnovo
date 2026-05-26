@@ -369,16 +369,35 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                     <div className="grid grid-cols-[140px_1fr] items-start gap-2 min-h-[30px]">
                         <span className="text-gray-400 text-xs font-bold uppercase pt-1">Próxima Reunião</span>
                         <div className="w-full">
-                            {nextTask ? (
-                                <div className="bg-orange-50 border border-orange-100 rounded p-2 flex items-center justify-between">
+                            {nextTask ? (() => {
+                                const due = new Date(nextTask.due_date);
+                                const now = new Date();
+                                const isOverdue = due.getTime() < now.getTime();
+                                const isToday = !isOverdue && due.toDateString() === now.toDateString();
+                                const containerClass = isOverdue
+                                    ? "bg-rose-50 border-rose-200"
+                                    : isToday
+                                        ? "bg-amber-50 border-amber-200"
+                                        : "bg-orange-50 border-orange-100";
+                                const iconClass = isOverdue ? "text-rose-600" : isToday ? "text-amber-600" : "text-orange-500";
+                                return (
+                                <div className={`${containerClass} border rounded p-2 flex items-center justify-between`}>
                                     <div className="flex items-center gap-2">
-                                        <Calendar size={14} className="text-orange-500" />
+                                        <Calendar size={14} className={iconClass} />
                                         <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-gray-800">
-                                                {new Date(nextTask.due_date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
-                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-xs font-bold text-gray-800">
+                                                    {due.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
+                                                </span>
+                                                {isOverdue && (
+                                                    <span className="px-1 py-0 rounded text-[9px] font-bold bg-rose-600 text-white uppercase">ATRASADO</span>
+                                                )}
+                                                {isToday && (
+                                                    <span className="px-1 py-0 rounded text-[9px] font-bold bg-amber-500 text-white uppercase">HOJE</span>
+                                                )}
+                                            </div>
                                             <span className="text-[10px] text-gray-500 flex items-center gap-1">
-                                                <Clock size={10} /> {new Date(nextTask.due_date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                <Clock size={10} /> {due.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
                                     </div>
@@ -405,7 +424,8 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         </div>
                                     )}
                                 </div>
-                            ) : (
+                                );
+                            })() : (
                                 <div className="text-xs text-gray-400 italic py-1">Nenhuma reunião agendada</div>
                             )}
                         </div>

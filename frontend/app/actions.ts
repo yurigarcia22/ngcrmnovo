@@ -1600,6 +1600,28 @@ export async function getWhatsappInstances() {
     }
 }
 
+// --- Pin/Unpin Message ---
+export async function toggleMessagePin(messageId: string, pinned: boolean) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { error } = await supabase
+            .from("messages")
+            .update({ pinned })
+            .eq("id", messageId)
+            .eq("tenant_id", tenantId);
+
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
 // --- HELPER: Promote to Lead (move deal out of inbox stage) ---
 export async function promoteToLead(dealId: string, title?: string, value?: number, meetingDate?: string) {
     try {

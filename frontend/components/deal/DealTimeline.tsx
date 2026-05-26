@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Send, MessageSquare, FileText, Activity } from "lucide-react";
-import { addNote, sendMessage } from "@/app/actions";
+import { Loader2, Send, MessageSquare, FileText, Activity, Pin, PinOff } from "lucide-react";
+import { addNote, sendMessage, toggleMessagePin } from "@/app/actions";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "@/lib/toast";
 
@@ -16,6 +16,7 @@ type TimelineItem = {
     sender?: any;
     body?: string;
     direction?: string; // 'outbound' or 'inbound'
+    pinned?: boolean;
 };
 
 interface DealTimelineProps {
@@ -44,13 +45,31 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
         content: m.body || m.content,
         created_at: m.created_at,
         sender: m.sender,
-        direction: m.direction // outbound (me) vs inbound (client)
+        direction: m.direction, // outbound (me) vs inbound (client)
+        pinned: m.pinned ?? false,
     }));
 
     const [items, setItems] = useState<TimelineItem[]>([
         ...normalizeNotes(initialNotes),
         ...normalizeMessages(initialMessages)
     ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())); // Newest first
+
+    async function handleTogglePin(item: TimelineItem) {
+        const next = !item.pinned;
+        // Optimistic
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, pinned: next } : i));
+        const res = await toggleMessagePin(item.id, next);
+        if (!res.success) {
+            // Rollback
+            setItems(prev => prev.map(i => i.id === item.id ? { ...i, pinned: !next } : i));
+            toast.error("Erro ao fixar mensagem");
+        } else {
+            toast.success(next ? "Mensagem fixada" : "Mensagem desafixada");
+        }
+    }
+
+    // Mensagens fixadas (para destaque no topo)
+    const pinnedMessages = items.filter(i => i.type === 'message' && i.pinned);
 
     const [newContent, setNewContent] = useState("");
     const [inputType, setInputType] = useState<'note' | 'message'>('note');
@@ -175,6 +194,33 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
     return (
         <div className="flex flex-col h-full bg-[#fcfcfc] relative">
 
+            {/* PINNED MESSAGES BAR — Mostra so se houver mensagens fixadas */}
+            {inputType === 'message' && pinnedMessages.length > 0 && (
+                <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 shrink-0">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                        <Pin size={12} className="text-amber-700 fill-amber-700" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                            {pinnedMessages.length} mensage{pinnedMessages.length > 1 ? "ns" : "m"} fixada{pinnedMessages.length > 1 ? "s" : ""}
+                        </span>
+                    </div>
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                        {pinnedMessages.map((p) => (
+                            <div key={`pin-${p.id}`} className="flex items-start gap-2 text-xs text-amber-900 group">
+                                <span className="text-amber-700 shrink-0">{p.direction === 'outbound' ? "↗" : "↙"}</span>
+                                <span className="flex-1 truncate">{p.content}</span>
+                                <button
+                                    onClick={() => handleTogglePin(p)}
+                                    className="opacity-0 group-hover:opacity-100 text-amber-600 hover:text-amber-800 shrink-0"
+                                    title="Desfixar"
+                                >
+                                    <PinOff size={11} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* TIMELINE BODY */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar flex flex-col-reverse">
 
@@ -217,7 +263,7 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
 
                         {/* MESSAGE (External) */}
                         {item.type === 'message' && (
-                            <div className={`max-w-[85%] flex flex-col ${item.direction === 'outbound' ? 'items-end' : 'items-start'}`}>
+                            <div className={`group max-w-[85%] flex flex-col ${item.direction === 'outbound' ? 'items-end' : 'items-start'}`}>
                                 <div className="flex items-center gap-2 mb-1 px-1">
                                     {item.direction !== 'outbound' && (
                                         <div className="flex items-center gap-1 text-[10px] font-bold text-blue-500">
@@ -233,8 +279,18 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                                         </div>
                                     )}
                                 </div>
-                                <div className={`${item.direction === 'outbound' ? 'bg-[#dcf8c6] border-green-200' : 'bg-white border-gray-200'} text-gray-800 p-3 rounded-xl shadow-sm border text-sm whitespace-pre-wrap ${item.direction === 'outbound' ? 'rounded-br-none' : 'rounded-bl-none'}`}>
+                                <div className={`relative ${item.direction === 'outbound' ? 'bg-[#dcf8c6] border-green-200' : 'bg-white border-gray-200'} text-gray-800 p-3 rounded-xl shadow-sm border text-sm whitespace-pre-wrap ${item.direction === 'outbound' ? 'rounded-br-none' : 'rounded-bl-none'} ${item.pinned ? 'ring-2 ring-amber-300' : ''}`}>
                                     {item.content}
+                                    {/* Botao pin (hover) */}
+                                    {!item.isTemp && (
+                                        <button
+                                            onClick={() => handleTogglePin(item)}
+                                            className={`absolute ${item.direction === 'outbound' ? '-left-7' : '-right-7'} top-1 transition-opacity ${item.pinned ? 'opacity-100 text-amber-600' : 'opacity-0 group-hover:opacity-70 text-gray-400 hover:text-amber-600'}`}
+                                            title={item.pinned ? "Desfixar mensagem" : "Fixar mensagem"}
+                                        >
+                                            <Pin size={14} className={item.pinned ? 'fill-amber-500 text-amber-500' : ''} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         )}
