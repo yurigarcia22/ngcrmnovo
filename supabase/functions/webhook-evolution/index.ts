@@ -149,22 +149,63 @@ serve(async (req) => {
 
     let { data: contact } = await supabase
       .from('contacts')
-      .select('id')
+      .select('id, photo_url')
       .in('phone', searchPhones)
       .eq('tenant_id', tenantId)
       .limit(1)
       .maybeSingle();
 
     let contactId = contact?.id;
+    const hasPhoto = !!(contact?.photo_url && contact.photo_url.length > 0);
+
+    // Helper: pega foto de perfil do WhatsApp via Evolution API
+    async function fetchProfilePictureUrl(): Promise<string | null> {
+      try {
+        const evoUrl = Deno.env.get('EVOLUTION_API_URL');
+        const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
+        if (!evoUrl || !evoToken || !instanceName) return null;
+
+        const r = await fetch(
+          `${evoUrl}/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: evoToken },
+            body: JSON.stringify({ number: phone }),
+          }
+        );
+        if (!r.ok) return null;
+        const j = await r.json();
+        // resposta tipica: { wuid: '...', profilePictureUrl: 'https://...' }
+        return j?.profilePictureUrl ?? null;
+      } catch {
+        return null;
+      }
+    }
 
     if (!contactId) {
+      // Contact novo: tenta pegar foto antes de inserir
+      const photoUrl = await fetchProfilePictureUrl();
       const { data: newContact, error } = await supabase
         .from('contacts')
-        .insert({ name: pushName, phone, tenant_id: tenantId })
+        .insert({
+          name: pushName,
+          phone,
+          tenant_id: tenantId,
+          photo_url: photoUrl ?? '',
+        })
         .select()
         .single();
       if (error) throw error;
       contactId = newContact.id;
+    } else if (!hasPhoto) {
+      // Contact existente sem foto: tenta puxar uma vez (fire-and-forget)
+      const photoUrl = await fetchProfilePictureUrl();
+      if (photoUrl) {
+        await supabase
+          .from('contacts')
+          .update({ photo_url: photoUrl })
+          .eq('id', contactId);
+      }
     }
 
     // --- 6. Busca ou Cria Deal (Roteamento Multi-Agente) ---
