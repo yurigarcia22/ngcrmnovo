@@ -224,7 +224,17 @@ export async function sendMessage(phone: string, text: string, context: { dealId
     }
 }
 
-export async function createLead(data: { name: string, phone: string, value: string }) {
+export async function createLead(data: {
+    name: string;
+    phone: string;
+    value: string;
+    email?: string;
+    pipelineId?: string | number | null;
+    stageId?: string | number | null;
+    ownerId?: string | null;
+    notes?: string;
+    tagIds?: (number | string)[];
+}) {
     try {
         const tenantId = await getTenantId();
 
@@ -237,7 +247,7 @@ export async function createLead(data: { name: string, phone: string, value: str
 
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // 1. Validacao + normalizacao para canonico (centralizado em lib/phone)
+        // 1. Validacao + normalizacao do telefone
         if (!isPlausibleBRPhone(data.phone)) {
             return { success: false, error: "Telefone invalido. Digite no formato (XX) 9XXXX-XXXX." };
         }
@@ -248,73 +258,148 @@ export async function createLead(data: { name: string, phone: string, value: str
         let contactId: string;
         const { data: existingContacts } = await supabase
             .from("contacts")
-            .select("id, phone")
+            .select("id, phone, name, email")
             .eq("tenant_id", tenantId)
             .in("phone", possiblePhones);
 
         if (existingContacts && existingContacts.length > 0) {
             const canonicalMatch = existingContacts.find((c: any) => c.phone === phoneToSave);
-            contactId = (canonicalMatch ?? existingContacts[0]).id;
-            // Backfill silencioso pro formato canonico
-            if (canonicalMatch === undefined) {
-                await supabase.from("contacts").update({ phone: phoneToSave }).eq("id", contactId);
-            }
+            const picked = canonicalMatch ?? existingContacts[0];
+            contactId = picked.id;
+            // Backfill canonico + dados novos
+            await supabase.from("contacts").update({
+                phone: phoneToSave,
+                name: picked.name || data.name,
+                email: picked.email || data.email || null,
+            }).eq("id", contactId);
         } else {
             const { data: newContact, error: contactError } = await supabase
                 .from("contacts")
-                .insert({ name: data.name, phone: phoneToSave, photo_url: "", tenant_id: tenantId })
+                .insert({
+                    name: data.name,
+                    phone: phoneToSave,
+                    email: data.email || null,
+                    photo_url: "",
+                    tenant_id: tenantId,
+                })
                 .select("id")
                 .single();
             if (contactError) throw new Error("Erro ao criar contato: " + contactError.message);
             contactId = newContact.id;
         }
 
-        // 3. Se ja existe deal ABERTO pra esse contato no tenant, reusa em vez de duplicar.
+        // 3. Resolver pipeline + stage (deals only, nunca cold_call)
+        let stageId: number | string | null = null;
+        let resolvedPipelineId: number | string | null = null;
+
+        if (data.stageId) {
+            // Cliente passou stage explicitamente: valida que pertence a um pipeline kind='deals' do tenant
+            const { data: stageRow } = await supabase
+                .from("stages")
+                .select("id, pipeline_id, pipelines!inner(kind, tenant_id)")
+                .eq("id", data.stageId)
+                .eq("tenant_id", tenantId)
+                .maybeSingle();
+            if (stageRow && (stageRow as any).pipelines?.kind === "deals") {
+                stageId = stageRow.id;
+                resolvedPipelineId = stageRow.pipeline_id;
+            }
+        }
+        if (!stageId && data.pipelineId) {
+            // Pipeline explicito: pega a primeira stage dele (position 0 ou is_inbox)
+            const { data: stageRow } = await supabase
+                .from("stages")
+                .select("id, pipeline_id, position, is_inbox")
+                .eq("pipeline_id", data.pipelineId)
+                .eq("tenant_id", tenantId)
+                .order("is_inbox", { ascending: false })
+                .order("position", { ascending: true })
+                .limit(1)
+                .maybeSingle();
+            if (stageRow) {
+                stageId = stageRow.id;
+                resolvedPipelineId = stageRow.pipeline_id;
+            }
+        }
+        if (!stageId) {
+            // Fallback: primeira stage do primeiro pipeline 'deals' do tenant
+            const { data: stageRow } = await supabase
+                .from("stages")
+                .select("id, pipeline_id, pipelines!inner(kind, is_default, tenant_id)")
+                .eq("tenant_id", tenantId)
+                .eq("pipelines.kind", "deals")
+                .order("position", { ascending: true })
+                .limit(1)
+                .maybeSingle();
+            if (!stageRow) {
+                throw new Error("Nenhum funil de vendas configurado. Crie um em Configurações > Funis.");
+            }
+            stageId = stageRow.id;
+            resolvedPipelineId = stageRow.pipeline_id;
+        }
+
+        // 4. Se ja existe deal ABERTO pra esse contato no mesmo pipeline, reusa
         const { data: openDeal } = await supabase
             .from("deals")
-            .select("id")
+            .select("id, stage_id, value")
             .eq("tenant_id", tenantId)
             .eq("contact_id", contactId)
             .eq("status", "open")
             .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(5);
 
-        if (openDeal?.id) {
-            // Atualiza valor se foi enviado e era 0
-            const newValue = parseFloat(data.value) || 0;
-            if (newValue > 0) {
-                await supabase.from("deals").update({ value: newValue }).eq("id", openDeal.id);
+        if (openDeal && openDeal.length > 0) {
+            // Verifica se algum dos deals abertos esta no pipeline alvo
+            const stagesOfPipeline = resolvedPipelineId
+                ? (await supabase.from("stages").select("id").eq("pipeline_id", resolvedPipelineId)).data?.map((s: any) => s.id) ?? []
+                : [];
+            const dealInPipeline = openDeal.find((d: any) => stagesOfPipeline.includes(d.stage_id));
+            if (dealInPipeline) {
+                const newValue = parseFloat(data.value) || 0;
+                if (newValue > 0) {
+                    await supabase.from("deals").update({ value: newValue }).eq("id", dealInPipeline.id);
+                }
+                return { success: true, reused: true, dealId: dealInPipeline.id };
             }
-            return { success: true, reused: true, dealId: openDeal.id };
         }
 
-        // 4. Buscar primeira etapa do funil padrao do tenant
-        const { data: firstStage } = await supabase
-            .from("stages")
-            .select("id")
-            .eq("tenant_id", tenantId)
-            .order("position", { ascending: true })
-            .limit(1)
-            .single();
-
-        if (!firstStage) throw new Error("Nenhuma etapa de funil encontrada.");
-
         // 5. Criar Deal novo
-        const { error: dealError } = await supabase
+        const { data: newDeal, error: dealError } = await supabase
             .from("deals")
             .insert({
                 title: "Oportunidade: " + data.name,
                 value: parseFloat(data.value) || 0,
                 contact_id: contactId,
-                stage_id: firstStage.id,
+                stage_id: stageId,
                 status: "open",
                 tenant_id: tenantId,
-            });
+                owner_id: data.ownerId || null,
+            })
+            .select("id")
+            .single();
 
         if (dealError) throw new Error("Erro ao criar negócio: " + dealError.message);
 
-        return { success: true };
+        // 6. Adicionar tags (opcional)
+        if (data.tagIds && data.tagIds.length > 0 && newDeal?.id) {
+            const tagsToInsert = data.tagIds.map((tagId) => ({
+                deal_id: newDeal.id,
+                tag_id: tagId,
+                tenant_id: tenantId,
+            }));
+            await supabase.from("deal_tags").insert(tagsToInsert);
+        }
+
+        // 7. Nota inicial (opcional)
+        if (data.notes && data.notes.trim().length > 0 && newDeal?.id) {
+            await supabase.from("notes").insert({
+                deal_id: newDeal.id,
+                content: data.notes.trim(),
+                tenant_id: tenantId,
+            });
+        }
+
+        return { success: true, dealId: newDeal?.id };
 
     } catch (error: any) {
         console.error("createLead Error:", error);
