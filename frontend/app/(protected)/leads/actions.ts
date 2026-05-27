@@ -103,8 +103,9 @@ export async function getBoardData(pipelineId?: string) {
                 .from("deals")
                 .select(`
                     id, title, value, stage_id, owner_id, status, tenant_id,
-                    promoted_at, snoozed_until, resolved_at, lost_reason, won_reason,
-                    contact_id, custom_fields, last_activity_at,
+                    promoted_at, snoozed_until, resolved_at, closed_at,
+                    lost_reason, lost_reason_id, lost_details,
+                    contact_id, custom_values, stage_entered_at,
                     created_at, updated_at,
                     contacts (name, phone, photo_url),
                     owner:owner_id (full_name, avatar_url),

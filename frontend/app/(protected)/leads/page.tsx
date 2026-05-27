@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
 import { markAsWon, recoverDeal, getTeamMembers, deleteDeals, updateDeals, addDealMember } from "@/app/actions";
 import { getPipelines, getBoardData } from "./actions";
+import { readCache, writeCache } from "@/lib/board-cache";
 import { GitPullRequest, CheckSquare, Square } from "lucide-react";
 
 import {
@@ -28,16 +29,30 @@ export default function LeadsPage() {
     // Inicializa o cliente Supabase usando o utilitário do projeto (@supabase/ssr)
     const supabase = createClient();
     const confirm = useConfirm();
-    const [pipelines, setPipelines] = useState<any[]>([]);
-    const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
+    const [pipelines, setPipelines] = useState<any[]>(() => {
+        if (typeof window === "undefined") return [];
+        try { return readCache<any[]>("leads:pipelines") ?? []; } catch { return []; }
+    });
+    const [selectedPipelineId, setSelectedPipelineId] = useState<string>(() => {
+        if (typeof window === "undefined") return "";
+        try { return localStorage.getItem("lastPipelineId") ?? ""; } catch { return ""; }
+    });
 
-    const [stages, setStages] = useState<any[]>([]);
-    const [deals, setDeals] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    // Hidrata stages/deals/fields a partir do snapshot do pipeline salvo
+    const initialBoardKey = (typeof window !== "undefined"
+        ? `leads:board:${localStorage.getItem("lastPipelineId") ?? ""}`
+        : "leads:board:");
+    const initialBoardSnapshot = (() => {
+        if (typeof window === "undefined") return null;
+        try { return readCache<{ stages: any[]; deals: any[]; fields: any[] }>(initialBoardKey); } catch { return null; }
+    })();
+    const [stages, setStages] = useState<any[]>(initialBoardSnapshot?.stages ?? []);
+    const [deals, setDeals] = useState<any[]>(initialBoardSnapshot?.deals ?? []);
+    const [loading, setLoading] = useState<boolean>(!(initialBoardSnapshot?.deals?.length));
     const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
 
     // Custom Fields
-    const [fields, setFields] = useState<any[]>([]); // All fields definitions
+    const [fields, setFields] = useState<any[]>(initialBoardSnapshot?.fields ?? []);
 
     // Helpers pra persistir filtros no localStorage (sobrevivem F5, navegação e volta de deal)
     const readLs = (k: string, fallback: string) => {
@@ -101,23 +116,23 @@ export default function LeadsPage() {
         }
     }, [selectedPipelineId]);
 
-    // Realtime (polling removido - redundante com subscription)
+    // Realtime — debounced pra evitar reloads em rajada
     useEffect(() => {
+        if (!selectedPipelineId) return;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const scheduleReload = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => { loadBoard(selectedPipelineId); }, 1200);
+        };
+
         const channel = supabase
             .channel('crm-updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, (payload) => {
-                console.log('Realtime DEAL update:', payload);
-                if (selectedPipelineId) loadBoard(selectedPipelineId);
-            })
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-                console.log('Realtime MESSAGE update:', payload);
-                if (selectedPipelineId) loadBoard(selectedPipelineId);
-            })
-            .subscribe((status) => {
-                console.log("Status da conexão Realtime (Leads):", status);
-            });
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, scheduleReload)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleReload)
+            .subscribe();
 
         return () => {
+            if (timer) clearTimeout(timer);
             supabase.removeChannel(channel);
         }
     }, [selectedPipelineId]);
@@ -136,6 +151,7 @@ export default function LeadsPage() {
         const pipeRes = await getPipelines();
         if (pipeRes.success && pipeRes.data && pipeRes.data.length > 0) {
             setPipelines(pipeRes.data);
+            writeCache("leads:pipelines", pipeRes.data);
 
             // If no selected pipeline, prefer URL query (?pipeline=ID),
             // then localStorage, then first pipeline.
@@ -168,15 +184,20 @@ export default function LeadsPage() {
     }
 
     async function loadBoard(pipelineId: string) {
-        // setLoading(true); // Maybe don't full screen load on switch to be smoother?
-
         const res = await getBoardData(pipelineId);
         if (res.success) {
-            setStages(res.stages || []);
-            setDeals(res.deals || []);
-            if (res.fieldDefinitions) setFields(res.fieldDefinitions);
-
-
+            const nextStages = res.stages || [];
+            const nextDeals = res.deals || [];
+            const nextFields = res.fieldDefinitions || [];
+            setStages(nextStages);
+            setDeals(nextDeals);
+            setFields(nextFields);
+            // Snapshot pro paint instantaneo na proxima visita
+            writeCache(`leads:board:${pipelineId}`, {
+                stages: nextStages,
+                deals: nextDeals,
+                fields: nextFields,
+            });
         }
         setLoading(false);
     }
