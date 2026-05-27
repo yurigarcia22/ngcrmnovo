@@ -76,18 +76,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         }
     };
 
-    // Initial Fetch & Poll
+    // Fetch inicial — depois disso o realtime cuida das atualizacoes
+    // (pg_cron processa scheduled_for no banco, realtime entrega via UPDATE)
     useEffect(() => {
         fetchNotifications().catch(console.error);
-
-        // Poll for updates and TRIGGER cron (for local dev environments where external cron isn't set up)
-        const interval = setInterval(() => {
-            fetchNotifications().catch(() => { });
-            // Trigger the cron endpoint to process scheduled notifications
-            fetch('/api/cron/notifications').catch(() => { });
-        }, 60000);
-
-        return () => clearInterval(interval);
     }, []);
 
     // Realtime Subscription

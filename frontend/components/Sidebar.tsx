@@ -40,31 +40,52 @@ export default function Sidebar({
     // Carrega contagem de nao lidas + realtime + atualizacao do titulo
     useEffect(() => {
         let cancelled = false;
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
         const refresh = async () => {
             const res = await getUnreadCount();
             if (!cancelled && res.success) setUnread(res.count ?? 0);
         };
+        const refreshDebounced = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => { refresh().catch(() => {}); }, 800);
+        };
+
         refresh();
 
-        // Subscribe a inserts e updates em messages
+        // Realtime restrito ao tenant atual, so INSERT (UPDATE de status nao muda contagem)
         const supabase = createClient();
-        const channel = supabase
-            .channel("sidebar_unread")
-            .on(
-                "postgres_changes",
-                { event: "INSERT", schema: "public", table: "messages" },
-                refresh,
-            )
-            .on(
-                "postgres_changes",
-                { event: "UPDATE", schema: "public", table: "messages" },
-                refresh,
-            )
-            .subscribe();
+        let channel: ReturnType<typeof supabase.channel> | null = null;
+
+        supabase.auth.getUser().then(({ data }) => {
+            if (!data.user || cancelled) return;
+            supabase
+                .from("profiles")
+                .select("tenant_id")
+                .eq("id", data.user.id)
+                .single()
+                .then(({ data: profile }) => {
+                    if (cancelled || !profile?.tenant_id) return;
+                    channel = supabase
+                        .channel(`sidebar_unread_${profile.tenant_id}`)
+                        .on(
+                            "postgres_changes",
+                            {
+                                event: "INSERT",
+                                schema: "public",
+                                table: "messages",
+                                filter: `tenant_id=eq.${profile.tenant_id}`,
+                            },
+                            refreshDebounced,
+                        )
+                        .subscribe();
+                });
+        });
 
         return () => {
             cancelled = true;
-            supabase.removeChannel(channel);
+            if (debounceTimer) clearTimeout(debounceTimer);
+            if (channel) supabase.removeChannel(channel);
         };
     }, []);
 

@@ -97,21 +97,20 @@ export async function getBoardData(pipelineId?: string) {
         // If no stages, no deals
         let deals: any[] = [];
         if (stageIds.length > 0) {
+            // Select enxuto: so colunas usadas pelo KanbanCard.
+            // deal_contacts/deal_items removidos daqui (lazy load no modal do deal).
             const { data: dealsData, error: dealsError } = await supabase
                 .from("deals")
                 .select(`
-                    *,
+                    id, title, value, stage_id, owner_id, status, tenant_id,
+                    promoted_at, snoozed_until, resolved_at, lost_reason, won_reason,
+                    contact_id, custom_fields, last_activity_at,
+                    created_at, updated_at,
                     contacts (name, phone, photo_url),
-                    deal_contacts (id, name, phone, email, title),
-                    deal_members (id, user_id, profiles(full_name, avatar_url)),
                     owner:owner_id (full_name, avatar_url),
-                    deal_tags (
-                        tags (id, name, color)
-                    ),
-                    deal_items (
-                        products (name)
-                    ),
-                    tasks (id, due_date, description, is_completed)
+                    deal_members (id, user_id, profiles(full_name, avatar_url)),
+                    deal_tags (tags (id, name, color)),
+                    tasks (id, due_date, is_completed)
                 `)
                 .eq("tenant_id", tenantId)
                 .in("stage_id", stageIds)
