@@ -2426,7 +2426,7 @@ export async function importLeadsFromExcel(formData: FormData) {
 
 export async function getNotifications() {
     try {
-        const supabase = await createClient();
+        const supabase = await createSupabaseServerClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return { success: false, error: "Not authenticated" };
 
@@ -2447,7 +2447,7 @@ export async function getNotifications() {
 
 export async function markNotificationAsRead(id: string) {
     try {
-        const supabase = await createClient();
+        const supabase = await createSupabaseServerClient();
         const { error } = await supabase
             .from('notifications')
             .update({ read_at: new Date().toISOString() })
@@ -2462,7 +2462,7 @@ export async function markNotificationAsRead(id: string) {
 
 export async function markAllNotificationsAsRead() {
     try {
-        const supabase = await createClient();
+        const supabase = await createSupabaseServerClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return { success: false };
 
@@ -2481,7 +2481,7 @@ export async function markAllNotificationsAsRead() {
 
 export async function getNotificationSettings() {
     try {
-        const supabase = await createClient();
+        const supabase = await createSupabaseServerClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return { success: false, error: "Not authenticated" };
 
@@ -2513,7 +2513,7 @@ export async function getNotificationSettings() {
 
 export async function updateNotificationSettings(settings: any) {
     try {
-        const supabase = await createClient();
+        const supabase = await createSupabaseServerClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return { success: false, error: "Not authenticated" };
 
