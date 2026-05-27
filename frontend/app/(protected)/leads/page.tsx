@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
 import { markAsWon, recoverDeal, getTeamMembers, deleteDeals, updateDeals, addDealMember } from "@/app/actions";
 import { getPipelines, getBoardData } from "./actions";
-import { readCache, writeCache } from "@/lib/board-cache";
+import { qk } from "@/lib/query-keys";
 import { GitPullRequest, CheckSquare, Square } from "lucide-react";
 
 import {
@@ -26,33 +27,56 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function LeadsPage() {
-    // Inicializa o cliente Supabase usando o utilitário do projeto (@supabase/ssr)
     const supabase = createClient();
     const confirm = useConfirm();
-    const [pipelines, setPipelines] = useState<any[]>(() => {
-        if (typeof window === "undefined") return [];
-        try { return readCache<any[]>("leads:pipelines") ?? []; } catch { return []; }
-    });
+    const queryClient = useQueryClient();
+
     const [selectedPipelineId, setSelectedPipelineId] = useState<string>(() => {
         if (typeof window === "undefined") return "";
         try { return localStorage.getItem("lastPipelineId") ?? ""; } catch { return ""; }
     });
 
-    // Hidrata stages/deals/fields a partir do snapshot do pipeline salvo
-    const initialBoardKey = (typeof window !== "undefined"
-        ? `leads:board:${localStorage.getItem("lastPipelineId") ?? ""}`
-        : "leads:board:");
-    const initialBoardSnapshot = (() => {
-        if (typeof window === "undefined") return null;
-        try { return readCache<{ stages: any[]; deals: any[]; fields: any[] }>(initialBoardKey); } catch { return null; }
-    })();
-    const [stages, setStages] = useState<any[]>(initialBoardSnapshot?.stages ?? []);
-    const [deals, setDeals] = useState<any[]>(initialBoardSnapshot?.deals ?? []);
-    const [loading, setLoading] = useState<boolean>(!(initialBoardSnapshot?.deals?.length));
-    const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
+    // === React Query ===
+    const pipelinesQuery = useQuery({
+        queryKey: qk.pipelines.list(),
+        queryFn: async () => {
+            const res = await getPipelines();
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar funis");
+            return res.data ?? [];
+        },
+        staleTime: 5 * 60_000, // 5 min — funis nao mudam toda hora
+    });
+    const pipelines: any[] = pipelinesQuery.data ?? [];
 
-    // Custom Fields
-    const [fields, setFields] = useState<any[]>(initialBoardSnapshot?.fields ?? []);
+    const boardQuery = useQuery({
+        queryKey: qk.deals.board(selectedPipelineId),
+        queryFn: async () => {
+            const res = await getBoardData(selectedPipelineId);
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar board");
+            return {
+                stages: res.stages ?? [],
+                deals: res.deals ?? [],
+                fieldDefinitions: res.fieldDefinitions ?? [],
+            };
+        },
+        enabled: !!selectedPipelineId,
+        staleTime: 15_000,
+    });
+    const stages: any[] = boardQuery.data?.stages ?? [];
+    const deals: any[] = boardQuery.data?.deals ?? [];
+    const fields: any[] = boardQuery.data?.fieldDefinitions ?? [];
+    const loading = boardQuery.isLoading && !boardQuery.data;
+
+    // Helpers para update otimista do board
+    const patchBoardDeals = (mutator: (deals: any[]) => any[]) => {
+        queryClient.setQueryData(qk.deals.board(selectedPipelineId), (old: any) => {
+            if (!old) return old;
+            return { ...old, deals: mutator(old.deals ?? []) };
+        });
+    };
+    const invalidateBoard = () => queryClient.invalidateQueries({ queryKey: qk.deals.board(selectedPipelineId) });
+
+    const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
 
     // Helpers pra persistir filtros no localStorage (sobrevivem F5, navegação e volta de deal)
     const readLs = (k: string, fallback: string) => {
@@ -64,13 +88,30 @@ export default function LeadsPage() {
     const [filterStatus, setFilterStatus] = useState<'active' | 'lost'>(
         () => (readLs("filter_status", "active") as 'active' | 'lost'),
     );
-    const [tags, setTags] = useState<any[]>([]);
+    const tagsQuery = useQuery({
+        queryKey: qk.tags.all(),
+        queryFn: async () => {
+            const { data, error } = await supabase.from("tags").select("*").order("name");
+            if (error) throw error;
+            return data ?? [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const tags: any[] = tagsQuery.data ?? [];
     const [filterTag, setFilterTag] = useState(() => readLs("filter_tag", "all"));
     const [filterDate, setFilterDate] = useState(() => readLs("filter_date", "all"));
 
-    // Owner Filter (New)
-    const [teamMembers, setTeamMembers] = useState<any[]>([]);
-    // Se já há owner salvo no LS, usa; senão começa "loading" pra setar o user logado
+    // Owner Filter
+    const teamQuery = useQuery({
+        queryKey: qk.team.members(),
+        queryFn: async () => {
+            const res = await getTeamMembers();
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar time");
+            return res.data ?? [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const teamMembers: any[] = teamQuery.data ?? [];
     const [filterOwner, setFilterOwner] = useState(() => readLs("filter_owner", "loading"));
     const [currentUserId, setCurrentUserId] = useState<string>("");
 
@@ -99,36 +140,57 @@ export default function LeadsPage() {
 
 
 
-    // Busca dados ao carregar
-    // Busca dados ao carregar (Pipelines, Tags, Team)
+    // Identifica usuario (so pra setar default do filter owner)
     useEffect(() => {
-        loadInitialData();
+        (async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                setCurrentUserId(user.id);
+                if (filterOwner === 'loading') setFilterOwner(user.id);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Atualiza board quando pipeline muda
+    // Quando pipelines carregam pela primeira vez, escolhe um se nenhum esta selecionado
     useEffect(() => {
-        if (selectedPipelineId) {
-            loadBoard(selectedPipelineId);
-            // Persiste pra próxima sessão e pra preservar quando voltar de um deal
-            if (typeof window !== "undefined") {
-                localStorage.setItem("lastPipelineId", String(selectedPipelineId));
+        if (!pipelines.length || selectedPipelineId) return;
+        let initialPipeline: string | null = null;
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const fromUrl = params.get("pipeline");
+            if (fromUrl && pipelines.some((p: any) => String(p.id) === fromUrl)) {
+                initialPipeline = fromUrl;
+            } else {
+                const fromStorage = localStorage.getItem("lastPipelineId");
+                if (fromStorage && pipelines.some((p: any) => String(p.id) === fromStorage)) {
+                    initialPipeline = fromStorage;
+                }
             }
+        }
+        setSelectedPipelineId(initialPipeline ?? String(pipelines[0].id));
+    }, [pipelines, selectedPipelineId]);
+
+    // Persiste pipeline selecionado
+    useEffect(() => {
+        if (selectedPipelineId && typeof window !== "undefined") {
+            localStorage.setItem("lastPipelineId", String(selectedPipelineId));
         }
     }, [selectedPipelineId]);
 
-    // Realtime — debounced pra evitar reloads em rajada
+    // Realtime — invalidacao debounced (React Query refaz a query)
     useEffect(() => {
         if (!selectedPipelineId) return;
         let timer: ReturnType<typeof setTimeout> | null = null;
-        const scheduleReload = () => {
+        const scheduleInvalidate = () => {
             if (timer) clearTimeout(timer);
-            timer = setTimeout(() => { loadBoard(selectedPipelineId); }, 1200);
+            timer = setTimeout(() => { invalidateBoard(); }, 1200);
         };
 
         const channel = supabase
             .channel('crm-updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, scheduleReload)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleReload)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'deals' }, scheduleInvalidate)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleInvalidate)
             .subscribe();
 
         return () => {
@@ -137,75 +199,8 @@ export default function LeadsPage() {
         }
     }, [selectedPipelineId]);
 
-    async function loadInitialData() {
-        // 0. Identifica usuário - IMPORTANTE para o filtro default
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            setCurrentUserId(user.id);
-            if (filterOwner === 'loading') {
-                setFilterOwner(user.id);
-            }
-        }
-
-        // 1. Load Pipelines
-        const pipeRes = await getPipelines();
-        if (pipeRes.success && pipeRes.data && pipeRes.data.length > 0) {
-            setPipelines(pipeRes.data);
-            writeCache("leads:pipelines", pipeRes.data);
-
-            // If no selected pipeline, prefer URL query (?pipeline=ID),
-            // then localStorage, then first pipeline.
-            if (!selectedPipelineId) {
-                let initialPipeline: string | null = null;
-                if (typeof window !== "undefined") {
-                    const params = new URLSearchParams(window.location.search);
-                    const fromUrl = params.get("pipeline");
-                    if (fromUrl && pipeRes.data.some((p: any) => String(p.id) === fromUrl)) {
-                        initialPipeline = fromUrl;
-                    } else {
-                        const fromStorage = localStorage.getItem("lastPipelineId");
-                        if (fromStorage && pipeRes.data.some((p: any) => String(p.id) === fromStorage)) {
-                            initialPipeline = fromStorage;
-                        }
-                    }
-                }
-                setSelectedPipelineId(initialPipeline ?? pipeRes.data[0].id);
-            }
-        }
-
-        // 2. Busca tags e time e produtos
-        const [tagsResult, teamResult] = await Promise.all([
-            supabase.from("tags").select("*").order("name"),
-            getTeamMembers()
-        ]);
-
-        if (teamResult.success) setTeamMembers(teamResult.data || []);
-        if (tagsResult.data) setTags(tagsResult.data);
-    }
-
-    async function loadBoard(pipelineId: string) {
-        const res = await getBoardData(pipelineId);
-        if (res.success) {
-            const nextStages = res.stages || [];
-            const nextDeals = res.deals || [];
-            const nextFields = res.fieldDefinitions || [];
-            setStages(nextStages);
-            setDeals(nextDeals);
-            setFields(nextFields);
-            // Snapshot pro paint instantaneo na proxima visita
-            writeCache(`leads:board:${pipelineId}`, {
-                stages: nextStages,
-                deals: nextDeals,
-                fields: nextFields,
-            });
-        }
-        setLoading(false);
-    }
-
-    // Alias for compatibility with other calls like onSuccess
-    const fetchData = () => {
-        if (selectedPipelineId) loadBoard(selectedPipelineId);
-    };
+    // Alias para handlers que pediam refetch
+    const fetchData = () => invalidateBoard();
 
 
 
@@ -234,10 +229,9 @@ export default function LeadsPage() {
 
         console.log('Movendo Deal:', dealId, 'Para Estágio:', newStageId, isPromoting ? '[PROMOVIDO]' : '');
 
-        // Optimistic UI: Atualiza estado local imediatamente
+        // Optimistic UI: atualiza cache do React Query imediatamente
         const oldDeals = [...deals];
-        const updatedDeals = deals.map((deal) => {
-            // Comparação segura convertendo ambos para string
+        patchBoardDeals((curr) => curr.map((deal: any) => {
             if (String(deal.id) === dealId) {
                 const next: any = { ...deal, stage_id: newStageId };
                 if (isPromoting && !deal.promoted_at) {
@@ -246,9 +240,7 @@ export default function LeadsPage() {
                 return next;
             }
             return deal;
-        });
-
-        setDeals(updatedDeals);
+        }));
 
         try {
             const { data: session } = await supabase.auth.getSession();
@@ -324,7 +316,7 @@ export default function LeadsPage() {
         } catch (error: any) {
             console.error("Falha ao mover card:", error);
             toast.error("Erro ao mover", error.message || "Erro desconhecido");
-            setDeals(oldDeals); // Rollback em caso de erro
+            patchBoardDeals(() => oldDeals); // Rollback
         }
     };
 

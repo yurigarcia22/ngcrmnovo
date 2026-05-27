@@ -8,9 +8,11 @@ import {
     Plus, X, Trash2, Repeat, Flame, ChevronRight,
     AlertTriangle, Sun, CalendarDays, Trophy,
 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { createTaskFull, completeTask, deleteTask, rescheduleTask } from "@/app/actions";
+import { createTaskFull, completeTask, deleteTask, rescheduleTask, getMyTasks } from "@/app/actions";
+import { qk } from "@/lib/query-keys";
 
 interface Task {
     id: string;
@@ -64,13 +66,54 @@ function formatRelative(iso: string): string {
     return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function normalize(raw: any): TasksGrouped {
+    const normalizeTask = (t: any) => {
+        const deal = Array.isArray(t.deals) ? t.deals[0] ?? null : t.deals ?? null;
+        const coldLead = Array.isArray(t.cold_leads) ? t.cold_leads[0] ?? null : t.cold_leads ?? null;
+        let dealNormalized = null;
+        if (deal) {
+            const contact = Array.isArray(deal.contacts) ? deal.contacts[0] ?? null : deal.contacts ?? null;
+            dealNormalized = { id: deal.id, title: deal.title, contacts: contact };
+        }
+        return { ...t, deals: dealNormalized, cold_leads: coldLead };
+    };
+    const normGroup = (arr: any[] | undefined) => (arr ?? []).map(normalizeTask);
+    return {
+        overdue: normGroup(raw?.overdue),
+        today: normGroup(raw?.today),
+        upcoming: normGroup(raw?.upcoming),
+        completedRecent: normGroup(raw?.completedRecent),
+    };
+}
+
 export function MeuDiaClient({ initialTasks }: Props) {
     const router = useRouter();
     const confirm = useConfirm();
-    const [tasks, setTasks] = useState(initialTasks);
+    const queryClient = useQueryClient();
     const [showNew, setShowNew] = useState(false);
 
-    const reload = useCallback(() => router.refresh(), [router]);
+    const tasksQuery = useQuery<TasksGrouped>({
+        queryKey: qk.tasks.mine(),
+        queryFn: async () => {
+            const res = await getMyTasks();
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar tarefas");
+            return normalize(res.data);
+        },
+        initialData: initialTasks,
+        staleTime: 30_000,
+    });
+    const tasks = tasksQuery.data ?? initialTasks;
+    const setTasks = (
+        updater: TasksGrouped | ((prev: TasksGrouped) => TasksGrouped),
+    ) => {
+        queryClient.setQueryData(qk.tasks.mine(), (prev: TasksGrouped | undefined) => {
+            const base = prev ?? tasks;
+            return typeof updater === "function" ? (updater as any)(base) : updater;
+        });
+    };
+    const reload = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: qk.tasks.mine() });
+    }, [queryClient]);
 
     async function handleComplete(t: Task) {
         // Optimistic: move pra completedRecent

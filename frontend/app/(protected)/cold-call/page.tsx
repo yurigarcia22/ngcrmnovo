@@ -14,7 +14,8 @@ import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getMembers } from '@/app/(protected)/settings/team/actions';
 import { getColdCallPipelinesWithStages, moveColdLeadToStage } from './actions';
-import { readCache, writeCache } from '@/lib/board-cache';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { qk } from '@/lib/query-keys';
 
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { AutoDialToggle } from '@/components/cold-call/AutoDialToggle';
@@ -25,6 +26,7 @@ import { getColdCallFollowups, updateColdCallFollowup } from '@/app/actions';
 
 export default function ColdCallPage() {
     const confirm = useConfirm();
+    const queryClient = useQueryClient();
     // Top-level Navigation State
     const [activeTab, setActiveTab] = useState<'cold-call' | 'follow-ups'>('cold-call');
     const [filters, setFilters] = useState({
@@ -33,26 +35,77 @@ export default function ColdCallPage() {
         status: 'all',
         responsavelId: 'meus_leads',
     });
-    // Cache key precisa estar disponivel para os inicializadores abaixo
-    const initialCacheKey = `coldcall:leads:meus_leads:all:all:`;
-    const [leads, setLeads] = useState<ColdLead[]>(() => {
-        if (typeof window === 'undefined') return [];
-        try {
-            return readCache<ColdLead[]>(initialCacheKey) ?? [];
-        } catch { return []; }
+
+    // === React Query ===
+    const leadsQuery = useQuery({
+        queryKey: qk.coldCall.leads(filters),
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (filters.search) params.append('search', filters.search);
+            if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
+            if (filters.status !== 'all') params.append('status', filters.status);
+            if (filters.responsavelId) params.append('responsavelId', filters.responsavelId);
+            params.append('limit', '1000');
+            const res = await fetch(`/api/cold-leads?${params.toString()}`);
+            if (!res.ok) throw new Error('Falha ao carregar leads');
+            const data = await res.json();
+            return (data.data ?? []) as ColdLead[];
+        },
+        staleTime: 30_000,
     });
-    const [followups, setFollowups] = useState<any[]>([]);
-    const [pipelines, setPipelines] = useState<any[]>([]);
-    const [loading, setLoading] = useState(() => {
-        if (typeof window === 'undefined') return true;
-        try {
-            return !(readCache<ColdLead[]>(initialCacheKey)?.length);
-        } catch { return true; }
+    const leads: ColdLead[] = leadsQuery.data ?? [];
+    const loading = leadsQuery.isLoading && !leadsQuery.data;
+    const setLeads = (
+        updater: ColdLead[] | ((curr: ColdLead[]) => ColdLead[]),
+    ) => {
+        queryClient.setQueryData(qk.coldCall.leads(filters), (prev: ColdLead[] | undefined) => {
+            const base = prev ?? [];
+            return typeof updater === 'function' ? (updater as any)(base) : updater;
+        });
+    };
+
+    const followupsQuery = useQuery({
+        queryKey: qk.coldCall.followups(),
+        queryFn: async () => {
+            const [res, resAtrasados] = await Promise.all([
+                getColdCallFollowups({ status: 'pendente' }),
+                getColdCallFollowups({ status: 'atrasado' }),
+            ]);
+            return [
+                ...((res.success && res.data) || []),
+                ...((resAtrasados.success && resAtrasados.data) || []),
+            ];
+        },
+        staleTime: 30_000,
     });
+    const followups: any[] = followupsQuery.data ?? [];
+
+    const teamQuery = useQuery({
+        queryKey: qk.team.members(),
+        queryFn: async () => {
+            const res = await getMembers();
+            if (!res.success) throw new Error(res.error ?? 'Falha ao carregar time');
+            return res.profiles ?? [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const teamMembers: any[] = teamQuery.data ?? [];
+
+    const pipelinesQuery = useQuery({
+        queryKey: qk.pipelines.list(),
+        queryFn: async () => {
+            const r = await fetch('/api/crm/pipelines');
+            if (!r.ok) return [];
+            const d = await r.json();
+            return Array.isArray(d) ? d : [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const pipelines: any[] = pipelinesQuery.data ?? [];
+
     const [selectedLead, setSelectedLead] = useState<ColdLead | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [teamMembers, setTeamMembers] = useState<any[]>([]);
     const [isSelectionMode, setIsSelectionMode] = useState(false);
 
     // Auto Dial State
@@ -75,19 +128,19 @@ export default function ColdCallPage() {
     const [bulkNicho, setBulkNicho] = useState('');
     const [bulkResponsible, setBulkResponsible] = useState('');
 
-    // Cold Call Pipelines (funis customizaveis) — hidrata sincronamente do cache
-    const [coldPipelines, setColdPipelines] = useState<any[]>(() => {
-        if (typeof window === 'undefined') return [];
-        try {
-            return readCache<any[]>("coldcall:pipelines") ?? [];
-        } catch { return []; }
+    // Cold Call Pipelines (funis customizaveis)
+    const coldPipelinesQuery = useQuery({
+        queryKey: qk.coldCall.pipelines(),
+        queryFn: async () => {
+            const res = await getColdCallPipelinesWithStages();
+            if (!res.success) throw new Error(res.error ?? 'Falha ao carregar funis');
+            return res.data ?? [];
+        },
+        staleTime: 5 * 60_000,
     });
-    const [coldPipelinesLoaded, setColdPipelinesLoaded] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        try {
-            return (readCache<any[]>("coldcall:pipelines")?.length ?? 0) > 0;
-        } catch { return false; }
-    });
+    const coldPipelines: any[] = coldPipelinesQuery.data ?? [];
+    const coldPipelinesLoaded = !coldPipelinesQuery.isLoading || !!coldPipelinesQuery.data;
+
     const [selectedColdPipelineId, setSelectedColdPipelineId] = useState<number | null>(() => {
         if (typeof window === 'undefined') return null;
         try {
@@ -96,113 +149,37 @@ export default function ColdCallPage() {
         } catch { return null; }
     });
 
+    // Quando funis carregam pela primeira vez, escolhe default se nenhum esta selecionado
+    useEffect(() => {
+        if (!coldPipelines.length || selectedColdPipelineId) return;
+        const def = coldPipelines.find((p: any) => p.is_default) ?? coldPipelines[0];
+        if (def) setSelectedColdPipelineId(def.id);
+    }, [coldPipelines, selectedColdPipelineId]);
+
     const selectedColdPipeline = useMemo(
         () => coldPipelines.find((p: any) => String(p.id) === String(selectedColdPipelineId)) ?? null,
         [coldPipelines, selectedColdPipelineId],
     );
     const coldStages = selectedColdPipeline?.stages ?? [];
 
-    const cacheKey = useMemo(() => {
-        const f = filters;
-        return `coldcall:leads:${f.responsavelId}:${f.nicho}:${f.status}:${f.search}`;
-    }, [filters]);
-
-    const fetchLeads = useCallback(async (opts?: { silent?: boolean }) => {
-        if (!opts?.silent) setLoading(true);
-        try {
-            const params = new URLSearchParams();
-            if (filters.search) params.append('search', filters.search);
-            if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
-            if (filters.status !== 'all') params.append('status', filters.status);
-            if (filters.responsavelId) params.append('responsavelId', filters.responsavelId);
-            params.append('limit', '1000');
-
-            const res = await fetch(`/api/cold-leads?${params.toString()}`);
-            const data = await res.json();
-            if (data.data) {
-                setLeads(data.data);
-                writeCache(cacheKey, data.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch leads', error);
-        } finally {
-            if (!opts?.silent) setLoading(false);
-        }
-    }, [filters, cacheKey]);
-
-    const fetchFollowupsData = useCallback(async () => {
-        try {
-            // Fetch ALL non-completed followups (pendente + atrasado)
-            const [res, resAtrasados] = await Promise.all([
-                getColdCallFollowups({ status: 'pendente' }),
-                getColdCallFollowups({ status: 'atrasado' }),
-            ]);
-
-            let allFollowups: any[] = [];
-            if (res.success && res.data) {
-                allFollowups.push(...res.data);
-            } else {
-                console.error('Erro ao buscar followups pendentes:', res.error);
-            }
-            if (resAtrasados.success && resAtrasados.data) {
-                allFollowups.push(...resAtrasados.data);
-            } else {
-                console.error('Erro ao buscar followups atrasados:', resAtrasados.error);
-            }
-
-            console.log('[FollowUps] Loaded:', allFollowups.length, 'followups');
-            setFollowups(allFollowups);
-        } catch (err) {
-            console.error('[FollowUps] Fetch error:', err);
-        }
-    }, []);
-
-    const fetchMembers = useCallback(async () => {
-        const res = await getMembers();
-        if (res.success && res.profiles) {
-            setTeamMembers(res.profiles);
-        }
-    }, []);
-
-    const fetchPipelinesOnce = useCallback(async () => {
-        try {
-            const res = await fetch('/api/crm/pipelines');
-            if (res.ok) {
-                const data = await res.json();
-                setPipelines(Array.isArray(data) ? data : []);
-            }
-        } catch (e) {
-            console.error('Failed to fetch pipelines', e);
-        }
-    }, []);
-
-    const fetchColdPipelines = useCallback(async () => {
-        try {
-            const res = await getColdCallPipelinesWithStages();
-            if (res.success && res.data) {
-                setColdPipelines(res.data);
-                writeCache("coldcall:pipelines", res.data);
-                // Seleciona o default na primeira carga
-                if (!selectedColdPipelineId) {
-                    const def = res.data.find((p: any) => p.is_default) ?? res.data[0];
-                    if (def) setSelectedColdPipelineId(def.id);
-                }
-            }
-        } finally {
-            setColdPipelinesLoaded(true);
-        }
-    }, [selectedColdPipelineId]);
-
-    // Persiste o pipeline selecionado pra restaurar entre navegacoes
+    // Persiste o pipeline selecionado
     useEffect(() => {
         if (selectedColdPipelineId) {
             try { localStorage.setItem("coldcall:selectedPipelineId", String(selectedColdPipelineId)); } catch {}
         }
     }, [selectedColdPipelineId]);
 
+    // Aliases pra handlers legados (invalidate via React Query)
+    const fetchLeads = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: qk.coldCall.leads(filters) });
+    }, [queryClient, filters]);
+    const fetchFollowupsData = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: qk.coldCall.followups() });
+    }, [queryClient]);
+
     const handleMoveStage = async (leadId: string, newStageId: number | string) => {
         const stageIdNum = Number(newStageId);
-        // Optimistic update
+        // Optimistic
         setLeads((current) =>
             current.map((l) => (l.id === leadId ? { ...l, stage_id: stageIdNum } as any : l))
         );
@@ -215,21 +192,6 @@ export default function ColdCallPage() {
             toast.success('Lead movido');
         }
     };
-
-    useEffect(() => {
-        // Se ja tem cache pintado, faz refresh em background (silent=true,
-        // sem trocar loading state). Caso contrario, primeira carga normal.
-        const hasCachedLeads = (readCache<any[]>(cacheKey)?.length ?? 0) > 0;
-        (async () => {
-            await Promise.all([
-                fetchLeads(hasCachedLeads ? { silent: true } : undefined),
-                fetchMembers(),
-                fetchFollowupsData(),
-                fetchPipelinesOnce(),
-                fetchColdPipelines(),
-            ]);
-        })();
-    }, [fetchLeads, fetchMembers, fetchFollowupsData, fetchPipelinesOnce, fetchColdPipelines, cacheKey]);
 
     const handleCallClick = (lead: ColdLead) => {
         setSelectedLead(lead);

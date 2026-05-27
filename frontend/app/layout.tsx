@@ -27,6 +27,7 @@ import { Toaster } from "sonner";
 import { NotificationProvider } from "@/components/notifications/NotificationProvider";
 import { NotificationDrawer } from "@/components/notifications/NotificationDrawer";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
 export default function RootLayout({
   children,
@@ -39,25 +40,27 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen overflow-hidden bg-[#f0f2f5]`}
         suppressHydrationWarning
       >
-        <ConfirmProvider>
-          <NotificationProvider>
-            {children}
-            <NotificationDrawer />
-            <Toaster
-              position="top-right"
-              richColors
-              closeButton
-              theme="light"
-              toastOptions={{
-                style: {
-                  borderRadius: "12px",
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 10px 15px -3px rgb(15 23 42 / 0.08)",
-                },
-              }}
-            />
-          </NotificationProvider>
-        </ConfirmProvider>
+        <QueryProvider>
+          <ConfirmProvider>
+            <NotificationProvider>
+              {children}
+              <NotificationDrawer />
+              <Toaster
+                position="top-right"
+                richColors
+                closeButton
+                theme="light"
+                toastOptions={{
+                  style: {
+                    borderRadius: "12px",
+                    border: "1px solid #e2e8f0",
+                    boxShadow: "0 10px 15px -3px rgb(15 23 42 / 0.08)",
+                  },
+                }}
+              />
+            </NotificationProvider>
+          </ConfirmProvider>
+        </QueryProvider>
       </body>
     </html>
   );

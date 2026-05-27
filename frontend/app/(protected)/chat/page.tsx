@@ -1,5 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { qk } from '@/lib/query-keys';
 import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact, markDealMessagesRead } from '@/app/actions';
 import ChatWindow from '@/components/ChatWindow';
 import ChatContactPanel from '@/components/chat/ChatContactPanel';
@@ -11,23 +13,78 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export default function ChatPage() {
     const confirm = useConfirm();
-    const [conversations, setConversations] = useState<any[]>([]);
+    const queryClient = useQueryClient();
     const [selectedDeal, setSelectedDeal] = useState<any>(null);
     const [search, setSearch] = useState("");
-    const [loading, setLoading] = useState(true);
     const searchParams = useSearchParams();
     const router = useRouter();
     const urlDealId = searchParams.get('dealId');
 
     const [supabase] = useState(() => createClient());
 
+    // ============ React Query ============
+    // Para "filterOwner" precisa ler o estado abaixo — usamos useState normal
+    // e cria a query depois. Aqui declaramos placeholder e logo abaixo a query.
+
     // Filter State
-    const [teamMembers, setTeamMembers] = useState<any[]>([]);
-    const [instances, setInstances] = useState<any[]>([]);
     const [filterOwner, setFilterOwner] = useState<string>("all");
     const [filterInstance, setFilterInstance] = useState<string>("all");
     const [quickFilter, setQuickFilter] = useState<"all" | "unanswered" | "mine" | "today">("all");
     const [currentUserId, setCurrentUserId] = useState<string>("");
+
+    // Debounce search (300ms) — declarado aqui pra disponibilizar pra queryKey
+    const [debouncedSearch, setDebouncedSearch] = useState(search);
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(search), 300);
+        return () => clearTimeout(timer);
+    }, [search]);
+
+    // Conversas: query reativa a debouncedSearch/filterOwner
+    const conversationsQuery = useQuery({
+        queryKey: [...qk.conversations.list(), debouncedSearch, filterOwner],
+        queryFn: async () => {
+            const res = await getConversations(debouncedSearch, filterOwner);
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar conversas");
+            return (res.data ?? []) as any[];
+        },
+        staleTime: 15_000,
+    });
+    const rawConversations: any[] = conversationsQuery.data ?? [];
+    // Aplica filtro client-side (mensagens vazias, urlDealId, selecionado)
+    const conversations = rawConversations.filter((conv: any) => {
+        const hasMessages = conv.messages && conv.messages.length > 0;
+        const isSearched = search && search.trim().length > 0;
+        const isFromUrl = urlDealId && conv.id === urlDealId;
+        const isSelectedNow = selectedDeal && conv.id === selectedDeal.id;
+        return hasMessages || isSearched || isFromUrl || isSelectedNow;
+    });
+    const loading = conversationsQuery.isLoading && !conversationsQuery.data;
+
+    const teamMembersQuery = useQuery({
+        queryKey: qk.team.members(),
+        queryFn: async () => {
+            const r = await getTeamMembers();
+            if (!r.success) throw new Error(r.error ?? "Falha ao carregar time");
+            return r.data ?? [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const teamMembers: any[] = teamMembersQuery.data ?? [];
+
+    const instancesQuery = useQuery({
+        queryKey: ["whatsappInstances"],
+        queryFn: async () => {
+            const r = await getWhatsappInstances();
+            if (!r.success) throw new Error(r.error ?? "Falha ao carregar instancias");
+            return r.data ?? [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const instances: any[] = instancesQuery.data ?? [];
+
+    const loadConversations = () => {
+        queryClient.invalidateQueries({ queryKey: qk.conversations.list() });
+    };
 
     // Promote Lead State
     const [isPromoting, setIsPromoting] = useState(false);
@@ -43,27 +100,13 @@ export default function ChatPage() {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteWithDeal, setDeleteWithDeal] = useState(true);
 
+    // Carrega user atual
     useEffect(() => {
-        async function fetchFilters() {
-            const [teamRes, instRes, { data: session }] = await Promise.all([
-                getTeamMembers(),
-                getWhatsappInstances(),
-                supabase.auth.getSession(),
-            ]);
-            if (teamRes.success && teamRes.data) setTeamMembers(teamRes.data);
-            if (instRes.success && instRes.data) setInstances(instRes.data);
+        supabase.auth.getSession().then(({ data: session }) => {
             if (session?.session?.user?.id) setCurrentUserId(session.session.user.id);
-        }
-        fetchFilters();
+        });
     }, [supabase]);
 
-    // Debounce search + Filter effect
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            loadConversations();
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [search, filterOwner, filterInstance]);
 
     // Update Selected Deal when Conversations refresh (Fix Button state issue)
     useEffect(() => {
@@ -145,40 +188,7 @@ export default function ChatPage() {
         }
     }, [selectedDeal?.id]);
 
-    async function loadConversations() {
-        // Pass "filterInstance" logic? 
-        // Currently getConversations doesn't support 'instanceId' in arguments, 
-        // but we can filter client-side if needed OR update backend.
-        // Given I couldn't find column in DB, client-side filtering might be tricky 
-        // unless 'conversations' result has instance info.
-        // Let's assume we pass it and if backend ignores, we ignore.
-        // Wait, I updated actions.ts BUT I didn't update getConversations to accept instanceId.
-        // So I will just update the UI for now and filter client side if possible, 
-        // or just accept it's a placeholder for 'Number' filter until backend supports it.
-        // For 'Responsible', it works.
-        const res = await getConversations(search, filterOwner);
-        if (res.success && res.data) {
-            let data = res.data;
-
-            // Oculta leads/negócios que ainda não possuem NENHUMA mensagem
-            // a não ser que o usuário: 1) Pesquisou; 2) Clicou via URL; 3) Já está selecionado
-            data = data.filter((conv: any) => {
-                const hasMessages = conv.messages && conv.messages.length > 0;
-                const isSearched = search && search.trim().length > 0;
-                const isFromUrl = urlDealId && conv.id === urlDealId;
-                const isSelectedNow = selectedDeal && conv.id === selectedDeal.id;
-
-                return hasMessages || isSearched || isFromUrl || isSelectedNow;
-            });
-
-            // CLIENT SIDE INSTANCE FILTER (Best Effort)
-            // We don't have instanceId on deal/message easily visible yet.
-            setConversations(data);
-        } else {
-            console.error("Failed to load conversations");
-        }
-        setLoading(false);
-    }
+    // loadConversations agora invalida a queryKey (definido acima, antes do return).
 
     async function handlePromoteToLead() {
         if (!selectedDeal) return;
