@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
 import { scheduleTaskNotifications } from "@/lib/notifications";
+import { normalizeToCanonical, getPossibleVariants, isPlausibleBRPhone } from "@/lib/phone";
 import * as XLSX from 'xlsx';
 
 // --- HELPER: Get Tenant ID ---
@@ -236,61 +237,70 @@ export async function createLead(data: { name: string, phone: string, value: str
 
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // 1. Normalização Rigorosa do Telefone
-        const cleanPhone = data.phone.replace(/\D/g, "");
-        let phoneToSave = cleanPhone;
-        if (cleanPhone.length === 10 || cleanPhone.length === 11) {
-            phoneToSave = "55" + cleanPhone;
+        // 1. Validacao + normalizacao para canonico (centralizado em lib/phone)
+        if (!isPlausibleBRPhone(data.phone)) {
+            return { success: false, error: "Telefone invalido. Digite no formato (XX) 9XXXX-XXXX." };
         }
+        const phoneToSave = normalizeToCanonical(data.phone);
+        const possiblePhones = getPossibleVariants(data.phone);
 
-        // 2. Verificar/Criar Contato (Upsert Logic Robusta)
-        // Busca por variações (com e sem 55) para evitar duplicatas
-        const possiblePhones = [phoneToSave, cleanPhone];
-        if (cleanPhone.startsWith("55")) {
-            possiblePhones.push(cleanPhone.substring(2));
-        }
-
-        let contactId;
-
-        // Importante: A busca de contatos existentes deve respeitar o tenant_id (RLS deve garantir, mas aqui estamos com service role)
+        // 2. Verificar/Criar Contato
+        let contactId: string;
         const { data: existingContacts } = await supabase
             .from("contacts")
-            .select("id")
-            .eq("tenant_id", tenantId) // Garante que só busca contatos DO TENANT
-            .in("phone", possiblePhones)
-            .limit(1);
+            .select("id, phone")
+            .eq("tenant_id", tenantId)
+            .in("phone", possiblePhones);
 
         if (existingContacts && existingContacts.length > 0) {
-            contactId = existingContacts[0].id;
+            const canonicalMatch = existingContacts.find((c: any) => c.phone === phoneToSave);
+            contactId = (canonicalMatch ?? existingContacts[0]).id;
+            // Backfill silencioso pro formato canonico
+            if (canonicalMatch === undefined) {
+                await supabase.from("contacts").update({ phone: phoneToSave }).eq("id", contactId);
+            }
         } else {
             const { data: newContact, error: contactError } = await supabase
                 .from("contacts")
-                .insert({
-                    name: data.name,
-                    phone: phoneToSave,
-                    photo_url: "",
-                    tenant_id: tenantId
-                })
+                .insert({ name: data.name, phone: phoneToSave, photo_url: "", tenant_id: tenantId })
                 .select("id")
                 .single();
-
             if (contactError) throw new Error("Erro ao criar contato: " + contactError.message);
             contactId = newContact.id;
         }
 
-        // 3. Buscar primeira etapa (stage)
-        // Stages podem ser globais ou por tenant. Assumindo globais por enquanto ou que o RLS filtra.
-        // Se stages forem por tenant, precisaria filtrar. Vamos assumir que stages são padrão do sistema ou filtrados por RLS.
+        // 3. Se ja existe deal ABERTO pra esse contato no tenant, reusa em vez de duplicar.
+        const { data: openDeal } = await supabase
+            .from("deals")
+            .select("id")
+            .eq("tenant_id", tenantId)
+            .eq("contact_id", contactId)
+            .eq("status", "open")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (openDeal?.id) {
+            // Atualiza valor se foi enviado e era 0
+            const newValue = parseFloat(data.value) || 0;
+            if (newValue > 0) {
+                await supabase.from("deals").update({ value: newValue }).eq("id", openDeal.id);
+            }
+            return { success: true, reused: true, dealId: openDeal.id };
+        }
+
+        // 4. Buscar primeira etapa do funil padrao do tenant
         const { data: firstStage } = await supabase
             .from("stages")
             .select("id")
+            .eq("tenant_id", tenantId)
             .order("position", { ascending: true })
             .limit(1)
             .single();
 
         if (!firstStage) throw new Error("Nenhuma etapa de funil encontrada.");
 
-        // 4. Criar Deal
+        // 5. Criar Deal novo
         const { error: dealError } = await supabase
             .from("deals")
             .insert({
@@ -299,7 +309,7 @@ export async function createLead(data: { name: string, phone: string, value: str
                 contact_id: contactId,
                 stage_id: firstStage.id,
                 status: "open",
-                tenant_id: tenantId
+                tenant_id: tenantId,
             });
 
         if (dealError) throw new Error("Erro ao criar negócio: " + dealError.message);
@@ -1686,35 +1696,62 @@ export async function checkDealHasMessages(dealId: string) {
 export async function createContactForDeal(dealId: string, contactData: { name: string, phone: string, email: string }) {
     try {
         const tenantId = await getTenantId();
-        // Use Admin Client to ensure we can create contacts even with RLS, though server client should work
         const supabase = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        // 1. Create Contact
-        const { data: newContact, error: createError } = await supabase
-            .from("contacts")
-            .insert({
-                tenant_id: tenantId,
-                name: contactData.name,
-                phone: contactData.phone,
-                email: contactData.email
-            })
-            .select()
-            .single();
+        // Normaliza phone pra evitar duplicata (mesmo padrao do createLead + webhook)
+        if (!isPlausibleBRPhone(contactData.phone)) {
+            return { success: false, error: "Telefone invalido. Digite no formato (XX) 9XXXX-XXXX." };
+        }
+        const canonical = normalizeToCanonical(contactData.phone);
+        const variants = getPossibleVariants(contactData.phone);
 
-        if (createError) throw createError;
+        // Reutiliza contato existente no tenant antes de criar
+        const { data: existing } = await supabase
+            .from("contacts")
+            .select("id, phone")
+            .eq("tenant_id", tenantId)
+            .in("phone", variants);
+
+        let contactRow: any;
+        if (existing && existing.length > 0) {
+            const match = existing.find((c: any) => c.phone === canonical) ?? existing[0];
+            contactRow = match;
+            // Backfill nome/email se vazio + normaliza phone pro canonico
+            await supabase
+                .from("contacts")
+                .update({
+                    phone: canonical,
+                    name: contactData.name || undefined,
+                    email: contactData.email || undefined,
+                })
+                .eq("id", match.id);
+        } else {
+            const { data: newContact, error: createError } = await supabase
+                .from("contacts")
+                .insert({
+                    tenant_id: tenantId,
+                    name: contactData.name,
+                    phone: canonical,
+                    email: contactData.email,
+                })
+                .select()
+                .single();
+            if (createError) throw createError;
+            contactRow = newContact;
+        }
 
         // 2. Link to Deal
         const { error: updateError } = await supabase
             .from("deals")
-            .update({ contact_id: newContact.id })
+            .update({ contact_id: contactRow.id })
             .eq("id", dealId);
 
         if (updateError) throw updateError;
 
-        return { success: true, data: newContact };
+        return { success: true, data: contactRow };
     } catch (error: any) {
         console.error("createContactForDeal Error:", error);
         return { success: false, error: error.message };
