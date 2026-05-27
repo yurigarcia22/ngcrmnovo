@@ -145,6 +145,14 @@ export default function Sidebar({
                     />
                 )}
 
+                <Option
+                    Icon={CheckSquare}
+                    title="Meu Dia"
+                    href="/meu-dia"
+                    isActive={pathname.startsWith("/meu-dia")}
+                    open={open}
+                />
+
                 {(modules.leads || modules.cold_call || modules.webinar) && open && (
                     <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                         Comercial

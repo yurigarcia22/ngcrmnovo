@@ -864,6 +864,184 @@ export async function updateColdLeadNote(noteId: string, content: string) {
     }
 }
 
+// =====================================================================
+// TAREFAS — MEU DIA
+// =====================================================================
+
+export interface TaskInput {
+    description: string;
+    title?: string | null;
+    dueDate: string;
+    dealId?: string | null;
+    coldLeadId?: string | null;
+    assignedTo?: string | null;
+    priority?: "low" | "normal" | "high" | "urgent";
+    isRecurring?: boolean;
+    recurrencePattern?: "daily" | "weekly" | "monthly" | null;
+    recurrenceUntil?: string | null;
+}
+
+/** Versao avancada de createTask com todos os campos novos. */
+export async function createTaskFull(input: TaskInput) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const cookieStore = await cookies();
+        const ssrClient = createServerClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            {
+                cookies: {
+                    getAll() { return cookieStore.getAll() },
+                    setAll() { /* server component */ },
+                },
+            }
+        );
+        const { data: { user } } = await ssrClient.auth.getUser();
+
+        const payload: any = {
+            tenant_id: tenantId,
+            description: input.description,
+            title: input.title ?? null,
+            due_date: input.dueDate,
+            is_completed: false,
+            assigned_to: input.assignedTo ?? user?.id ?? null,
+            priority: input.priority ?? "normal",
+            is_recurring: !!input.isRecurring,
+            recurrence_pattern: input.recurrencePattern ?? null,
+            recurrence_until: input.recurrenceUntil ?? null,
+        };
+        if (input.dealId) payload.deal_id = input.dealId;
+        if (input.coldLeadId) payload.cold_lead_id = input.coldLeadId;
+
+        const { data, error } = await supabase
+            .from("tasks")
+            .insert(payload)
+            .select("id")
+            .single();
+
+        if (error) return { success: false, error: error.message };
+
+        if (user?.id) {
+            try {
+                await scheduleTaskNotifications(data.id, user.id, input.dueDate, tenantId);
+            } catch (e) {
+                console.error("scheduleTaskNotifications falhou:", e);
+            }
+        }
+
+        return { success: true, data };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
+/**
+ * Tarefas do usuario logado agrupadas em 4 buckets:
+ *   - overdue: due_date < now() e nao concluidas
+ *   - today: due_date hoje e nao concluidas
+ *   - upcoming: due_date entre amanha e +7d nao concluidas
+ *   - completedRecent: concluidas nos ultimos 7 dias
+ *
+ * Pode filtrar por userId (default: usuario logado) ou 'all' para admin
+ */
+export async function getMyTasks(userIdOverride?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        let targetUserId = userIdOverride;
+        if (!targetUserId) {
+            const cookieStore = await cookies();
+            const ssrClient = createServerClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                {
+                    cookies: {
+                        getAll() { return cookieStore.getAll() },
+                        setAll() {},
+                    },
+                }
+            );
+            const { data: { user } } = await ssrClient.auth.getUser();
+            targetUserId = user?.id;
+        }
+
+        if (!targetUserId) return { success: false, error: "Usuario nao identificado." };
+
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const endOfToday   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+        const weekAhead    = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59, 59).toISOString();
+        const weekAgo      = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
+
+        // Tarefas relacionadas (com deal/cold_lead pra mostrar nome)
+        const select = `
+            id, title, description, due_date, is_completed, priority,
+            is_recurring, recurrence_pattern, completed_at,
+            deal_id, cold_lead_id, assigned_to,
+            deals (id, title, contacts(name)),
+            cold_leads (id, nome, telefone)
+        `;
+
+        const baseQuery = supabase
+            .from("tasks")
+            .select(select)
+            .eq("tenant_id", tenantId)
+            .eq("assigned_to", targetUserId);
+
+        const [overdueRes, todayRes, upcomingRes, completedRes] = await Promise.all([
+            baseQuery
+                .eq("is_completed", false)
+                .lt("due_date", startOfToday)
+                .order("due_date", { ascending: true }),
+            supabase
+                .from("tasks").select(select)
+                .eq("tenant_id", tenantId)
+                .eq("assigned_to", targetUserId)
+                .eq("is_completed", false)
+                .gte("due_date", startOfToday)
+                .lte("due_date", endOfToday)
+                .order("due_date", { ascending: true }),
+            supabase
+                .from("tasks").select(select)
+                .eq("tenant_id", tenantId)
+                .eq("assigned_to", targetUserId)
+                .eq("is_completed", false)
+                .gt("due_date", endOfToday)
+                .lte("due_date", weekAhead)
+                .order("due_date", { ascending: true }),
+            supabase
+                .from("tasks").select(select)
+                .eq("tenant_id", tenantId)
+                .eq("assigned_to", targetUserId)
+                .eq("is_completed", true)
+                .gte("completed_at", weekAgo)
+                .order("completed_at", { ascending: false })
+                .limit(30),
+        ]);
+
+        return {
+            success: true,
+            data: {
+                overdue: overdueRes.data ?? [],
+                today: todayRes.data ?? [],
+                upcoming: upcomingRes.data ?? [],
+                completedRecent: completedRes.data ?? [],
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
 export async function createTask(dealId: string | null, description: string, dueDate: string, coldLeadId?: string) {
     try {
         const tenantId = await getTenantId();
