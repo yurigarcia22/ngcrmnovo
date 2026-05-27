@@ -8,7 +8,6 @@ import { RefreshCw, Plus, GitPullRequest, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { ColdLeadModal } from '@/components/cold-call/ColdLeadModal';
 import { AddLeadModal } from '@/components/cold-call/AddLeadModal';
-import { StatusGroup } from '@/components/cold-call/StatusGroup';
 import { StageGroup } from '@/components/cold-call/StageGroup';
 import { NichoSelector } from '@/components/cold-call/NichoSelector';
 import { toast } from 'sonner';
@@ -65,6 +64,7 @@ export default function ColdCallPage() {
 
     // Cold Call Pipelines (funis customizaveis)
     const [coldPipelines, setColdPipelines] = useState<any[]>([]);
+    const [coldPipelinesLoaded, setColdPipelinesLoaded] = useState(false);
     const [selectedColdPipelineId, setSelectedColdPipelineId] = useState<number | null>(null);
 
     const selectedColdPipeline = useMemo(
@@ -142,14 +142,18 @@ export default function ColdCallPage() {
     }, []);
 
     const fetchColdPipelines = useCallback(async () => {
-        const res = await getColdCallPipelinesWithStages();
-        if (res.success && res.data) {
-            setColdPipelines(res.data);
-            // Seleciona o default na primeira carga
-            if (!selectedColdPipelineId) {
-                const def = res.data.find((p: any) => p.is_default) ?? res.data[0];
-                if (def) setSelectedColdPipelineId(def.id);
+        try {
+            const res = await getColdCallPipelinesWithStages();
+            if (res.success && res.data) {
+                setColdPipelines(res.data);
+                // Seleciona o default na primeira carga
+                if (!selectedColdPipelineId) {
+                    const def = res.data.find((p: any) => p.is_default) ?? res.data[0];
+                    if (def) setSelectedColdPipelineId(def.id);
+                }
             }
+        } finally {
+            setColdPipelinesLoaded(true);
         }
     }, [selectedColdPipelineId]);
 
@@ -191,27 +195,6 @@ export default function ColdCallPage() {
         setSelectedLead(null);
         fetchLeads();
         fetchFollowupsData(); // Refresh followups after modal close
-    };
-
-    const handleStatusChange = async (leadId: string, newStatus: ColdLeadStatus) => {
-        // Optimistic update
-        setLeads(current =>
-            current.map(l => l.id === leadId ? { ...l, status: newStatus } : l)
-        );
-
-        try {
-            const res = await fetch(`/api/cold-leads/${leadId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: newStatus })
-            });
-
-            if (!res.ok) throw new Error('Falha ao atualizar status');
-            toast.success('Status atualizado');
-        } catch (error) {
-            toast.error('Erro ao atualizar status');
-            fetchLeads(); // Revert on error
-        }
     };
 
     const handleNextLead = () => {
@@ -342,31 +325,6 @@ export default function ColdCallPage() {
             fetchLeads(); // Revert
         }
     }, [fetchLeads, confirm]);
-
-    // Group leads
-    const groupedLeads: Record<ColdLeadStatus, ColdLead[]> = {
-        'novo_lead': [],
-        'ligacao_feita': [],
-        'contato_realizado': [],
-        'contato_decisor': [],
-        'reuniao_marcada': [],
-        'numero_inexistente': []
-    };
-
-    leads.forEach(lead => {
-        if (groupedLeads[lead.status]) {
-            groupedLeads[lead.status].push(lead);
-        }
-    });
-
-    const statusConfig: { status: ColdLeadStatus; color: string; label: string }[] = [
-        { status: 'novo_lead', color: 'bg-slate-500', label: 'Novo Lead' },
-        { status: 'ligacao_feita', color: 'bg-blue-600', label: 'Ligação Feita' },
-        { status: 'contato_realizado', color: 'bg-indigo-500', label: 'Contato Realizado' },
-        { status: 'contato_decisor', color: 'bg-purple-600', label: 'Contato Decisor' },
-        { status: 'reuniao_marcada', color: 'bg-green-600', label: 'Reunião Marcada' },
-        { status: 'numero_inexistente', color: 'bg-red-500', label: 'Número Inexistente' },
-    ];
 
     // --- Optimized Navigation Logic ---
     const handleLeadUpdate = useCallback((updatedLead: ColdLead) => {
@@ -500,19 +458,6 @@ export default function ColdCallPage() {
                                     placeholder="Filtrar por Nicho..."
                                 />
                             </div>
-                            <div className="w-56">
-                                <select
-                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
-                                    value={filters.status}
-                                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                                >
-                                    <option value="all">Todas as Etapas</option>
-                                    {statusConfig.map(s => (
-                                        <option key={s.status} value={s.status}>{s.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-
                             {/* SELETOR DE FUNIL DE COLD CALL */}
                             <div className="w-64 flex items-center gap-1">
                                 <GitPullRequest className="w-4 h-4 text-indigo-500 shrink-0" />
@@ -574,14 +519,13 @@ export default function ColdCallPage() {
                         </div>
 
                         <div className="space-y-1">
-                            {loading ? (
-                                <div className="text-center py-10 text-muted-foreground">Carregando leads...</div>
+                            {loading || !coldPipelinesLoaded ? (
+                                <div className="text-center py-10 text-muted-foreground">Carregando funil...</div>
                             ) : coldStages.length > 0 ? (
-                                // KANBAN DINAMICO: agrupa por stage_id do funil selecionado
+                                // Kanban dinamico: agrupa por stage_id do funil selecionado
                                 (() => {
                                     const followupLeadIds = new Set(followups.map(f => f.cold_lead_id));
-                                    const stagesToShow = coldStages;
-                                    return stagesToShow.map((stage: any) => {
+                                    return coldStages.map((stage: any) => {
                                         const stageLeads = leads.filter((l: any) => Number(l.stage_id) === Number(stage.id));
                                         return (
                                             <StageGroup
@@ -601,29 +545,17 @@ export default function ColdCallPage() {
                                     });
                                 })()
                             ) : (
-                                // FALLBACK: visualizacao antiga por status text fixo (caso nao tenha pipeline cold_call configurado)
-                                statusConfig
-                                    .filter(config => filters.status === 'all' || config.status === filters.status)
-                                    .map((config) => {
-                                        const followupLeadIds = new Set(followups.map(f => f.cold_lead_id));
-                                        return (
-                                            <StatusGroup
-                                                key={config.status}
-                                                status={config.status}
-                                                colorClass={config.color}
-                                                leads={groupedLeads[config.status]}
-                                                onCallClick={handleCallClick}
-                                                onStatusChange={handleStatusChange}
-                                                selectedLeads={selectedLeads}
-                                                onToggleSelection={isSelectionMode ? toggleSelection : undefined}
-                                                isSelectionMode={isSelectionMode}
-                                                onDeleteClick={handleDeleteLead}
-                                                followupLeadIds={followupLeadIds}
-                                            />
-                                        )
-                                    })
+                                <div className="text-center py-12 text-slate-500 flex flex-col items-center gap-3 border border-dashed border-slate-200 rounded-xl">
+                                    <p className="font-medium">Nenhum funil de Cold Call configurado.</p>
+                                    <Link
+                                        href="/settings/pipelines?kind=cold_call"
+                                        className="text-sm text-indigo-600 hover:text-indigo-700 underline"
+                                    >
+                                        Criar funil em Configurações &gt; Funis
+                                    </Link>
+                                </div>
                             )}
-                            {leads.length === 0 && !loading && (
+                            {coldStages.length > 0 && leads.length === 0 && !loading && (
                                 <div className="text-center py-10 text-muted-foreground flex flex-col items-center gap-2">
                                     <p>Nenhum lead encontrado com estes filtros.</p>
                                 </div>
