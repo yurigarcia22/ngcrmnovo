@@ -310,13 +310,67 @@ async function runAgentBackground(campaignLeadId: string, ctx: AgentContext, inb
   }
 }
 
+/**
+ * Fan-out: se a instancia tambem esta cadastrada como instancia CRM,
+ * repassa o payload bruto pro webhook-evolution do Supabase (Edge Function).
+ * Fire-and-forget: nao bloqueia o fluxo do webinar.
+ */
+async function forwardToCRMIfCRMInstance(rawBody: any, instanceName: string): Promise<void> {
+  try {
+    if (!instanceName) return;
+    const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supaUrl || !anonKey) return;
+
+    // Usa service client local pra checar se a instancia esta cadastrada no CRM
+    const supabase = createServiceClient();
+    const { data: inst } = await supabase
+      .from("whatsapp_instances")
+      .select("id, tenant_id")
+      .eq("instance_name", instanceName)
+      .maybeSingle();
+
+    if (!inst) return; // nao eh instancia do CRM, nao repassa
+
+    // Fan-out fire-and-forget. Normaliza event/type para o formato
+    // que webhook-evolution espera (data.* nested).
+    const evoBody = {
+      instance: instanceName,
+      type: rawBody?.event === "messages.upsert" || rawBody?.event === "MESSAGES_UPSERT"
+        ? "messages.upsert"
+        : rawBody?.event ?? rawBody?.type,
+      data: rawBody?.data ?? rawBody,
+    };
+
+    fetch(`${supaUrl}/functions/v1/webhook-evolution`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceKey || anonKey}`,
+        apikey: anonKey,
+      },
+      body: JSON.stringify(evoBody),
+    }).catch((err) => {
+      console.error("[webhook evolution] fan-out CRM falhou:", err);
+    });
+  } catch (err) {
+    console.error("[webhook evolution] fan-out CRM exception:", err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     console.log("[webhook evolution] >>> RECEBIDO POST <<<");
     const body = await req.json();
 
     const event = body?.event ?? body?.event_type;
-    console.log("[webhook evolution] event=" + event + " instance=" + (body?.instance ?? "(sem instance)"));
+    const incomingInstance: string = body?.instance ?? body?.data?.instance ?? "";
+    console.log("[webhook evolution] event=" + event + " instance=" + (incomingInstance || "(sem instance)"));
+
+    // Fan-out pro CRM (Supabase Edge Function) se esta instancia tambem
+    // esta cadastrada em whatsapp_instances. Roda em paralelo, nao bloqueia.
+    forwardToCRMIfCRMInstance(body, incomingInstance);
 
     if (event !== "messages.upsert" && event !== "MESSAGES_UPSERT") {
       console.log("[webhook evolution] ignorando event=" + event);
