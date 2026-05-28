@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Button, Input, Textarea } from '@/components/ui/simple-ui';
-import { X, Upload, FileSpreadsheet, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Button, Input } from '@/components/ui/simple-ui';
+import { X, FileSpreadsheet, User, Mail, Phone, Layers, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { NichoSelector } from '@/components/cold-call/NichoSelector';
+import { useQuery } from '@tanstack/react-query';
+import { qk } from '@/lib/query-keys';
+import { getColdCallPipelinesWithStages } from '@/app/(protected)/cold-call/actions';
+import { getMembers } from '@/app/(protected)/settings/team/actions';
 
 interface AddLeadModalProps {
     isOpen: boolean;
@@ -16,27 +19,76 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
     const [activeTab, setActiveTab] = useState<'manual' | 'import'>('manual');
     const [loading, setLoading] = useState(false);
 
-    // Manual Form State
-    const [formData, setFormData] = useState({
-        nome: '',
-        telefone: '',
-        nicho: '',
-        siteUrl: '',
-        instagramUrl: '',
-        googleMeuNegocioUrl: '',
-        notas: ''
-    });
+    // Manual Form State — fluxo de captacao (webinar): NOME, EMAIL, TELEFONE
+    const [nome, setNome] = useState('');
+    const [email, setEmail] = useState('');
+    const [telefone, setTelefone] = useState('');
+    const [stageId, setStageId] = useState('');
+    const [responsavelId, setResponsavelId] = useState('');
 
     // Import State
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+    // Funis de cold_call + stages
+    const pipelinesQuery = useQuery({
+        queryKey: qk.coldCall.pipelines(),
+        queryFn: async () => {
+            const r = await getColdCallPipelinesWithStages();
+            if (!r.success) throw new Error(r.error ?? 'Falha ao carregar funis');
+            return (r.data ?? []) as any[];
+        },
+        enabled: isOpen,
+        staleTime: 5 * 60_000,
+    });
+    const pipelines = pipelinesQuery.data ?? [];
+
+    const teamQuery = useQuery({
+        queryKey: qk.team.members(),
+        queryFn: async () => {
+            const r = await getMembers();
+            if (!r.success) throw new Error(r.error ?? 'Falha ao carregar time');
+            return (r.profiles ?? []) as any[];
+        },
+        enabled: isOpen,
+        staleTime: 5 * 60_000,
+    });
+    const team = teamQuery.data ?? [];
+
+    // Todas as stages dos funis cold_call (mostra com prefixo do funil se houver mais de 1)
+    const stageOptions = useMemo(() => {
+        const opts: { id: string; label: string }[] = [];
+        for (const p of pipelines) {
+            for (const s of (p.stages ?? [])) {
+                const label = pipelines.length > 1 ? `${p.name} › ${s.name}` : s.name;
+                opts.push({ id: String(s.id), label });
+            }
+        }
+        return opts;
+    }, [pipelines]);
+
+    // Auto-seleciona a primeira stage de entrada do primeiro funil
+    useEffect(() => {
+        if (!stageId && pipelines.length > 0) {
+            const first = pipelines[0];
+            const inbox = (first.stages ?? []).find((s: any) => s.is_inbox) ?? (first.stages ?? [])[0];
+            if (inbox) setStageId(String(inbox.id));
+        }
+    }, [pipelines, stageId]);
+
     if (!isOpen) return null;
+
+    function resetForm() {
+        setNome('');
+        setEmail('');
+        setTelefone('');
+        setResponsavelId('');
+    }
 
     const handleManualSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.nome || !formData.telefone || !formData.nicho) {
-            toast.error('Preencha os campos obrigatórios: Nome, Telefone e Nicho');
+        if (!nome.trim() || !telefone.trim()) {
+            toast.error('Preencha Nome e Telefone');
             return;
         }
 
@@ -45,16 +97,26 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
             const res = await fetch('/api/cold-leads', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({
+                    nome: nome.trim(),
+                    email: email.trim() || null,
+                    telefone: telefone.trim(),
+                    stageId: stageId || null,
+                    responsavelId: responsavelId || null,
+                }),
             });
 
-            if (!res.ok) throw new Error('Erro ao criar lead');
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Erro ao criar lead');
+            }
 
-            toast.success('Lead criado com sucesso!');
+            toast.success('Lead adicionado!');
+            resetForm();
             onSuccess();
             onClose();
-        } catch (error) {
-            toast.error('Erro ao salvar lead.');
+        } catch (error: any) {
+            toast.error(error.message || 'Erro ao salvar lead.');
         } finally {
             setLoading(false);
         }
@@ -68,70 +130,40 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
         }
 
         setLoading(true);
-        const formData = new FormData();
-        formData.append('file', selectedFile);
+        const fd = new FormData();
+        fd.append('file', selectedFile);
 
         try {
-            const res = await fetch('/api/cold-leads/import', {
-                method: 'POST',
-                body: formData,
-            });
-
+            const res = await fetch('/api/cold-leads/import', { method: 'POST', body: fd });
             const data = await res.json();
-
             if (!res.ok) {
-                if (data.details && Array.isArray(data.details)) {
-                    console.error(data.details);
-                    toast.error(`Erro na importação. Veja o console para detalhes dos ${data.details.length} erros.`);
-                } else {
-                    toast.error(data.error || 'Erro na importação');
-                }
+                toast.error(data.error || 'Erro na importação');
                 return;
             }
-
             toast.success(`Importação realizada! ${data.totalImported} leads adicionados.`);
             if (data.errors && data.errors.length > 0) {
                 toast.warning(`${data.errors.length} linhas ignoradas com erros.`);
             }
-
             onSuccess();
             onClose();
-        } catch (error) {
+        } catch {
             toast.error('Erro de conexão ao importar.');
         } finally {
             setLoading(false);
         }
     };
 
-    const downloadTemplate = () => {
-        // Generate a simple CSV blob for template
-        const headers = ['Nome,Telefone,Nicho,Site,Instagram,Google,Notas'];
-        const example = ['Empresa Exemplo,11999999999,Tecnologia,www.exemplo.com.br,@exemplo,https://g.page/exemplo,Lead interessado em software'];
-        const csvContent = headers.concat(example).join('\n');
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'modelo_importacao_leads.csv'); // Using CSV for simplicity as template, but accepting xlsx implies logic handles both or user converts. 
-        // Actually, API uses xlsx, which reads CSV too usually. Let's keep it simple.
-        // Better to just describe it in text as requested "mensagem falando sobre o modelo".
-        link.click();
-    };
-
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setSelectedFile(e.target.files[0]);
-        }
+        if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
 
-            <div className="relative z-50 w-full max-w-md rounded-lg bg-white p-6 shadow-xl transition-all">
+            <div className="relative z-50 w-full max-w-md rounded-xl bg-white p-6 shadow-xl transition-all">
                 <div className="flex items-center justify-between border-b pb-4 mb-4">
-                    <h2 className="text-xl font-bold">Adicionar Lead</h2>
+                    <h2 className="text-xl font-bold text-slate-900">Adicionar Lead</h2>
                     <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full">
                         <X className="h-4 w-4" />
                     </Button>
@@ -148,7 +180,7 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                         href="/cold-call/import"
                         className="pb-2 px-4 text-sm font-medium text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-2"
                     >
-                        Importar Excel (Novo)
+                        Importar Excel
                         <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full">BETA</span>
                     </a>
                 </div>
@@ -156,50 +188,78 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                 {activeTab === 'manual' ? (
                     <form onSubmit={handleManualSubmit} className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">Nome *</label>
+                            <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                                <User className="w-3.5 h-3.5" /> Nome <span className="text-rose-500">*</span>
+                            </label>
                             <Input
-                                value={formData.nome}
-                                onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
-                                placeholder="Nome da empresa ou contato"
+                                value={nome}
+                                onChange={(e) => setNome(e.target.value)}
+                                placeholder="Nome do lead"
                                 required
                                 className="text-slate-900 placeholder:text-slate-400"
                             />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-700">Telefone *</label>
-                                <Input
-                                    value={formData.telefone}
-                                    onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
-                                    placeholder="11999999999"
-                                    required
-                                    className="text-slate-900 placeholder:text-slate-400"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-700">Nicho *</label>
-                                <NichoSelector
-                                    value={formData.nicho}
-                                    onChange={(val) => setFormData({ ...formData, nicho: val })}
-                                    placeholder="Ex: Clínica, Academia"
-                                />
-                            </div>
-                        </div>
+
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">Links (Opcionais)</label>
+                            <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                                <Mail className="w-3.5 h-3.5" /> E-mail
+                            </label>
                             <Input
-                                value={formData.siteUrl}
-                                onChange={(e) => setFormData({ ...formData, siteUrl: e.target.value })}
-                                placeholder="Site URL"
-                                className="mb-2 text-slate-900 placeholder:text-slate-400"
-                            />
-                            <Input
-                                value={formData.instagramUrl}
-                                onChange={(e) => setFormData({ ...formData, instagramUrl: e.target.value })}
-                                placeholder="Instagram URL"
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="lead@exemplo.com"
                                 className="text-slate-900 placeholder:text-slate-400"
                             />
                         </div>
+
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                                <Phone className="w-3.5 h-3.5" /> Telefone <span className="text-rose-500">*</span>
+                            </label>
+                            <Input
+                                value={telefone}
+                                onChange={(e) => setTelefone(e.target.value)}
+                                placeholder="(31) 99999-9999"
+                                required
+                                className="text-slate-900 placeholder:text-slate-400"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                                    <Layers className="w-3.5 h-3.5" /> Etapa
+                                </label>
+                                <select
+                                    value={stageId}
+                                    onChange={(e) => setStageId(e.target.value)}
+                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    {stageOptions.length === 0 && <option value="">--</option>}
+                                    {stageOptions.map((s) => (
+                                        <option key={s.id} value={s.id}>{s.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                                    <UserCheck className="w-3.5 h-3.5" /> Responsável
+                                </label>
+                                <select
+                                    value={responsavelId}
+                                    onChange={(e) => setResponsavelId(e.target.value)}
+                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="">Sem responsável</option>
+                                    {team.map((m: any) => (
+                                        <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
                         <div className="pt-2">
                             <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white" disabled={loading}>
                                 {loading ? 'Salvando...' : 'Adicionar Lead'}
@@ -226,24 +286,13 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                             />
                         </div>
 
-                        <div className="text-center">
-                            <button
-                                type="button"
-                                onClick={downloadTemplate}
-                                className="text-sm text-blue-600 hover:text-blue-800 underline flex items-center justify-center gap-1 mx-auto"
-                            >
-                                <FileSpreadsheet className="h-4 w-4" />
-                                Baixar Modelo de Planilha
-                            </button>
-                        </div>
-
                         <div className="bg-slate-50 p-4 rounded-md text-sm text-slate-700 space-y-2">
                             <p className="font-semibold text-slate-900">Instruções para a Tabela:</p>
                             <ul className="list-disc pl-4 space-y-1">
                                 <li>O arquivo deve ser <strong>.xlsx</strong>.</li>
-                                <li>A primeira linha deve conter os cabeçalhos:</li>
-                                <li><strong>Obrigatórios:</strong> Nome, Telefone, Nicho</li>
-                                <li><strong>Opcionais:</strong> Site, Instagram, Google, Notas</li>
+                                <li>A primeira linha deve conter os cabeçalhos.</li>
+                                <li><strong>Obrigatórios:</strong> Nome, Telefone</li>
+                                <li><strong>Opcionais:</strong> Email, Nicho, Site, Instagram, Google, Notas</li>
                             </ul>
                         </div>
 

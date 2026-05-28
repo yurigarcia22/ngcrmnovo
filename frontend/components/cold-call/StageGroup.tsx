@@ -81,7 +81,8 @@ export function StageGroup({
                             return (
                                 <div
                                     key={lead.id}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all ${
+                                    onClick={() => { if (!isSelectionMode) onCallClick(lead); }}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all cursor-pointer ${
                                         isSelected
                                             ? "bg-indigo-50 border-indigo-200"
                                             : "bg-white border-slate-100 hover:border-slate-200 hover:shadow-sm"
@@ -92,6 +93,7 @@ export function StageGroup({
                                             type="checkbox"
                                             checked={isSelected}
                                             onChange={() => onToggleSelection(lead.id)}
+                                            onClick={(e) => e.stopPropagation()}
                                             className="shrink-0"
                                         />
                                     )}
@@ -118,28 +120,28 @@ export function StageGroup({
 
                                     <div className="flex items-center gap-1 shrink-0">
                                         {lead.site_url && (
-                                            <a href={lead.site_url} target="_blank" rel="noopener" className="p-1 text-slate-400 hover:text-blue-600">
+                                            <a href={lead.site_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} className="p-1 text-slate-400 hover:text-blue-600">
                                                 <Globe className="h-3.5 w-3.5" />
                                             </a>
                                         )}
                                         {lead.instagram_url && (
-                                            <a href={lead.instagram_url} target="_blank" rel="noopener" className="p-1 text-slate-400 hover:text-pink-500">
+                                            <a href={lead.instagram_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} className="p-1 text-slate-400 hover:text-pink-500">
                                                 <Instagram className="h-3.5 w-3.5" />
                                             </a>
                                         )}
                                         {lead.google_meu_negocio_url && (
-                                            <a href={lead.google_meu_negocio_url} target="_blank" rel="noopener" className="p-1 text-slate-400 hover:text-emerald-600">
+                                            <a href={lead.google_meu_negocio_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} className="p-1 text-slate-400 hover:text-emerald-600">
                                                 <MapPin className="h-3.5 w-3.5" />
                                             </a>
                                         )}
 
                                         <button
-                                            onClick={() => onCallClick(lead)}
+                                            onClick={(e) => { e.stopPropagation(); onCallClick(lead); }}
                                             className="ml-1 px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1"
                                             title="Abrir lead"
                                         >
                                             <Phone className="h-3 w-3" />
-                                            Ligar
+                                            Abrir
                                         </button>
 
                                         {/* Move to stage */}
@@ -158,7 +160,7 @@ export function StageGroup({
 
                                         {onDeleteClick && (
                                             <button
-                                                onClick={() => onDeleteClick(lead.id)}
+                                                onClick={(e) => { e.stopPropagation(); onDeleteClick(lead.id); }}
                                                 className="p-1 text-slate-400 hover:text-rose-500"
                                                 title="Excluir"
                                             >

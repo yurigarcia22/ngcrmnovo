@@ -74,6 +74,7 @@ export interface ColdLeadInsert {
     ultimo_resultado?: string | null;
     notas?: string | null;
     email?: string | null;
+    stage_id?: number | string | null;
     custom_fields?: Record<string, any>;
 }
 

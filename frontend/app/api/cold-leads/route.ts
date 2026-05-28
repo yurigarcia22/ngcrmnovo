@@ -58,10 +58,11 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const body = await request.json();
 
-    // Basic validation
-    if (!body.nome || !body.telefone || !body.nicho) {
+    // Validacao: nome e telefone obrigatorios. Nicho passou a ser opcional
+    // (no fluxo de captacao de webinar nao faz sentido exigir nicho).
+    if (!body.nome || !body.telefone) {
         return NextResponse.json(
-            { error: 'Campos nome, telefone e nicho são obrigatórios' },
+            { error: 'Campos nome e telefone são obrigatórios' },
             { status: 400 }
         );
     }
@@ -72,8 +73,11 @@ export async function POST(request: NextRequest) {
         tenant_id: tenantId,
         nome: body.nome,
         telefone: body.telefone,
-        nicho: body.nicho,
+        // nicho NOT NULL no banco — default vazio quando nao informado
+        nicho: body.nicho || '',
+        email: body.email || null,
         responsavel_id: body.responsavelId || null,
+        stage_id: body.stageId ? Number(body.stageId) : null,
         google_meu_negocio_url: body.googleMeuNegocioUrl || null,
         site_url: body.siteUrl || null,
         instagram_url: body.instagramUrl || null,
