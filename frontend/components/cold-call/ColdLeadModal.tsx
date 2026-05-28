@@ -206,16 +206,10 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             toast.success("Resultado registrado!");
             setIsMeetingMode(false);
 
-            // Callback to parent to update list
-            onActionComplete(updatedLead);
-
-            // Auto advance
-            if (onNext && hasNext && !isMeetingMode) {
-                // Small delay for UI
-                setTimeout(() => onNext(), 300);
-            } else {
-                onClose();
-            }
+            // Atualiza o lead em tela e MANTEM o modal no lead atual.
+            // Nao auto-avanca nem fecha (era isso que fazia o lead "sumir").
+            // Para ir ao proximo, o usuario usa o botao "Proximo >" do cabecalho.
+            (onLeadUpdate ?? onActionComplete)(updatedLead);
 
         } catch (error) {
             toast.error("Erro ao processar ação");
@@ -286,7 +280,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
             toast.success("Reunião agendada e Lead convertido!");
             setIsMeetingMode(false);
-            onActionComplete(await res.json());
+            (onLeadUpdate ?? onActionComplete)(await res.json());
             setTimeout(() => onClose(), 500);
 
         } catch (e) {
@@ -306,7 +300,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             });
             if (!res.ok) throw new Error("Falha ao salvar");
             const updated = await res.json();
-            onActionComplete(updated); // Update parent
+            (onLeadUpdate ?? onActionComplete)(updated); // atualiza em tela, sem navegar
             setIsEditing(false);
             toast.success("Lead atualizado!");
         } catch (e) {
@@ -484,7 +478,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                             });
                                             if (!res.ok) throw new Error("Falha ao salvar");
                                             const updated = await res.json();
-                                            onActionComplete(updated);
+                                            (onLeadUpdate ?? onActionComplete)(updated);
                                             toast.success("Responsável atualizado!");
                                         } catch (err) {
                                             toast.error("Erro ao atualizar responsável");

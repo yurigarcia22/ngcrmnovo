@@ -105,6 +105,10 @@ export default function ColdCallPage() {
 
     const [selectedLead, setSelectedLead] = useState<ColdLead | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    // Etapa "de trabalho": a coluna que o usuario esta percorrendo. Fica fixa mesmo
+    // quando uma acao rapida move o lead pra outra coluna, para que "Proximo" continue
+    // na fila original.
+    const [workingStageId, setWorkingStageId] = useState<number | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isSelectionMode, setIsSelectionMode] = useState(false);
 
@@ -193,9 +197,15 @@ export default function ColdCallPage() {
         }
     };
 
-    const handleCallClick = (lead: ColdLead) => {
+    // Abre o modal e fixa a etapa de trabalho na coluna atual do lead.
+    const openLeadModal = useCallback((lead: ColdLead) => {
+        setWorkingStageId(Number((lead as any).stage_id));
         setSelectedLead(lead);
         setIsModalOpen(true);
+    }, []);
+
+    const handleCallClick = (lead: ColdLead) => {
+        openLeadModal(lead);
     };
 
     const handleModalClose = () => {
@@ -205,23 +215,22 @@ export default function ColdCallPage() {
         fetchFollowupsData(); // Refresh followups after modal close
     };
 
+    // "Proximo" percorre a ETAPA DE TRABALHO (coluna original), por ordem estavel do
+    // array. Como leads ja tratados saem da coluna (stage_id muda) mas mantem o indice,
+    // eles sao naturalmente pulados pelo filtro, avancando sempre pra frente na fila.
     const handleNextLead = () => {
-        if (!selectedLead) return;
-        const currentStatus = selectedLead.status;
-        const leadsInStatus = leads.filter(l => l.status === currentStatus);
-        const currentIndex = leadsInStatus.findIndex(l => l.id === selectedLead.id);
-
-        if (currentIndex !== -1 && currentIndex < leadsInStatus.length - 1) {
-            setSelectedLead(leadsInStatus[currentIndex + 1]);
-        }
+        if (!selectedLead || workingStageId == null) return;
+        const idx = leads.findIndex(l => l.id === selectedLead.id);
+        if (idx === -1) return;
+        const next = leads.slice(idx + 1).find((l: any) => Number(l.stage_id) === Number(workingStageId));
+        if (next) setSelectedLead(next);
     };
 
     const hasNext = () => {
-        if (!selectedLead) return false;
-        const currentStatus = selectedLead.status;
-        const leadsInStatus = leads.filter(l => l.status === currentStatus);
-        const currentIndex = leadsInStatus.findIndex(l => l.id === selectedLead.id);
-        return currentIndex !== -1 && currentIndex < leadsInStatus.length - 1;
+        if (!selectedLead || workingStageId == null) return false;
+        const idx = leads.findIndex(l => l.id === selectedLead.id);
+        if (idx === -1) return false;
+        return leads.slice(idx + 1).some((l: any) => Number(l.stage_id) === Number(workingStageId));
     };
 
     // Bulk Actions
@@ -342,45 +351,13 @@ export default function ColdCallPage() {
         setSelectedLead(current => current?.id === updatedLead.id ? updatedLead : current);
     }, []);
 
+    // Atualiza o lead na lista e mantem a selecao no mesmo lead (sem navegar/fechar).
+    // O avanco para o proximo lead e feito pelo botao "Proximo >" (handleNextLead).
     const handleActionComplete = useCallback((updatedLead: ColdLead) => {
-        setLeads(currentLeads => {
-            const currentLeadIndex = currentLeads.findIndex(l => l.id === updatedLead.id);
-            if (currentLeadIndex === -1) return currentLeads;
-
-            const oldStatus = currentLeads[currentLeadIndex].status;
-            const newStatus = updatedLead.status;
-            const updatedLeadId = updatedLead.id;
-
-            // Find next lead logic based on OLD status grouping (usually we stay in same group or move)
-            // If status changed, we still want to move to next lead in the OLD status list usually?
-            // User flow: I am calling "João" in "Novo Lead". I mark/move him to "Qualificado".
-            // I want to see the NEXT "Novo Lead", not follow João.
-            // So we look for neighbors in the oldStatus group.
-
-            // Filter leads that matched the OLD status (before this update)
-            // Note: currentLeads still has the old status for this lead.
-            const leadsInSameStatus = currentLeads.filter(l => l.status === oldStatus);
-            const indexInGroup = leadsInSameStatus.findIndex(l => l.id === updatedLeadId);
-
-            let nextLead = null;
-            if (indexInGroup !== -1 && indexInGroup < leadsInSameStatus.length - 1) {
-                nextLead = leadsInSameStatus[indexInGroup + 1];
-            }
-
-            const updatedLeads = [...currentLeads];
-            updatedLeads[currentLeadIndex] = updatedLead;
-
-            if (nextLead) {
-                setSelectedLead(nextLead);
-            } else {
-                // If no next lead in this group, maybe close or just clear selection
-                setIsModalOpen(false);
-                setSelectedLead(null);
-                toast('Fim da lista para esta etapa!');
-            }
-
-            return updatedLeads;
-        });
+        setLeads(currentLeads =>
+            currentLeads.map(l => l.id === updatedLead.id ? updatedLead : l)
+        );
+        setSelectedLead(current => current?.id === updatedLead.id ? updatedLead : current);
         fetchFollowupsData(); // Refresh followups after action
     }, [fetchFollowupsData]);
 
@@ -581,8 +558,7 @@ export default function ColdCallPage() {
                             // Find the lead from our leads list that matches this followup's cold_lead_id
                             const lead = leads.find(l => l.id === followup.cold_lead_id);
                             if (lead) {
-                                setSelectedLead(lead);
-                                setIsModalOpen(true);
+                                openLeadModal(lead);
                             } else {
                                 toast.error('Lead não encontrado na lista atual.');
                             }
@@ -599,8 +575,7 @@ export default function ColdCallPage() {
                                     if (nextFollowup) {
                                         const nextLead = leads.find(l => l.id === nextFollowup.cold_lead_id);
                                         if (nextLead) {
-                                            setSelectedLead(nextLead);
-                                            setIsModalOpen(true);
+                                            openLeadModal(nextLead);
                                         }
                                     }
                                     fetchFollowupsData();
@@ -619,8 +594,7 @@ export default function ColdCallPage() {
                                 // Also open the modal
                                 const lead = leads.find(l => l.id === followup?.cold_lead_id);
                                 if (lead) {
-                                    setSelectedLead(lead);
-                                    setIsModalOpen(true);
+                                    openLeadModal(lead);
                                 }
                             } else if (action === 'whatsapp') {
                                 const followup = followups.find(f => f.id === id);

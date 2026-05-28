@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/utils/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { ColdLead, ColdLeadUpdate } from '@/types/cold-lead';
+import { resolveStageIdInPipeline } from '@/lib/cold-call-stages';
 
 // Placeholder for Kanban integration
 async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipelineId?: string, stageId?: string, meetingDate?: string) {
@@ -189,7 +190,7 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipeline
             if (leadNotes && leadNotes.length > 0) {
                 // Fetch creator names
                 const userIds = Array.from(new Set(leadNotes.map(n => n.created_by).filter(Boolean)));
-                let userMap: Record<string, string> = {};
+                const userMap: Record<string, string> = {};
 
                 if (userIds.length > 0) {
                     const { data: profiles } = await supabaseAdmin
@@ -288,6 +289,12 @@ export async function POST(
                 updates.ultimo_resultado = 'número inexistente';
                 break;
 
+            case 'sem_interesse':
+                updates.status = 'sem_interesse';
+                updates.tentativas = (currentLead.tentativas || 0) + 1;
+                updates.ultimo_resultado = 'sem interesse';
+                break;
+
             case 'ligacao_feita':
                 // Only update status if it's an advancement or neutral, don't regress from higher stages
                 if (currentRank < 2) {
@@ -337,6 +344,30 @@ export async function POST(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
+
+        // Sincroniza stage_id com o status final, DENTRO do proprio funil do lead.
+        // Nao ha trigger no banco: status e stage_id sao mantidos em sync aqui, para
+        // que a acao rapida tambem mova o card de coluna no kanban.
+        try {
+            const finalStatus = (updates.status as string | undefined) ?? currentLead.status;
+            if ((currentLead as any).stage_id) {
+                const { data: curStage } = await supabaseAdmin
+                    .from('stages')
+                    .select('pipeline_id')
+                    .eq('id', (currentLead as any).stage_id)
+                    .maybeSingle();
+                if (curStage?.pipeline_id) {
+                    const newStageId = await resolveStageIdInPipeline(
+                        supabaseAdmin,
+                        curStage.pipeline_id,
+                        finalStatus,
+                    );
+                    if (newStageId) (updates as any).stage_id = newStageId;
+                }
+            }
+        } catch (stageErr) {
+            console.error('Falha ao sincronizar stage_id:', stageErr);
+        }
 
         console.log("Updating cold lead status to:", updates.status);
 
