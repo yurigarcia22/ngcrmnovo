@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
                 tenant_id: tenantId,
                 status: defaults.status || 'novo_lead',
                 responsavel_id: defaults.ownerId || null,
+                stage_id: defaults.stageId ? Number(defaults.stageId) : null,
                 tentativas: 0,
                 custom_fields: {}
             };
@@ -90,10 +91,12 @@ export async function POST(request: NextRequest) {
                 leadData.notas = leadData.notas ? leadData.notas + '\n' + tagString : tagString;
             }
 
-            // Validation
+            // nicho NOT NULL no banco — default vazio quando nao mapeado/informado
+            if (!leadData.nicho) leadData.nicho = '';
+
+            // Validation (nicho deixou de ser obrigatorio — leads de webinar nao tem nicho)
             if (!leadData.nome) rowErrors.push('Nome é obrigatório');
             if (!leadData.telefone && !leadData.email) rowErrors.push('Telefone ou Email obrigatório'); // Business rule: at least one contact
-            if (!leadData.nicho) rowErrors.push('Nicho é obrigatório');
 
 
             if (rowErrors.length > 0) {

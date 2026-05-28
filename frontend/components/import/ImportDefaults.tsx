@@ -2,12 +2,14 @@
 
 import { useImportStore } from './store';
 import { Button, Input } from '@/components/ui/simple-ui'; // assuming simple-ui has Select or we use native
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getMembers } from '@/app/(protected)/settings/team/actions'; // Reuse existing action
+import { getColdCallPipelinesWithStages } from '@/app/(protected)/cold-call/actions';
 
 export function ImportDefaults() {
     const { defaults, setDefaults, setStep, reset } = useImportStore();
     const [members, setMembers] = useState<any[]>([]);
+    const [pipelines, setPipelines] = useState<any[]>([]);
 
     useEffect(() => {
         getMembers().then(res => {
@@ -15,7 +17,31 @@ export function ImportDefaults() {
                 setMembers(res.profiles);
             }
         });
+        getColdCallPipelinesWithStages().then(res => {
+            if (res.success && res.data) {
+                setPipelines(res.data);
+                // Pre-seleciona o funil padrao se nenhum escolhido
+                if (!defaults.pipelineId && res.data.length > 0) {
+                    const def = res.data.find((p: any) => p.is_default) ?? res.data[0];
+                    const firstStage = (def.stages ?? [])[0];
+                    setDefaults({ pipelineId: String(def.id), stageId: firstStage ? String(firstStage.id) : '' });
+                }
+            }
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    const selectedPipeline = useMemo(
+        () => pipelines.find((p: any) => String(p.id) === String(defaults.pipelineId)),
+        [pipelines, defaults.pipelineId],
+    );
+    const stages = selectedPipeline?.stages ?? [];
+
+    const handlePipelineChange = (pid: string) => {
+        const pipe = pipelines.find((p: any) => String(p.id) === String(pid));
+        const firstStage = (pipe?.stages ?? [])[0];
+        setDefaults({ pipelineId: pid, stageId: firstStage ? String(firstStage.id) : '' });
+    };
 
     const handleNext = () => setStep('summary');
 
@@ -56,19 +82,40 @@ export function ImportDefaults() {
                     </p>
                 </div>
 
-                {/* Status */}
+                {/* Funil (cold_call) */}
                 <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-700">Status Inicial</label>
+                    <label className="text-sm font-medium text-slate-700">Funil de Prospecção</label>
                     <select
                         className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm"
-                        value={defaults.status}
-                        onChange={(e) => setDefaults({ status: e.target.value })}
+                        value={defaults.pipelineId}
+                        onChange={(e) => handlePipelineChange(e.target.value)}
                     >
-                        <option value="novo_lead">Novo Lead</option>
-                        <option value="ligacao_feita">Ligação Feita</option>
-                        <option value="contato_realizado">Contato Realizado</option>
-                        {/* Other statuses */}
+                        {pipelines.length === 0 && <option value="">Carregando funis...</option>}
+                        {pipelines.map((p: any) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
                     </select>
+                    <p className="text-xs text-slate-500">
+                        Escolha o funil de cold-call (ex: Funil Webinar) onde os leads vão entrar.
+                    </p>
+                </div>
+
+                {/* Etapa do Funil */}
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Etapa Inicial</label>
+                    <select
+                        className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm"
+                        value={defaults.stageId}
+                        onChange={(e) => setDefaults({ stageId: e.target.value })}
+                    >
+                        {stages.length === 0 && <option value="">--</option>}
+                        {stages.map((s: any) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                    </select>
+                    <p className="text-xs text-slate-500">
+                        Todos os leads importados começam nesta etapa do funil.
+                    </p>
                 </div>
 
                 {/* Tags */}

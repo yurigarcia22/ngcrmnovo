@@ -15,6 +15,8 @@ export interface ImportState {
         ownerId: string;
         status: string;
         tags: string[];
+        pipelineId: string;
+        stageId: string;
     };
     batchId?: string;
 
@@ -39,7 +41,9 @@ export const useImportStore = create<ImportState>((set) => ({
     defaults: {
         ownerId: '',
         status: 'novo_lead',
-        tags: []
+        tags: [],
+        pipelineId: '',
+        stageId: ''
     },
 
     setStep: (step) => set({ step }),
@@ -57,6 +61,6 @@ export const useImportStore = create<ImportState>((set) => ({
         rawRows: [],
         headers: [],
         mapping: {},
-        defaults: { ownerId: '', status: 'novo_lead', tags: [] }
+        defaults: { ownerId: '', status: 'novo_lead', tags: [], pipelineId: '', stageId: '' }
     })
 }));
