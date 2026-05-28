@@ -111,6 +111,15 @@ export function StageGroup({
                                                     {lead.nicho}
                                                 </span>
                                             )}
+                                            {(lead.tentativas ?? 0) > 0 && (
+                                                <span
+                                                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-bold shrink-0 flex items-center gap-0.5"
+                                                    title={`Cadência: ${lead.tentativas} tentativa(s) de contato`}
+                                                >
+                                                    <Phone className="h-2.5 w-2.5" />
+                                                    {lead.tentativas}
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
                                             <Phone className="h-3 w-3" />
