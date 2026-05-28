@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, memo } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
@@ -118,16 +118,25 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
         }
     }, [isOpen, lead]);
 
-    // Sync selected pipeline/stage defaults from pipelines prop (first load or when prop arrives)
+    // Converter cold lead vai sempre pra um funil de VENDAS (kind='deals'),
+    // nunca cold_call/webinar. Esconde os funis que nao sao de venda.
+    const salesPipelines = useMemo(
+        () => pipelines.filter((p: any) => (p.kind ?? "deals") === "deals"),
+        [pipelines],
+    );
+
+    // Default: o funil marcado como padrao (is_default). Antes pegava pipelines[0],
+    // que caia no Funil Webinar e mostrava etapas erradas.
     useEffect(() => {
-        if (pipelines.length > 0 && !selectedPipeline) {
-            setSelectedPipeline(pipelines[0].id);
-            setStages(pipelines[0].stages || []);
-            if (pipelines[0].stages?.length > 0) {
-                setSelectedStage(pipelines[0].stages[0].id);
+        if (salesPipelines.length > 0 && !selectedPipeline) {
+            const def = salesPipelines.find((p: any) => p.is_default) ?? salesPipelines[0];
+            setSelectedPipeline(def.id);
+            setStages(def.stages || []);
+            if (def.stages?.length > 0) {
+                setSelectedStage(def.stages[0].id);
             }
         }
-    }, [pipelines, selectedPipeline]);
+    }, [salesPipelines, selectedPipeline]);
 
     useEffect(() => {
         scrollToBottom();
@@ -1003,7 +1012,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                         value={selectedPipeline}
                                         onChange={e => handlePipelineChange(e.target.value)}
                                     >
-                                        {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                        {salesPipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                 </div>
                             </div>
