@@ -152,13 +152,14 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     const unreadCount = notifications.filter(n => !n.read_at).length;
 
+    // "Ler" = remover da lista (apaga no banco). Evita acumulo no sino.
     const markAsRead = async (id: string) => {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read_at: new Date().toISOString() } : n));
+        setNotifications(prev => prev.filter(n => n.id !== id));
         await markNotificationAsRead(id);
     };
 
     const markAllAsReadAction = async () => {
-        setNotifications(prev => prev.map(n => ({ ...n, read_at: new Date().toISOString() })));
+        setNotifications([]);
         await markAllNotificationsAsRead();
     };
 

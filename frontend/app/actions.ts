@@ -2726,13 +2726,23 @@ export async function getNotifications() {
     }
 }
 
+// "Ler" = apagar: o usuario nao quer que as notificacoes acumulem no sino.
+// Deleta via service role com escopo no user_id (a RLS de notifications nao tem
+// policy de DELETE, entao o client do usuario seria bloqueado).
 export async function markNotificationAsRead(id: string) {
     try {
         const supabase = await createSupabaseServerClient();
-        const { error } = await supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false };
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { error } = await admin
             .from('notifications')
-            .update({ read_at: new Date().toISOString() })
-            .eq('id', id);
+            .delete()
+            .eq('id', id)
+            .eq('user_id', user.id);
 
         if (error) throw error;
         return { success: true };
@@ -2747,11 +2757,14 @@ export async function markAllNotificationsAsRead() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return { success: false };
 
-        const { error } = await supabase
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { error } = await admin
             .from('notifications')
-            .update({ read_at: new Date().toISOString() })
-            .eq('user_id', user.id)
-            .is('read_at', null);
+            .delete()
+            .eq('user_id', user.id);
 
         if (error) throw error;
         return { success: true };

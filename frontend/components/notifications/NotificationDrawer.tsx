@@ -2,7 +2,7 @@
 
 import { useNotifications } from "./NotificationProvider";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"; // Assuming Shadcn Sheet exists
-import { CheckCheck, X, Bell } from "lucide-react";
+import { X, Bell } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -25,13 +25,13 @@ export function NotificationDrawer() {
                             </span>
                         )}
                     </div>
-                    {unread.length > 0 && (
+                    {notifications.length > 0 && (
                         <button
                             onClick={() => markAllAsRead()}
                             className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
                         >
-                            <CheckCheck size={14} />
-                            Marcar tudo como lido
+                            <X size={14} />
+                            Limpar tudo
                         </button>
                     )}
                 </SheetHeader>
@@ -47,7 +47,8 @@ export function NotificationDrawer() {
                     {notifications.map(note => (
                         <div
                             key={note.id}
-                            onClick={() => !note.read_at && markAsRead(note.id)}
+                            onClick={() => markAsRead(note.id)}
+                            title="Clique para dispensar"
                             className={`p-4 rounded-xl border transition-all cursor-pointer relative group ${note.read_at
                                     ? "bg-white border-slate-100 opacity-60 hover:opacity-100"
                                     : "bg-white border-blue-100 shadow-sm ring-1 ring-blue-50"
