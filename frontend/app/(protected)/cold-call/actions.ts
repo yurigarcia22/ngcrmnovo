@@ -107,6 +107,20 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         else if (stage.is_won) newStatus = "convertido";
         else if (TERMINAIS.has(lead.status as string)) newStatus = "ligacao_feita";
 
+        // Chave canonica que o dashboard reconhece. Ele conta callsMade/connections/
+        // decisionMakers/meetings parseando "Interação Registrada: <chave>" com chaves
+        // fixas (ligacao_feita, contato_realizado, contato_decisor, reuniao_marcada,
+        // numero_inexistente). Mapeamos a etapa para uma delas para o dashboard continuar
+        // contando mesmo com etapas configuraveis (etapa custom desconhecida = ligacao_feita).
+        const sName = (stage.name || "").toLowerCase();
+        let resultKey: string;
+        if (stage.is_lost) resultKey = "numero_inexistente";
+        else if (stage.is_won) resultKey = "reuniao_marcada";
+        else if (sName.includes("decisor")) resultKey = "contato_decisor";
+        else if (sName.includes("reuni") || sName.includes("confirmad") || sName.includes("agendad")) resultKey = "reuniao_marcada";
+        else if (sName.includes("contato")) resultKey = "contato_realizado";
+        else resultKey = "ligacao_feita";
+
         const updates: any = {
             stage_id: stageIdNum,
             status: newStatus,
@@ -131,7 +145,7 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
             if (user) {
                 await admin.from("cold_lead_notes").insert({
                     cold_lead_id: leadId,
-                    content: `Interação Registrada: ${stage.name}`,
+                    content: `Interação Registrada: ${resultKey}`,
                     created_by: user.id,
                 });
             }
