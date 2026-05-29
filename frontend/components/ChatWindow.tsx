@@ -122,8 +122,8 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
         const file = event.target.files?.[0];
         if (!file || !deal.contacts?.phone) return;
-        if (file.size > 60 * 1024 * 1024) {
-            toast.warning("Arquivo muito grande (máximo 60MB)");
+        if (file.size > 45 * 1024 * 1024) {
+            toast.warning("Arquivo muito grande (máximo 45MB)");
             return;
         }
 
