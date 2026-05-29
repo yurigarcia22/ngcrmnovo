@@ -6,7 +6,7 @@ import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { Phone, CheckCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
-import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup } from "@/app/actions";
+import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup, startConversationForPhone } from "@/app/actions";
 import { registerColdLeadStage } from "@/app/(protected)/cold-call/actions";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -45,6 +45,25 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
     const [decisorNome, setDecisorNome] = useState<string>(((lead.custom_fields as any)?.decisor_nome) || "");
     const [decisorTelefone, setDecisorTelefone] = useState<string>(((lead.custom_fields as any)?.decisor_telefone) || "");
     const [savingDecisor, setSavingDecisor] = useState(false);
+    const [openingChat, setOpeningChat] = useState(false);
+
+    // Abre a conversa do CRM (cria se nao existir) pro telefone informado.
+    async function openCrmChat(phoneToOpen: string, nameHint?: string) {
+        if (openingChat) return;
+        const digits = String(phoneToOpen || "").replace(/\D/g, "");
+        if (digits.length < 10) { toast.error("Telefone inválido"); return; }
+        setOpeningChat(true);
+        try {
+            const res = await startConversationForPhone(phoneToOpen, nameHint);
+            if (res.success && res.dealId) {
+                router.push(`/chat?dealId=${res.dealId}`);
+            } else {
+                toast.error(res.error || "Erro ao abrir conversa");
+            }
+        } finally {
+            setOpeningChat(false);
+        }
+    }
     const [editForm, setEditForm] = useState({
         nome: lead.nome || "",
         nicho: lead.nicho || "",
@@ -699,15 +718,14 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                             className="bg-white text-slate-900 h-9 text-sm font-mono flex-1"
                                         />
                                         {decisorTelefone.replace(/\D/g, "").length >= 10 && (
-                                            <a
-                                                href={`https://wa.me/${(() => { const c = decisorTelefone.replace(/\D/g, ""); return (c.length === 10 || c.length === 11) ? "55" + c : c; })()}`}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="w-9 h-9 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors shrink-0"
-                                                title="Mandar WhatsApp pro decisor"
+                                            <button
+                                                onClick={() => openCrmChat(decisorTelefone, decisorNome || lead.nome)}
+                                                disabled={openingChat}
+                                                className="w-9 h-9 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors shrink-0 disabled:opacity-50"
+                                                title="Abrir conversa no CRM"
                                             >
                                                 <MessageCircle className="h-4 w-4" />
-                                            </a>
+                                            </button>
                                         )}
                                     </div>
                                     <Button

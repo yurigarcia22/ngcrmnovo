@@ -1910,6 +1910,89 @@ export async function getConversations(search?: string, ownerId?: string) {
     }
 }
 
+// Abre (ou cria) a conversa do CRM para um telefone e devolve o dealId.
+// Usado pelo botao de WhatsApp do decisor: leva pro /chat?dealId=... mandando
+// pelo numero do CRM (Evolution) e registrando o historico.
+export async function startConversationForPhone(phone: string, name?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const digits = String(phone || "").replace(/\D/g, "");
+        if (digits.length < 10) return { success: false, error: "Telefone invalido." };
+
+        const canonical = normalizeToCanonical(phone);
+        const variants = getPossibleVariants(phone);
+
+        // 1. Acha ou cria contato
+        let contactId: string;
+        const { data: existing } = await admin
+            .from("contacts")
+            .select("id, phone")
+            .eq("tenant_id", tenantId)
+            .in("phone", variants);
+
+        if (existing && existing.length > 0) {
+            contactId = (existing.find((c: any) => c.phone === canonical) ?? existing[0]).id;
+        } else {
+            const { data: nc, error } = await admin
+                .from("contacts")
+                .insert({ name: name?.trim() || canonical, phone: canonical, tenant_id: tenantId, photo_url: "" })
+                .select("id")
+                .single();
+            if (error || !nc) return { success: false, error: "Erro ao criar contato." };
+            contactId = nc.id;
+        }
+
+        // 2. Reaproveita conversa (deal aberto) existente do contato
+        const { data: deal } = await admin
+            .from("deals")
+            .select("id")
+            .eq("tenant_id", tenantId)
+            .eq("contact_id", contactId)
+            .eq("status", "open")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (deal?.id) return { success: true, dealId: deal.id };
+
+        // 3. Cria conversa nova na etapa de entrada do funil padrao
+        const { data: inboxStageRpc } = await admin.rpc("get_tenant_inbox_stage", { p_tenant_id: tenantId });
+        const inboxStageId = inboxStageRpc as number | string | null;
+        if (inboxStageId == null) return { success: false, error: "Funil padrao sem etapa de entrada." };
+
+        let ownerId: string | null = null;
+        try {
+            const ssr = await createSupabaseServerClient();
+            const { data: { user } } = await ssr.auth.getUser();
+            ownerId = user?.id ?? null;
+        } catch { /* ignore */ }
+
+        const { data: newDeal, error: dErr } = await admin
+            .from("deals")
+            .insert({
+                title: name?.trim() || canonical,
+                contact_id: contactId,
+                stage_id: inboxStageId,
+                status: "open",
+                value: 0,
+                tenant_id: tenantId,
+                owner_id: ownerId,
+            })
+            .select("id")
+            .single();
+        if (dErr || !newDeal) return { success: false, error: "Erro ao criar conversa." };
+
+        return { success: true, dealId: newDeal.id };
+    } catch (e: any) {
+        console.error("startConversationForPhone Error:", e);
+        return { success: false, error: e.message };
+    }
+}
+
 // deal_items tem RLS habilitada SEM policy, entao o client do usuario e bloqueado.
 // Usamos service role + verificacao de tenant (negocio pertence ao tenant).
 export async function getDealItems(dealId: string) {
