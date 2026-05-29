@@ -48,6 +48,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                 audioRef.current = new Audio("/sounds/notification.mp3");
                 audioRef.current.volume = 0.5;
             }
+            // Destrava o autoplay tocando+pausando DURANTE o gesto do usuario.
+            // Sem isso o browser bloqueia o play() posterior (notificacao sem som).
+            audioRef.current.play().then(() => {
+                audioRef.current!.pause();
+                audioRef.current!.currentTime = 0;
+            }).catch(() => { /* sera destravado no proximo gesto */ });
             document.removeEventListener('click', initAudio);
             document.removeEventListener('keydown', initAudio);
         };

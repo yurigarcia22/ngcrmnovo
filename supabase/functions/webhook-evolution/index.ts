@@ -96,6 +96,22 @@ serve(async (req) => {
       return new Response(JSON.stringify({ message: 'Ignored: Not a message or fromMe' }), { status: 200 });
     }
 
+    // --- 2.1 Idempotencia: ignora mensagem ja salva ---
+    // A Evolution as vezes reenvia o mesmo evento (retry), o que duplicava a
+    // mensagem (e a notificacao). Casamos por evolution_message_id.
+    if (data.key.id) {
+      const { data: existingMsg } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('evolution_message_id', data.key.id)
+        .eq('tenant_id', tenantId)
+        .limit(1)
+        .maybeSingle();
+      if (existingMsg) {
+        return new Response(JSON.stringify({ message: 'Ignored: duplicate message' }), { status: 200 });
+      }
+    }
+
     // --- 3. Limpeza de Telefone ---
     let rawId = data.key.remoteJid || '';
     if (rawId.includes('@lid') && data.key.senderPn) {
@@ -385,7 +401,9 @@ serve(async (req) => {
     try {
       const { data: dealRow } = await supabase
         .from('deals').select('owner_id').eq('id', dealId).maybeSingle();
-      const ownerId = dealRow?.owner_id;
+      // So notifica se a mensagem foi REALMENTE inserida. Em retry concorrente, o
+      // indice unico barra a 2a mensagem (msgError) e ela nao gera notificacao.
+      const ownerId = msgError ? null : dealRow?.owner_id;
       if (ownerId) {
         const preview = content && content.length > 0
           ? (content.length > 80 ? content.slice(0, 80) + '...' : content)
