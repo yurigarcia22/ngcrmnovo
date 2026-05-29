@@ -111,6 +111,7 @@ export async function getBoardData(pipelineId?: string) {
                     owner:owner_id (full_name, avatar_url),
                     deal_members (id, user_id, profiles(full_name, avatar_url)),
                     deal_tags (tags (id, name, color)),
+                    deal_items (quantity, products (name)),
                     tasks (id, due_date, is_completed)
                 `)
                 .eq("tenant_id", tenantId)

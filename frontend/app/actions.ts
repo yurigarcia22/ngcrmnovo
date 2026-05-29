@@ -1245,6 +1245,50 @@ export async function getMyTasks(userIdOverride?: string) {
     }
 }
 
+// Lista plana das tarefas do usuario num intervalo de datas (para a visao calendario).
+export async function getMyTasksRange(startISO: string, endISO: string, userIdOverride?: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        let targetUserId = userIdOverride;
+        if (!targetUserId) {
+            const cookieStore = await cookies();
+            const ssrClient = createServerClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                { cookies: { getAll() { return cookieStore.getAll() }, setAll() {} } }
+            );
+            const { data: { user } } = await ssrClient.auth.getUser();
+            targetUserId = user?.id;
+        }
+        if (!targetUserId) return { success: false, error: "Usuario nao identificado." };
+
+        const { data, error } = await supabase
+            .from("tasks")
+            .select(`
+                id, title, description, due_date, is_completed, priority,
+                is_recurring, recurrence_pattern, completed_at,
+                deal_id, cold_lead_id, assigned_to,
+                deals (id, title, contacts(name)),
+                cold_leads (id, nome, telefone)
+            `)
+            .eq("tenant_id", tenantId)
+            .eq("assigned_to", targetUserId)
+            .gte("due_date", startISO)
+            .lte("due_date", endISO)
+            .order("due_date", { ascending: true });
+
+        if (error) throw error;
+        return { success: true, data: data ?? [] };
+    } catch (e: any) {
+        return { success: false, error: e?.message ?? "Erro" };
+    }
+}
+
 export async function createTask(dealId: string | null, description: string, dueDate: string, coldLeadId?: string) {
     try {
         const tenantId = await getTenantId();
@@ -1866,10 +1910,20 @@ export async function getConversations(search?: string, ownerId?: string) {
     }
 }
 
+// deal_items tem RLS habilitada SEM policy, entao o client do usuario e bloqueado.
+// Usamos service role + verificacao de tenant (negocio pertence ao tenant).
 export async function getDealItems(dealId: string) {
     try {
-        const supabase = await createSupabaseServerClient();
-        const { data, error } = await supabase
+        const tenantId = await getTenantId();
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data: deal } = await admin
+            .from("deals").select("id").eq("id", dealId).eq("tenant_id", tenantId).maybeSingle();
+        if (!deal) return { success: false, error: "Negocio nao encontrado." };
+
+        const { data, error } = await admin
             .from("deal_items")
             .select(`
                 *,
@@ -1886,24 +1940,33 @@ export async function getDealItems(dealId: string) {
 
 export async function upsertDealItems(dealId: string, items: any[]) {
     try {
-        const supabase = await createSupabaseServerClient();
+        const tenantId = await getTenantId();
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
 
-        // 1. Delete all existing items for this deal (simple replacement strategy)
-        // Ideally we would sync properly, but for this MVP, clear and insert is safer for consistency
-        await supabase.from("deal_items").delete().eq("deal_id", dealId);
+        // Garante que o negocio pertence ao tenant antes de mexer nos itens.
+        const { data: deal } = await admin
+            .from("deals").select("id").eq("id", dealId).eq("tenant_id", tenantId).maybeSingle();
+        if (!deal) return { success: false, error: "Negocio nao encontrado." };
+
+        // Estrategia simples: limpa e reinsere.
+        await admin.from("deal_items").delete().eq("deal_id", dealId);
 
         if (items.length > 0) {
             const itemsToInsert = items.map(item => ({
                 deal_id: dealId,
                 product_id: item.product_id,
-                quantity: item.quantity,
-                unit_price: item.unit_price
+                quantity: item.quantity ?? 1,
+                unit_price: Number(item.unit_price) || 0,
             }));
 
-            const { error } = await supabase.from("deal_items").insert(itemsToInsert);
+            const { error } = await admin.from("deal_items").insert(itemsToInsert);
             if (error) throw error;
         }
 
+        revalidatePath("/leads");
         return { success: true };
     } catch (error: any) {
         console.error("upsertDealItems Error:", error);

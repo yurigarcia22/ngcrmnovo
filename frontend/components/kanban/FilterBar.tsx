@@ -7,6 +7,10 @@ interface FilterBarProps {
     setFilterTag: (tag: string) => void;
     filterDate: string;
     setFilterDate: (date: string) => void;
+    customStart?: string;
+    setCustomStart?: (v: string) => void;
+    customEnd?: string;
+    setCustomEnd?: (v: string) => void;
     availableTags: any[];
 }
 
@@ -17,6 +21,10 @@ export default function FilterBar({
     setFilterTag,
     filterDate,
     setFilterDate,
+    customStart = "",
+    setCustomStart,
+    customEnd = "",
+    setCustomEnd,
     availableTags
 }: FilterBarProps) {
     const hasActiveFilters = searchTerm || filterTag !== 'all' || filterDate !== 'all';
@@ -25,6 +33,8 @@ export default function FilterBar({
         setSearchTerm("");
         setFilterTag("all");
         setFilterDate("all");
+        setCustomStart?.("");
+        setCustomEnd?.("");
     };
 
     return (
@@ -70,9 +80,33 @@ export default function FilterBar({
                     <option value="last7">Últimos 7 dias</option>
                     <option value="last30">Últimos 30 dias</option>
                     <option value="thisMonth">Este Mês</option>
+                    <option value="custom">Personalizado...</option>
                 </select>
                 <Filter size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             </div>
+
+            {/* Intervalo personalizado (de / ate) */}
+            {filterDate === 'custom' && (
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                    <input
+                        type="date"
+                        value={customStart}
+                        max={customEnd || undefined}
+                        onChange={(e) => setCustomStart?.(e.target.value)}
+                        className="bg-transparent text-sm text-slate-700 focus:outline-none cursor-pointer"
+                        title="De"
+                    />
+                    <span className="text-slate-400 text-xs">até</span>
+                    <input
+                        type="date"
+                        value={customEnd}
+                        min={customStart || undefined}
+                        onChange={(e) => setCustomEnd?.(e.target.value)}
+                        className="bg-transparent text-sm text-slate-700 focus:outline-none cursor-pointer"
+                        title="Até"
+                    />
+                </div>
+            )}
 
             {/* Clear Filters Button */}
             {hasActiveFilters && (

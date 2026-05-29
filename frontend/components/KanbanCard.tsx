@@ -225,6 +225,23 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                         </div>
                     )}
 
+                    {/* Produtos negociados */}
+                    {deal.deal_items && deal.deal_items.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                            {deal.deal_items.map((it: any, i: number) => (
+                                <span
+                                    key={i}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-violet-50 border border-violet-100 text-violet-700 text-[11px] font-semibold"
+                                    title={it.products?.name || 'Produto'}
+                                >
+                                    <Package size={11} strokeWidth={2.5} className="shrink-0" />
+                                    <span className="truncate max-w-[140px]">{it.products?.name || 'Produto'}</span>
+                                    {it.quantity > 1 && <span className="text-violet-400">x{it.quantity}</span>}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+
                     {/* Decisor (responsible_name de custom_values) */}
                     {deal.custom_values?.responsible_name && (
                         <div className="flex items-center gap-2 mb-2 text-gray-700">

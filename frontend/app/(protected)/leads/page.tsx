@@ -100,6 +100,8 @@ export default function LeadsPage() {
     const tags: any[] = tagsQuery.data ?? [];
     const [filterTag, setFilterTag] = useState(() => readLs("filter_tag", "all"));
     const [filterDate, setFilterDate] = useState(() => readLs("filter_date", "all"));
+    const [filterDateStart, setFilterDateStart] = useState(() => readLs("filter_dateStart", ""));
+    const [filterDateEnd, setFilterDateEnd] = useState(() => readLs("filter_dateEnd", ""));
 
     // Owner Filter
     const teamQuery = useQuery({
@@ -120,6 +122,8 @@ export default function LeadsPage() {
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_status", filterStatus); }, [filterStatus]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_tag", filterTag); }, [filterTag]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_date", filterDate); }, [filterDate]);
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_dateStart", filterDateStart); }, [filterDateStart]);
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_dateEnd", filterDateEnd); }, [filterDateEnd]);
     useEffect(() => {
         if (typeof window !== "undefined" && filterOwner !== "loading") {
             localStorage.setItem("filter_owner", filterOwner);
@@ -485,6 +489,15 @@ export default function LeadsPage() {
             } else if (filterDate === 'thisMonth') {
                 const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                 if (dealDate < firstDayOfMonth) return false;
+            } else if (filterDate === 'custom') {
+                if (filterDateStart) {
+                    const start = new Date(filterDateStart + 'T00:00:00');
+                    if (dealDate < start) return false;
+                }
+                if (filterDateEnd) {
+                    const end = new Date(filterDateEnd + 'T23:59:59');
+                    if (dealDate > end) return false;
+                }
             }
         }
 
@@ -545,6 +558,10 @@ export default function LeadsPage() {
                         setFilterTag={setFilterTag}
                         filterDate={filterDate}
                         setFilterDate={setFilterDate}
+                        customStart={filterDateStart}
+                        setCustomStart={setFilterDateStart}
+                        customEnd={filterDateEnd}
+                        setCustomEnd={setFilterDateEnd}
                         availableTags={tags}
                     />
                 </div>

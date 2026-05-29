@@ -5,14 +5,19 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
     CheckSquare, Square, Clock, AlarmClock, Calendar,
-    Plus, X, Trash2, Repeat, Flame, ChevronRight,
-    AlertTriangle, Sun, CalendarDays, Trophy,
+    Plus, X, Trash2, Repeat, Flame, ChevronRight, ChevronLeft,
+    AlertTriangle, Sun, CalendarDays, Trophy, List,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { createTaskFull, completeTask, deleteTask, rescheduleTask, getMyTasks } from "@/app/actions";
+import { createTaskFull, completeTask, deleteTask, rescheduleTask, getMyTasks, getMyTasksRange } from "@/app/actions";
 import { qk } from "@/lib/query-keys";
+import {
+    startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
+    isSameMonth, isSameDay, addMonths, subMonths, format,
+} from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface Task {
     id: string;
@@ -91,6 +96,7 @@ export function MeuDiaClient({ initialTasks }: Props) {
     const confirm = useConfirm();
     const queryClient = useQueryClient();
     const [showNew, setShowNew] = useState(false);
+    const [view, setView] = useState<'list' | 'calendar'>('list');
 
     const tasksQuery = useQuery<TasksGrouped>({
         queryKey: qk.tasks.mine(),
@@ -171,15 +177,36 @@ export function MeuDiaClient({ initialTasks }: Props) {
                                 : `${totalPending} tarefa${totalPending > 1 ? "s" : ""} pendente${totalPending > 1 ? "s" : ""}`}
                         </p>
                     </div>
-                    <button
-                        onClick={() => setShowNew(true)}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-sm"
-                    >
-                        <Plus className="w-4 h-4" /> Nova tarefa
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {/* Toggle Lista / Calendario */}
+                        <div className="flex bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
+                            <button
+                                onClick={() => setView('list')}
+                                className={`px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-1.5 transition-colors ${view === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                <List className="w-4 h-4" /> Lista
+                            </button>
+                            <button
+                                onClick={() => setView('calendar')}
+                                className={`px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-1.5 transition-colors ${view === 'calendar' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                <CalendarDays className="w-4 h-4" /> Calendário
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => setShowNew(true)}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-sm"
+                        >
+                            <Plus className="w-4 h-4" /> Nova tarefa
+                        </button>
+                    </div>
                 </div>
 
                 {/* SEÇÕES */}
+                {view === 'calendar' ? (
+                    <CalendarMonth />
+                ) : (
+                <>
                 {tasks.overdue.length > 0 && (
                     <Section
                         title="Atrasadas"
@@ -235,6 +262,8 @@ export function MeuDiaClient({ initialTasks }: Props) {
                             <TaskRow key={t.id} task={t} onComplete={() => {}} onDelete={handleDelete} done />
                         ))}
                     </Section>
+                )}
+                </>
                 )}
 
             </div>
@@ -497,6 +526,100 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     </button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+// Visao calendario: grade do mes com as tarefas posicionadas pela data.
+function CalendarMonth() {
+    const [cursor, setCursor] = useState<Date>(() => new Date());
+    const gridStart = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });
+    const gridEnd = endOfWeek(endOfMonth(cursor), { weekStartsOn: 0 });
+    const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
+    const today = new Date();
+
+    const calQuery = useQuery({
+        queryKey: ["myTasksRange", gridStart.toISOString(), gridEnd.toISOString()],
+        queryFn: async () => {
+            const res = await getMyTasksRange(gridStart.toISOString(), gridEnd.toISOString());
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar");
+            return (res.data ?? []).map((t: any) => {
+                const deal = Array.isArray(t.deals) ? t.deals[0] ?? null : t.deals ?? null;
+                return { ...t, deals: deal };
+            });
+        },
+        staleTime: 30_000,
+    });
+    const calTasks: any[] = calQuery.data ?? [];
+    const weekdays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+    return (
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+            {/* Navegacao de mes */}
+            <div className="flex items-center justify-between mb-4">
+                <button onClick={() => setCursor(subMonths(cursor, 1))} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500" title="Mês anterior">
+                    <ChevronLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-base font-bold text-slate-800 capitalize">
+                    {format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}
+                </h2>
+                <button onClick={() => setCursor(addMonths(cursor, 1))} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500" title="Próximo mês">
+                    <ChevronRight className="w-5 h-5" />
+                </button>
+            </div>
+
+            {/* Cabecalho dos dias da semana */}
+            <div className="grid grid-cols-7 gap-1 mb-1">
+                {weekdays.map((d) => (
+                    <div key={d} className="text-[11px] font-bold text-slate-400 text-center py-1">{d}</div>
+                ))}
+            </div>
+
+            {/* Grade de dias */}
+            <div className="grid grid-cols-7 gap-1">
+                {days.map((day) => {
+                    const inMonth = isSameMonth(day, cursor);
+                    const isToday = isSameDay(day, today);
+                    const dayTasks = calTasks
+                        .filter((t) => t.due_date && isSameDay(new Date(t.due_date), day))
+                        .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+                    return (
+                        <div
+                            key={day.toISOString()}
+                            className={`min-h-[96px] rounded-lg border p-1.5 ${inMonth ? "bg-white" : "bg-slate-50/60"} ${isToday ? "border-indigo-400 ring-1 ring-indigo-200" : "border-slate-100"}`}
+                        >
+                            <div className={`text-[11px] font-bold mb-1 ${isToday ? "text-indigo-600" : inMonth ? "text-slate-600" : "text-slate-300"}`}>
+                                {format(day, "d")}
+                            </div>
+                            <div className="space-y-1">
+                                {dayTasks.slice(0, 4).map((t) => {
+                                    const overdueT = !t.is_completed && new Date(t.due_date) < today && !isSameDay(new Date(t.due_date), today);
+                                    const cls = t.is_completed
+                                        ? "bg-slate-100 text-slate-400 line-through"
+                                        : overdueT ? "bg-rose-100 text-rose-700"
+                                        : t.priority === "urgent" ? "bg-rose-50 text-rose-700"
+                                        : t.priority === "high" ? "bg-amber-50 text-amber-700"
+                                        : "bg-indigo-50 text-indigo-700";
+                                    const label = `${format(new Date(t.due_date), "HH:mm")} ${t.description}`;
+                                    const chip = (
+                                        <div className={`text-[10px] px-1.5 py-0.5 rounded truncate ${cls}`} title={label}>{label}</div>
+                                    );
+                                    return t.deals?.id
+                                        ? <Link key={t.id} href={`/deals/${t.deals.id}`}>{chip}</Link>
+                                        : <div key={t.id}>{chip}</div>;
+                                })}
+                                {dayTasks.length > 4 && (
+                                    <div className="text-[9px] text-slate-400 pl-1">+{dayTasks.length - 4} mais</div>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {calQuery.isLoading && (
+                <div className="text-center text-xs text-slate-400 mt-3">Carregando tarefas...</div>
+            )}
         </div>
     );
 }
