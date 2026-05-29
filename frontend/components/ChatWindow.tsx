@@ -52,7 +52,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
         if (!deal?.id) return;
@@ -118,6 +118,15 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, activePanel]);
+
+    // Campo de texto cresce com o conteudo (ate um limite) e volta ao tamanho
+    // original quando a mensagem e enviada/limpa.
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, 140) + "px";
+    }, [newMessage]);
 
     async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
         const file = event.target.files?.[0];
@@ -417,11 +426,11 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                             <Paperclip size={24} strokeWidth={1.5} />
                         </button>
 
-                        <div className="flex-1 bg-gray-50 rounded-lg border border-transparent focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 transition-all flex items-center">
-                            <input
+                        <div className="flex-1 bg-gray-50 rounded-lg border border-transparent focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 transition-all flex items-end">
+                            <textarea
                                 ref={inputRef}
-                                type="text"
-                                className="w-full bg-transparent px-4 py-3 text-gray-800 placeholder-gray-400 focus:outline-none"
+                                rows={1}
+                                className="w-full bg-transparent px-4 py-3 text-gray-800 placeholder-gray-400 focus:outline-none resize-none max-h-[140px] overflow-y-auto leading-relaxed custom-scrollbar"
                                 placeholder="Digite uma mensagem ou / para ver comandos..."
                                 value={newMessage}
                                 onChange={(e) => {
@@ -430,12 +439,15 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                     else if (showShortcuts && e.target.value === '') setShowShortcuts(false);
                                 }}
                                 onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleSendMessage();
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSendMessage();
+                                    }
                                     if (e.key === 'Escape') setShowShortcuts(false);
                                 }}
                             />
                             {/* Optional: Emoji Button inside input */}
-                            <button className="p-2 mr-1 text-gray-400 hover:text-yellow-500 transition-colors">
+                            <button className="p-2 mr-1 mb-1 text-gray-400 hover:text-yellow-500 transition-colors">
                                 <Smile size={20} />
                             </button>
                         </div>
