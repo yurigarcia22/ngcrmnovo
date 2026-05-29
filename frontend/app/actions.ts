@@ -898,10 +898,13 @@ export async function sendMedia(formData: FormData) {
             return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
         };
         const fileName = `${tenantId}/${Date.now()}_${sanitizeFilename(file.name)}`; // Organizar por tenant no storage é boa prática
+        // Converte o File em Buffer (com tamanho conhecido). Subir o File direto
+        // numa server action Node trava o upload — era a causa do "carregando infinito".
+        const fileBuffer = Buffer.from(await file.arrayBuffer());
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('crm-media')
-            .upload(fileName, file, {
-                contentType: file.type,
+            .upload(fileName, fileBuffer, {
+                contentType: file.type || 'application/octet-stream',
                 upsert: false
             });
 
@@ -938,12 +941,17 @@ export async function sendMedia(formData: FormData) {
                 "apikey": evolutionToken,
             },
             body: JSON.stringify(body),
+            // Nunca deixa a request pendurar pra sempre (era o "carregando infinito").
+            signal: AbortSignal.timeout(45000),
         });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             console.error("Evolution API Media Error:", errorData);
-            throw new Error("Failed to send media via Evolution API");
+            const evoMsg = Array.isArray(errorData?.response?.message)
+                ? errorData.response.message.join("; ")
+                : (errorData?.response?.message || errorData?.message || `HTTP ${response.status}`);
+            throw new Error(`Evolution recusou o envio: ${evoMsg}`);
         }
 
         const evolutionData = await response.json();
