@@ -6,7 +6,7 @@ import {
     getStages, createStage, updateStage, deleteStage, updateStagesOrder,
     setStageFlag, setPipelineDefault
 } from "./actions";
-import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star } from "lucide-react";
+import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star, Zap } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { cn } from "@/lib/utils";
@@ -389,6 +389,7 @@ export default function PipelinesPage() {
                                                     >
                                                         <StageItem
                                                             stage={stage}
+                                                            kind={activeKind}
                                                             onUpdate={handleUpdateStage}
                                                             onDelete={handleDeleteStage}
                                                             onReload={() => loadStages(selectedPipelineId!)}
@@ -412,8 +413,9 @@ export default function PipelinesPage() {
 }
 
 // Subcomponent for each Stage Row
-function StageItem({ stage, onUpdate, onDelete, onReload, dragHandleProps, isDragging }: {
+function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps, isDragging }: {
     stage: any,
+    kind?: "deals" | "cold_call",
     onUpdate: any,
     onDelete: any,
     onReload: () => void,
@@ -431,11 +433,15 @@ function StageItem({ stage, onUpdate, onDelete, onReload, dragHandleProps, isDra
         setIsEditing(false);
     }
 
-    async function toggleFlag(flag: "is_inbox" | "is_won" | "is_lost") {
+    async function toggleFlag(flag: "is_inbox" | "is_won" | "is_lost" | "is_quick_action") {
         const next = !stage[flag];
         const res = await setStageFlag(String(stage.id), flag, next);
         if (res.success) {
-            const label = flag === "is_inbox" ? "Entrada" : flag === "is_won" ? "Ganho" : "Perda";
+            const label =
+                flag === "is_inbox" ? "Entrada"
+                : flag === "is_won" ? "Ganho"
+                : flag === "is_lost" ? "Perda"
+                : "Ação rápida";
             toast.success(`${stage.name}: ${label} ${next ? "ativado" : "desativado"}`);
             onReload();
         } else {
@@ -517,6 +523,15 @@ function StageItem({ stage, onUpdate, onDelete, onReload, dragHandleProps, isDra
                     activeClass="bg-rose-100 text-rose-700 border-rose-300"
                     onClick={() => toggleFlag("is_lost")}
                 />
+                {kind === "cold_call" && (
+                    <FlagPill
+                        label="Ação Rápida"
+                        icon={<Zap className="w-3 h-3" />}
+                        active={!!stage.is_quick_action}
+                        activeClass="bg-amber-100 text-amber-700 border-amber-300"
+                        onClick={() => toggleFlag("is_quick_action")}
+                    />
+                )}
             </div>
 
             {/* Actions */}

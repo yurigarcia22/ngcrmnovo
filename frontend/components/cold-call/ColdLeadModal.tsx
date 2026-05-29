@@ -5,8 +5,9 @@ import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Phone, CheckCircle, XCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
+import { Phone, CheckCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
 import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup } from "@/app/actions";
+import { registerColdLeadStage } from "@/app/(protected)/cold-call/actions";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface ColdLeadModalProps {
@@ -15,13 +16,14 @@ interface ColdLeadModalProps {
     onClose: () => void;
     teamMembers: any[];
     pipelines: any[];
+    coldStages?: any[];
     onNext?: () => void;
     hasNext?: boolean;
     onActionComplete: (updatedLead: ColdLead) => void;
     onLeadUpdate?: (updatedLead: ColdLead) => void;
 }
 
-function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines, onNext, hasNext, onActionComplete, onLeadUpdate }: ColdLeadModalProps) {
+function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines, coldStages, onNext, hasNext, onActionComplete, onLeadUpdate }: ColdLeadModalProps) {
     const router = useRouter();
     const confirm = useConfirm();
     const [currentNote, setCurrentNote] = useState("");
@@ -124,6 +126,31 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
         () => pipelines.filter((p: any) => (p.kind ?? "deals") === "deals"),
         [pipelines],
     );
+
+    // Acoes rapidas = etapas do funil de cold-call marcadas como is_quick_action
+    // (configuravel em Configuracoes > Funis). Ordenadas por position.
+    const quickStages = useMemo(
+        () => (coldStages ?? [])
+            .filter((s: any) => s.is_quick_action)
+            .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)),
+        [coldStages],
+    );
+
+    // Clicar numa etapa move o lead, conta cadencia e registra a interacao.
+    // Mantem o modal no lead atual (sem fechar/pular).
+    const handleStageAction = async (stage: any) => {
+        setLoading(true);
+        try {
+            const res = await registerColdLeadStage(lead.id, stage.id);
+            if (!res.success || !res.data) throw new Error(res.error || "Erro");
+            toast.success(`Movido para ${stage.name}`);
+            (onLeadUpdate ?? onActionComplete)(res.data as ColdLead);
+        } catch (e) {
+            toast.error("Erro ao registrar ação");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Default: o funil marcado como padrao (is_default). Antes pegava pipelines[0],
     // que caia no Funil Webinar e mostrava etapas erradas.
@@ -757,64 +784,44 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                 <div className="bg-white p-6 border-b border-slate-100 shadow-sm shrink-0">
                                             <label className="text-sm font-bold text-slate-800 mb-3 flex justify-between items-center">
                                                 Ação Rápida
+                                                <span className="text-[10px] font-normal text-slate-400">
+                                                    Cadência: {lead.tentativas || 0}
+                                                </span>
                                             </label>
                                             <div className="space-y-2 mt-2">
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={() => handleResult('numero_inexistente')}
-                                                        className="h-10 border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600 hover:bg-red-50 text-xs"
-                                                        disabled={loading}
-                                                    >
-                                                        <XCircle size={14} className="mr-2 text-red-500 shrink-0" /> Número Inexistente
-                                                    </Button>
+                                                {quickStages.length > 0 ? (
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        {quickStages.map((s: any) => {
+                                                            const isCurrent = Number((lead as any).stage_id) === Number(s.id);
+                                                            return (
+                                                                <Button
+                                                                    key={s.id}
+                                                                    variant="outline"
+                                                                    onClick={() => handleStageAction(s)}
+                                                                    disabled={loading}
+                                                                    title={isCurrent ? "Etapa atual (registra nova tentativa)" : `Mover para ${s.name}`}
+                                                                    className={`h-10 justify-start text-xs text-slate-700 border-slate-200 hover:bg-slate-50 ${isCurrent ? "ring-1 ring-slate-300 bg-slate-50" : ""}`}
+                                                                    style={{ borderLeftColor: s.color || "#94a3b8", borderLeftWidth: 3 }}
+                                                                >
+                                                                    <span className="truncate">{s.name}</span>
+                                                                </Button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-md p-3">
+                                                        Nenhuma etapa marcada como ação rápida. Configure em{" "}
+                                                        <a href="/settings/pipelines?kind=cold_call" className="text-indigo-600 hover:underline">Configurações &gt; Funis</a>.
+                                                    </div>
+                                                )}
 
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={() => handleResult('sem_interesse')}
-                                                        className="h-10 border-slate-200 text-slate-600 hover:border-orange-200 hover:text-orange-600 hover:bg-orange-50 text-xs"
-                                                        disabled={loading}
-                                                    >
-                                                        <XCircle size={14} className="mr-2 text-orange-500 shrink-0" /> Sem Interesse
-                                                    </Button>
-
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={() => handleResult('ligacao_feita')}
-                                                        className="h-10 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 text-xs"
-                                                        disabled={loading}
-                                                    >
-                                                        <Phone size={14} className="mr-2 text-blue-500 shrink-0" /> Ligação Feita
-                                                    </Button>
-                                                </div>
-
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={() => handleResult('contato_realizado')}
-                                                        className="h-10 border-slate-200 text-slate-700 hover:border-teal-300 hover:text-teal-600 hover:bg-teal-50 text-xs"
-                                                        disabled={loading}
-                                                    >
-                                                        <CheckCircle size={14} className="mr-2 text-teal-500 shrink-0" /> Contato Realizado
-                                                    </Button>
-
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={() => handleResult('contato_decisor')}
-                                                        className="h-10 border-slate-200 text-slate-700 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 text-xs font-bold"
-                                                        disabled={loading}
-                                                    >
-                                                        <Target size={14} className="mr-2 text-indigo-600 shrink-0" /> Contato com Decisor
-                                                    </Button>
-
-                                                    <Button
-                                                        onClick={() => setIsMeetingMode(true)}
-                                                        className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200"
-                                                        disabled={loading}
-                                                    >
-                                                        <Calendar size={14} className="mr-2 shrink-0" /> Reunião (Converter em Lead)
-                                                    </Button>
-                                                </div>
+                                                <Button
+                                                    onClick={() => setIsMeetingMode(true)}
+                                                    className="w-full h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200"
+                                                    disabled={loading}
+                                                >
+                                                    <Calendar size={14} className="mr-2 shrink-0" /> Reunião (Converter em Lead)
+                                                </Button>
                                             </div>
                                 </div>
                             )}

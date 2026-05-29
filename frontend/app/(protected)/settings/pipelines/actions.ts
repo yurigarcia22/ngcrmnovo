@@ -52,14 +52,14 @@ export async function createPipeline(name: string, kind: "deals" | "cold_call" =
         let defaultStages: any[];
         if (kind === "cold_call") {
             defaultStages = [
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Novo",             position: 0, color: "#94a3b8", is_inbox: true,  is_won: false, is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 1",      position: 1, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 2+",     position: 2, color: "#f97316", is_inbox: false, is_won: false, is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Contato feito",    position: 3, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Falou c/ decisor", position: 4, color: "#8b5cf6", is_inbox: false, is_won: false, is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Reunião marcada",  position: 5, color: "#06b6d4", is_inbox: false, is_won: false, is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Convertido",       position: 6, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Descartado",      position: 7, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true  },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Novo",             position: 0, color: "#94a3b8", is_inbox: true,  is_won: false, is_lost: false, is_quick_action: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 1",      position: 1, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 2+",     position: 2, color: "#f97316", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Contato feito",    position: 3, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Falou c/ decisor", position: 4, color: "#8b5cf6", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Reunião marcada",  position: 5, color: "#06b6d4", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Convertido",       position: 6, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false, is_quick_action: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Descartado",      position: 7, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true,  is_quick_action: true },
             ];
         } else {
             defaultStages = [
@@ -221,13 +221,13 @@ export async function deleteStage(stageId: string) {
 }
 
 /**
- * Marca/desmarca uma stage como is_inbox, is_won ou is_lost.
- * Garante exclusividade no pipeline: ao marcar X como is_inbox=true,
- * todas as outras stages do mesmo pipeline ficam is_inbox=false.
+ * Marca/desmarca uma flag de stage.
+ * is_inbox / is_won / is_lost sao EXCLUSIVAS no pipeline (so uma stage com cada).
+ * is_quick_action NAO e exclusiva (varias etapas podem ser acoes rapidas).
  */
 export async function setStageFlag(
     stageId: string,
-    flag: "is_inbox" | "is_won" | "is_lost",
+    flag: "is_inbox" | "is_won" | "is_lost" | "is_quick_action",
     value: boolean
 ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -247,8 +247,10 @@ export async function setStageFlag(
 
         if (!stage) return { success: false, error: "Stage nao encontrada." };
 
-        if (value) {
-            // Desmarca todas as outras do mesmo pipeline
+        const isExclusive = flag !== "is_quick_action";
+
+        if (value && isExclusive) {
+            // Flags exclusivas: desmarca todas as outras do mesmo pipeline
             await supabase
                 .from("stages")
                 .update({ [flag]: false })
@@ -266,6 +268,7 @@ export async function setStageFlag(
         if (error) throw error;
         revalidatePath("/settings/pipelines");
         revalidatePath("/leads");
+        revalidatePath("/cold-call");
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };

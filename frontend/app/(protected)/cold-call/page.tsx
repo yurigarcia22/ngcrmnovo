@@ -660,6 +660,7 @@ export default function ColdCallPage() {
                     onClose={handleModalClose}
                     teamMembers={teamMembers}
                     pipelines={pipelines}
+                    coldStages={coldStages}
                     onNext={handleNextLead}
                     hasNext={hasNext()}
                     onActionComplete={handleActionComplete}
