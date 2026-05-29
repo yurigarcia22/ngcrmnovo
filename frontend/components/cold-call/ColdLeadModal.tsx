@@ -40,6 +40,11 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
     // Edit Mode State
     const [isEditing, setIsEditing] = useState(false);
     const [localEmail, setLocalEmail] = useState(lead.email || "");
+
+    // Decisor (nome + telefone direto pra WhatsApp), guardado em custom_fields.
+    const [decisorNome, setDecisorNome] = useState<string>(((lead.custom_fields as any)?.decisor_nome) || "");
+    const [decisorTelefone, setDecisorTelefone] = useState<string>(((lead.custom_fields as any)?.decisor_telefone) || "");
+    const [savingDecisor, setSavingDecisor] = useState(false);
     const [editForm, setEditForm] = useState({
         nome: lead.nome || "",
         nicho: lead.nicho || "",
@@ -105,6 +110,8 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             setMeetingDate("");
             setIsEditing(false);
             setLocalEmail(lead.email || "");
+            setDecisorNome(((lead.custom_fields as any)?.decisor_nome) || "");
+            setDecisorTelefone(((lead.custom_fields as any)?.decisor_telefone) || "");
             setEditForm({
                 nome: lead.nome || "",
                 nicho: lead.nicho || "",
@@ -336,6 +343,31 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             setLoading(false);
         }
     };
+
+    async function handleSaveDecisor() {
+        setSavingDecisor(true);
+        try {
+            const merged = {
+                ...(((lead.custom_fields as any)) || {}),
+                decisor_nome: decisorNome.trim(),
+                decisor_telefone: decisorTelefone.trim(),
+            };
+            const res = await fetch(`/api/cold-leads/${lead.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ custom_fields: merged }),
+            });
+            if (!res.ok) throw new Error("Falha ao salvar");
+            const updated = await res.json();
+            (lead as any).custom_fields = updated.custom_fields;
+            (onLeadUpdate ?? onActionComplete)(updated as ColdLead);
+            toast.success("Decisor salvo!");
+        } catch (e) {
+            toast.error("Erro ao salvar decisor");
+        } finally {
+            setSavingDecisor(false);
+        }
+    }
 
     const handleDelete = async () => {
         const ok = await confirm({
@@ -646,6 +678,46 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                             </button>
                                         )}
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Decisor (nome + telefone direto pra WhatsApp) */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Decisor</label>
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 space-y-2">
+                                    <Input
+                                        value={decisorNome}
+                                        onChange={(e) => setDecisorNome(e.target.value)}
+                                        placeholder="Nome do decisor"
+                                        className="bg-white text-slate-900 h-9 text-sm"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            value={decisorTelefone}
+                                            onChange={(e) => setDecisorTelefone(e.target.value)}
+                                            placeholder="Telefone (WhatsApp)"
+                                            className="bg-white text-slate-900 h-9 text-sm font-mono flex-1"
+                                        />
+                                        {decisorTelefone.replace(/\D/g, "").length >= 10 && (
+                                            <a
+                                                href={`https://wa.me/${(() => { const c = decisorTelefone.replace(/\D/g, ""); return (c.length === 10 || c.length === 11) ? "55" + c : c; })()}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="w-9 h-9 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors shrink-0"
+                                                title="Mandar WhatsApp pro decisor"
+                                            >
+                                                <MessageCircle className="h-4 w-4" />
+                                            </a>
+                                        )}
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        onClick={handleSaveDecisor}
+                                        disabled={savingDecisor}
+                                        className="w-full h-8 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
+                                    >
+                                        {savingDecisor ? "Salvando..." : "Salvar decisor"}
+                                    </Button>
                                 </div>
                             </div>
 

@@ -140,6 +140,14 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipeline
     }
 
     // 6. Create Deal
+    // Leva o decisor (nome + telefone direto) do cold lead pro deal, para o card
+    // de /leads mostrar (usa custom_values.responsible_name / responsible_direct_phone).
+    const decisorNome = (lead as any).custom_fields?.decisor_nome;
+    const decisorTelefone = (lead as any).custom_fields?.decisor_telefone;
+    const dealCustomValues: any = {};
+    if (decisorNome) dealCustomValues.responsible_name = decisorNome;
+    if (decisorTelefone) dealCustomValues.responsible_direct_phone = decisorTelefone;
+
     const { data: newDeal, error: dealError } = await supabase
         .from("deals")
         .insert({
@@ -149,7 +157,8 @@ async function createOpportunityFromColdLeadPlaceholder(lead: ColdLead, pipeline
             stage_id: targetStageId,
             status: "open",
             tenant_id: tenantId,
-            owner_id: user.id
+            owner_id: user.id,
+            custom_values: Object.keys(dealCustomValues).length ? dealCustomValues : null,
         })
         .select("id")
         .single();
