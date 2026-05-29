@@ -173,6 +173,19 @@ export async function getConversationNumberInfo(dealId: string) {
     }
 }
 
+/**
+ * Normaliza numero brasileiro para o formato que a Evolution espera (com DDI 55).
+ * Prefixa 55 quando o numero vem so com DDD + numero (10 ou 11 digitos).
+ * Numeros ja com 55 ou em formato desconhecido sao retornados como vieram
+ * (deixando a Evolution validar).
+ */
+function normalizeBrazilPhone(raw: string): string {
+    const d = (raw || "").replace(/\D/g, "");
+    if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
+    if (d.length === 10 || d.length === 11) return "55" + d;
+    return d;
+}
+
 // --- ACTIONS ---
 
 export async function sendMessage(phone: string, text: string, context: { dealId: string, contactId: string }, opts?: { force?: boolean }) {
@@ -272,7 +285,7 @@ export async function sendMessage(phone: string, text: string, context: { dealId
         if (!url || !token) throw new Error("Configuração da Evolution API ausente.");
 
         // 6. Preparar Envio
-        const cleanPhone = phone.replace(/\D/g, "");
+        const cleanPhone = normalizeBrazilPhone(phone);
         const body = {
             number: cleanPhone,
             text: text,
@@ -297,7 +310,13 @@ export async function sendMessage(phone: string, text: string, context: { dealId
             // Tenta ler erro detalhado
             const errorData = await response.json().catch(() => ({}));
             console.error("Evolution API Error:", errorData);
-            return { success: false, error: errorData?.message || "Falha ao enviar mensagem na API." };
+            const rawMsg = Array.isArray(errorData?.response?.message)
+                ? errorData.response.message.join("; ")
+                : (errorData?.response?.message || errorData?.message || "");
+            const friendly = /not.*exist|number|jid|invalid/i.test(String(rawMsg))
+                ? `Número inválido ou sem WhatsApp: ${cleanPhone}. Confira o número do contato.`
+                : (rawMsg || "Falha ao enviar mensagem na API.");
+            return { success: false, error: friendly };
         }
 
         const successData = await response.json();
@@ -920,7 +939,7 @@ export async function sendMedia(formData: FormData) {
         const mediaUrl = publicUrlData.publicUrl;
 
         // 3. Enviar via Evolution API
-        const cleanPhone = phone.replace(/\D/g, "");
+        const cleanPhone = normalizeBrazilPhone(phone);
         const mediaType = file.type.startsWith('image/') ? 'image'
             : file.type.startsWith('video/') ? 'video'
             : 'document';
