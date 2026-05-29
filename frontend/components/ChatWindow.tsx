@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { sendMessage, sendMedia, getMessages } from "../app/actions";
+import { sendMessage, sendMedia, getMessages, getConversationNumberInfo } from "../app/actions";
 import { createClient } from "@/utils/supabase/client";
 import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic } from "lucide-react";
 import NotesPanel from "./NotesPanel";
@@ -24,6 +24,11 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     const [isSending, setIsSending] = useState(false);
     const [activePanel, setActivePanel] = useState<'none' | 'notes' | 'tasks'>('none');
     const [showShortcuts, setShowShortcuts] = useState(false);
+
+    // Numero (instancia) da conversa: qual fala com o lead, qual foi o primeiro,
+    // e a confirmacao quando o numero que vai responder diverge.
+    const [numberInfo, setNumberInfo] = useState<any>(null);
+    const [pendingConfirm, setPendingConfirm] = useState<{ text: string; current: any; wouldUse: any } | null>(null);
 
     // Quick Replies State
     const [quickReplies, setQuickReplies] = useState<any[]>([]);
@@ -54,8 +59,13 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                 setCategories(["Todos", ...uniqueCategories]);
             }
         }
+        async function fetchNumberInfo() {
+            const r = await getConversationNumberInfo(deal.id);
+            if (r.success) setNumberInfo(r.data);
+        }
         fetchMessages();
         fetchQuickReplies();
+        fetchNumberInfo();
 
         const channelName = `chat:${deal.id}`;
         const channel = supabase
@@ -80,6 +90,10 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                         }
                         return [...current, payload.new];
                     });
+                    // Mensagem nova pode mudar qual numero esta falando com o lead.
+                    if (payload.new.direction === 'inbound') {
+                        getConversationNumberInfo(deal.id).then(r => { if (r.success) setNumberInfo(r.data); });
+                    }
                 }
             )
             .subscribe();
@@ -125,31 +139,50 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         }
     }
 
-    async function handleSendMessage() {
-        if (!newMessage.trim() || !deal.contacts?.phone || isSending) return;
+    async function doSend(text: string, force: boolean) {
         const tempId = "temp-" + Date.now();
         const tempMessage = {
-            id: tempId, content: newMessage, direction: 'outbound',
+            id: tempId, content: text, direction: 'outbound',
             created_at: new Date().toISOString(), type: 'text', status: 'sending'
         };
 
         setMessages((curr) => [...curr, tempMessage]);
-        setNewMessage("");
         setIsSending(true);
         inputRef.current?.focus();
         setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
         try {
             await new Promise(resolve => setTimeout(resolve, 100));
-            const result = await sendMessage(deal.contacts.phone, tempMessage.content, {
+            const result: any = await sendMessage(deal.contacts.phone, text, {
                 dealId: deal.id, contactId: deal.contacts.id
-            });
-            if (!result.success) console.error("Message send failed:", result.error);
+            }, { force });
+
+            if (result?.needsConfirmation) {
+                // Numero diverge do que ja falava com o lead: remove o otimista e confirma.
+                setMessages((curr) => curr.filter(m => m.id !== tempId));
+                setPendingConfirm({ text, current: result.current, wouldUse: result.wouldUse });
+                return;
+            }
+            if (!result?.success) {
+                setMessages((curr) => curr.filter(m => m.id !== tempId));
+                toast.error(result?.error || "Falha ao enviar mensagem");
+                return;
+            }
+            // Sucesso: atualiza qual numero esta falando com o lead.
+            getConversationNumberInfo(deal.id).then(r => { if (r.success) setNumberInfo(r.data); });
         } catch (error) {
+            setMessages((curr) => curr.filter(m => m.id !== tempId));
             console.error("Error during message send:", error);
         } finally {
             setIsSending(false);
         }
+    }
+
+    function handleSendMessage() {
+        if (!newMessage.trim() || !deal.contacts?.phone || isSending) return;
+        const text = newMessage;
+        setNewMessage("");
+        doSend(text, false);
     }
 
     /**
@@ -200,6 +233,14 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                     <div className="flex flex-col">
                         <span className="text-sm font-bold text-gray-800">{deal.contacts?.name || "Cliente"}</span>
                         <span className="text-xs text-gray-500">{deal.contacts?.phone}</span>
+                        {numberInfo?.current && (
+                            <span className={`text-[11px] mt-0.5 inline-flex items-center gap-1 ${numberInfo.diverges ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                                Falando via {numberInfo.current.label}
+                                {numberInfo.first && numberInfo.first.instance_name !== numberInfo.current.instance_name && (
+                                    <span className="text-gray-400">· 1º contato: {numberInfo.first.label}</span>
+                                )}
+                            </span>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -430,6 +471,34 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
             {activePanel === 'tasks' && (
                 <div className="w-80 border-l p-4 flex flex-col shrink-0 transition-all duration-300 bg-white border-gray-200">
                     <TasksPanel dealId={deal.id} onClose={() => setActivePanel('none')} />
+                </div>
+            )}
+
+            {/* Confirmacao: numero que vai responder diverge do que falava com o lead */}
+            {pendingConfirm && (
+                <div className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 space-y-3">
+                        <h3 className="font-bold text-gray-900 text-base">Responder por outro número?</h3>
+                        <p className="text-sm text-gray-600 leading-relaxed">
+                            Este lead estava conversando com <b className="text-gray-900">{pendingConfirm.current?.label}</b>.
+                            Você vai responder pelo <b className="text-gray-900">{pendingConfirm.wouldUse?.label}</b>.
+                            Trocar de número pode confundir o lead.
+                        </p>
+                        <div className="flex justify-end gap-2 pt-1">
+                            <button
+                                onClick={() => { setNewMessage(pendingConfirm.text); setPendingConfirm(null); }}
+                                className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg font-medium"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => { const t = pendingConfirm.text; setPendingConfirm(null); doSend(t, true); }}
+                                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                            >
+                                Responder mesmo assim
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

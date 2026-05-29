@@ -344,7 +344,8 @@ serve(async (req) => {
       content: content,
       media_url: mediaUrl,
       status: 'delivered',
-      tenant_id: tenantId
+      tenant_id: tenantId,
+      instance_name: instanceName
     });
 
     if (msgError) console.error("Erro ao salvar mensagem:", msgError);

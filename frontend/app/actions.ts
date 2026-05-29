@@ -80,9 +80,101 @@ export async function updateTag(tagId: string, name: string, color: string) {
     return { success: true };
 }
 
+// --- HELPERS: instancia/numero da conversa ---
+
+// Resolve a instancia que o envio usaria para este usuario (pessoal conectada,
+// senao geral conectada). Mesma logica do sendMessage, reaproveitada.
+async function resolveSendInstanceName(adminClient: any, tenantId: string, userId: string): Promise<string | null> {
+    const { data: personal } = await adminClient
+        .from("whatsapp_instances")
+        .select("instance_name")
+        .eq("tenant_id", tenantId)
+        .eq("owner_profile_id", userId)
+        .eq("status", "connected")
+        .maybeSingle();
+    if (personal?.instance_name) return personal.instance_name;
+    const { data: general } = await adminClient
+        .from("whatsapp_instances")
+        .select("instance_name")
+        .eq("tenant_id", tenantId)
+        .is("owner_profile_id", null)
+        .eq("status", "connected")
+        .limit(1)
+        .maybeSingle();
+    return general?.instance_name ?? null;
+}
+
+// Monta um rotulo amigavel para uma instancia (nome custom > telefone > instance_name).
+async function describeInstance(adminClient: any, tenantId: string, instanceName: string | null) {
+    if (!instanceName) return null;
+    const { data } = await adminClient
+        .from("whatsapp_instances")
+        .select("instance_name, custom_name, phone_number")
+        .eq("tenant_id", tenantId)
+        .eq("instance_name", instanceName)
+        .maybeSingle();
+    return {
+        instance_name: instanceName,
+        label: data?.custom_name || data?.phone_number || instanceName,
+        phone: data?.phone_number || null,
+    };
+}
+
+// Numero (instancia) mais recente E o primeiro usado na conversa de um deal.
+async function getConversationInstances(adminClient: any, dealId: string): Promise<{ current: string | null; first: string | null }> {
+    if (!dealId) return { current: null, first: null };
+    const { data } = await adminClient
+        .from("messages")
+        .select("instance_name, created_at")
+        .eq("deal_id", dealId)
+        .not("instance_name", "is", null)
+        .order("created_at", { ascending: true });
+    const rows = (data ?? []) as any[];
+    if (rows.length === 0) return { current: null, first: null };
+    return { current: rows[rows.length - 1].instance_name, first: rows[0].instance_name };
+}
+
+/**
+ * Info de numero para a janela de conversa: qual numero esta falando com o lead
+ * (current), qual foi o primeiro, e qual numero o envio usaria agora (wouldUse).
+ * `diverges` = wouldUse difere do current (base para o aviso na UI).
+ */
+export async function getConversationNumberInfo(dealId: string) {
+    try {
+        const supabase = await createSupabaseServerClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: "Nao autenticado." };
+
+        const adminClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data: profile } = await adminClient
+            .from("profiles").select("tenant_id").eq("id", user.id).single();
+        if (!profile?.tenant_id) return { success: false, error: "Empresa nao identificada." };
+        const tenantId = profile.tenant_id;
+
+        const { current, first } = await getConversationInstances(adminClient, dealId);
+        const wouldUseName = await resolveSendInstanceName(adminClient, tenantId, user.id);
+
+        const [currentInfo, firstInfo, wouldUseInfo] = await Promise.all([
+            describeInstance(adminClient, tenantId, current),
+            describeInstance(adminClient, tenantId, first),
+            describeInstance(adminClient, tenantId, wouldUseName),
+        ]);
+
+        const diverges = !!currentInfo && !!wouldUseInfo && currentInfo.instance_name !== wouldUseInfo.instance_name;
+
+        return { success: true, data: { current: currentInfo, first: firstInfo, wouldUse: wouldUseInfo, diverges } };
+    } catch (error: any) {
+        console.error("getConversationNumberInfo Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 // --- ACTIONS ---
 
-export async function sendMessage(phone: string, text: string, context: { dealId: string, contactId: string }) {
+export async function sendMessage(phone: string, text: string, context: { dealId: string, contactId: string }, opts?: { force?: boolean }) {
     try {
         const cookieStore = await cookies();
 
@@ -159,6 +251,19 @@ export async function sendMessage(phone: string, text: string, context: { dealId
         const instanceName = instanceData.instance_name;
         console.log(`[sendMessage] Enviando via: ${instanceName} (Owner: ${instanceData.owner_profile_id || 'GERAL'})`);
 
+        // 4.1 Trava: avisa quando o numero que vai responder diverge do numero
+        // que ja conversava com o lead (a UI mostra a confirmacao e re-chama com force).
+        if (!opts?.force && context.dealId) {
+            const established = (await getConversationInstances(adminClient, context.dealId)).current;
+            if (established && established !== instanceName) {
+                const [current, wouldUse] = await Promise.all([
+                    describeInstance(adminClient, tenantId, established),
+                    describeInstance(adminClient, tenantId, instanceName),
+                ]);
+                return { success: false, needsConfirmation: true, current, wouldUse };
+            }
+        }
+
         // 5. Configuração Evolution API
         const url = process.env.EVOLUTION_API_URL;
         const token = process.env.EVOLUTION_API_TOKEN;
@@ -208,6 +313,7 @@ export async function sendMessage(phone: string, text: string, context: { dealId
             status: "sent",
             created_at: new Date().toISOString(),
             tenant_id: tenantId,
+            instance_name: instanceName,
             // sender_profile_id: user.id // Se tiver essa coluna, bom adicionar
         });
 

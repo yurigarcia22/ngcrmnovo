@@ -168,6 +168,17 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                 return;
             }
             res = await sendMessage(contactPhone, newContent, { dealId, contactId });
+            if ((res as any)?.needsConfirmation) {
+                const cur = (res as any).current?.label || "outro número";
+                const wu = (res as any).wouldUse?.label || "seu número";
+                const ok = window.confirm(`Este lead estava conversando com ${cur}. Você vai responder pelo ${wu}. Trocar de número pode confundir o lead. Continuar?`);
+                if (!ok) {
+                    setItems(prev => prev.filter(i => i.id !== tempItem.id));
+                    setSaving(false);
+                    return;
+                }
+                res = await sendMessage(contactPhone, newContent, { dealId, contactId }, { force: true });
+            }
         }
 
         if (res.success) {
