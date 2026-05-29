@@ -174,7 +174,17 @@ async function DashboardContent({
         console.log("[Dashboard Debug]", _check);
     } catch {}
 
-    const showColdCall = modules?.cold_call === true && (data.coldMetrics?.total ?? 0) > 0;
+    // Mostra a secao se houver QUALQUER sinal de cold-call no periodo (leads OU
+    // atividade). Antes so aparecia com leads importados no periodo, entao sumia
+    // quando o trabalho era so de ligacao (sem novos imports).
+    const cm: any = data.coldMetrics;
+    const showColdCall = modules?.cold_call === true && !!cm && (
+        (cm.total ?? 0) > 0 ||
+        (cm.calls ?? 0) > 0 ||
+        (cm.connections ?? 0) > 0 ||
+        (cm.decisionMakers ?? 0) > 0 ||
+        (cm.meetings ?? 0) > 0
+    );
     const topSellersData = sellers
         .filter((s: any) => s.wonValue > 0)
         .slice(0, 5)
