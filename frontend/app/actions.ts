@@ -877,9 +877,21 @@ export async function sendMedia(formData: FormData) {
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const evolutionUrl = process.env.EVOLUTION_API_URL!;
         const evolutionToken = process.env.EVOLUTION_API_TOKEN!;
-        const evolutionInstance = process.env.EVOLUTION_INSTANCE!;
 
         const supabase = createClient(supabaseUrl, supabaseKey);
+
+        // Instancia conectada (mesma logica do sendMessage). Antes usava
+        // process.env.EVOLUTION_INSTANCE, que estava vazio -> o anexo nao enviava.
+        let mediaUserId: string | undefined;
+        try {
+            const ssr = await createSupabaseServerClient();
+            const { data: { user } } = await ssr.auth.getUser();
+            mediaUserId = user?.id;
+        } catch { /* ignore */ }
+        const evolutionInstance = await resolveSendInstanceName(supabase, tenantId, mediaUserId ?? "");
+        if (!evolutionInstance) {
+            return { success: false, error: "Nenhum WhatsApp conectado disponível. Verifique as conexões." };
+        }
 
         // 1. Upload para Supabase Storage
         const sanitizeFilename = (name: string) => {
@@ -906,14 +918,17 @@ export async function sendMedia(formData: FormData) {
 
         // 3. Enviar via Evolution API
         const cleanPhone = phone.replace(/\D/g, "");
-        const mediaType = file.type.startsWith('image/') ? 'image' : 'document';
+        const mediaType = file.type.startsWith('image/') ? 'image'
+            : file.type.startsWith('video/') ? 'video'
+            : 'document';
 
         const body = {
             number: cleanPhone,
             mediatype: mediaType,
             mimetype: file.type,
             caption: "",
-            media: mediaUrl
+            media: mediaUrl,
+            fileName: file.name,
         };
 
         const response = await fetch(`${evolutionUrl}/message/sendMedia/${encodeURIComponent(evolutionInstance)}`, {
@@ -943,7 +958,9 @@ export async function sendMedia(formData: FormData) {
             media_url: mediaUrl,
             status: "sent",
             created_at: new Date().toISOString(),
-            tenant_id: tenantId
+            tenant_id: tenantId,
+            instance_name: evolutionInstance,
+            evolution_message_id: evolutionData?.key?.id ?? null,
         });
 
         if (insertError) console.error("Error saving media message to DB:", insertError);

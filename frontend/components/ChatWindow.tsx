@@ -122,13 +122,15 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
         const file = event.target.files?.[0];
         if (!file || !deal.contacts?.phone) return;
-        if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-            toast.warning("Apenas imagens e PDFs sao permitidos");
+        if (file.size > 60 * 1024 * 1024) {
+            toast.warning("Arquivo muito grande (máximo 60MB)");
             return;
         }
 
         const tempId = "temp-" + Date.now();
-        const mediaType = file.type.startsWith('image/') ? 'image' : 'document';
+        const mediaType = file.type.startsWith('image/') ? 'image'
+            : file.type.startsWith('video/') ? 'video'
+            : 'document';
         const tempMessage = {
             id: tempId, content: file.name, direction: 'outbound', status: 'sending',
             created_at: new Date().toISOString(), type: mediaType, media_url: URL.createObjectURL(file)
@@ -403,7 +405,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                             type="file"
                             ref={fileInputRef}
                             className="hidden"
-                            accept="image/*,application/pdf"
+                            accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
                             onChange={handleFileSelect}
                         />
                         <button
