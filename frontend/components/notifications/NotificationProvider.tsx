@@ -90,45 +90,43 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
+            // Trata tanto UPDATE (cron marca sent_at) quanto INSERT (notificacao
+            // imediata, ex: nova mensagem de WhatsApp, ja inserida com sent_at).
+            const handleIncoming = (newNotif: Notification) => {
+                if (!newNotif.sent_at) return;
+
+                setNotifications(prev => {
+                    const exists = prev.find(n => n.id === newNotif.id);
+                    if (exists) {
+                        return prev.map(n => n.id === newNotif.id ? newNotif : n);
+                    }
+                    return [newNotif, ...prev];
+                });
+
+                if (!newNotif.read_at) {
+                    playSound();
+                    if (newNotif.meta_json?.isColdCallFollowUp) {
+                        setActiveAlert(newNotif);
+                    } else {
+                        toast(newNotif.title, {
+                            description: newNotif.message,
+                            duration: 5000,
+                        });
+                    }
+                }
+            };
+
             channel = supabase
                 .channel(`notifications-realtime-${user.id}`)
                 .on(
                     'postgres_changes',
-                    {
-                        event: 'UPDATE',
-                        schema: 'public',
-                        table: 'notifications',
-                        filter: `user_id=eq.${user.id}`
-                    },
-                    (payload) => {
-                        const newNotif = payload.new as Notification;
-
-                        // Only care if sent_at is present (it might have been NULL before)
-                        if (!newNotif.sent_at) return;
-
-                        // Update list
-                        setNotifications(prev => {
-                            const exists = prev.find(n => n.id === newNotif.id);
-                            if (exists) {
-                                return prev.map(n => n.id === newNotif.id ? newNotif : n);
-                            }
-                            return [newNotif, ...prev];
-                        });
-
-                        // Alert if it's new (sent recently) and unread
-                        if (!newNotif.read_at) {
-                            playSound();
-
-                            if (newNotif.meta_json?.isColdCallFollowUp) {
-                                setActiveAlert(newNotif);
-                            } else {
-                                toast(newNotif.title, {
-                                    description: newNotif.message,
-                                    duration: 5000,
-                                });
-                            }
-                        }
-                    }
+                    { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+                    (payload) => handleIncoming(payload.new as Notification)
+                )
+                .on(
+                    'postgres_changes',
+                    { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+                    (payload) => handleIncoming(payload.new as Notification)
                 )
                 .subscribe();
         };

@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { sendMessage, sendMedia, getMessages, getConversationNumberInfo } from "../app/actions";
+import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio } from "../app/actions";
 import { createClient } from "@/utils/supabase/client";
-import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic } from "lucide-react";
+import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic, Check, CheckCheck, Clock } from "lucide-react";
 import NotesPanel from "./NotesPanel";
 import TasksPanel from "./TasksPanel";
 import { toast } from "@/lib/toast";
@@ -29,6 +29,21 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     // e a confirmacao quando o numero que vai responder diverge.
     const [numberInfo, setNumberInfo] = useState<any>(null);
     const [pendingConfirm, setPendingConfirm] = useState<{ text: string; current: any; wouldUse: any } | null>(null);
+    const [transcribingId, setTranscribingId] = useState<string | null>(null);
+
+    async function handleTranscribe(msg: any) {
+        setTranscribingId(msg.id);
+        try {
+            const res = await transcribeMessageAudio(msg.id);
+            if (res.success) {
+                setMessages(curr => curr.map(m => m.id === msg.id ? { ...m, transcription: res.data } : m));
+            } else {
+                toast.error(res.error || "Falha ao transcrever");
+            }
+        } finally {
+            setTranscribingId(null);
+        }
+    }
 
     // Quick Replies State
     const [quickReplies, setQuickReplies] = useState<any[]>([]);
@@ -328,12 +343,27 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                     )}
 
                                     {isAudio && (
-                                        <div className="mb-1 min-w-[240px] flex items-center gap-2 pt-1">
+                                        <div className="mb-1 min-w-[240px] pt-1">
                                             <audio controls className="w-full h-8">
                                                 <source src={msg.media_url} type="audio/ogg; codecs=opus" />
                                                 <source src={msg.media_url} type="audio/ogg" />
                                                 <source src={msg.media_url} type="audio/mpeg" />
                                             </audio>
+                                            {msg.transcription ? (
+                                                <p className="px-1 pt-2 mt-1 text-[13px] text-gray-600 italic border-t border-black/5">
+                                                    {msg.transcription}
+                                                </p>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleTranscribe(msg)}
+                                                    disabled={transcribingId === msg.id}
+                                                    className="mt-1.5 text-[11px] text-blue-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                                                >
+                                                    {transcribingId === msg.id
+                                                        ? <><Loader2 size={11} className="animate-spin" /> Transcrevendo...</>
+                                                        : "Transcrever áudio"}
+                                                </button>
+                                            )}
                                         </div>
                                     )}
 
@@ -346,10 +376,15 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                         {isOutbound && (
-                                            <span className="text-blue-500">
-                                                {/* Checks placeholder (would be double check if read) */}
-                                                <svg viewBox="0 0 16 11" height="10" width="10" preserveAspectRatio="xMidYMid meet" className="" version="1.1" x="0px" y="0px" enableBackground="new 0 0 16 11"><path fill="currentColor" d="M11.55 0l1.2 1.2-7.55 7.55-4.2-4.2 1.2-1.2 3 3z"></path><path fill="currentColor" d="M15 1.2l-7.55 7.55-1.3-1.3-1.3 1.3 2.6 2.6 8.75-8.75z"></path></svg>
-                                            </span>
+                                            msg.status === 'read' ? (
+                                                <span title="Lida"><CheckCheck size={14} className="text-blue-500" /></span>
+                                            ) : msg.status === 'delivered' ? (
+                                                <span title="Entregue"><CheckCheck size={14} className="text-gray-400" /></span>
+                                            ) : msg.status === 'sending' ? (
+                                                <span title="Enviando"><Clock size={11} className="text-gray-300" /></span>
+                                            ) : (
+                                                <span title="Enviada"><Check size={14} className="text-gray-400" /></span>
+                                            )
                                         )}
                                     </div>
                                 </div>

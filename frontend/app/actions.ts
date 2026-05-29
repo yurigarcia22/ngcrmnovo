@@ -7,6 +7,7 @@ import { createClient as createSupabaseServerClient } from "@/utils/supabase/ser
 import { scheduleTaskNotifications } from "@/lib/notifications";
 import { normalizeToCanonical, getPossibleVariants, isPlausibleBRPhone } from "@/lib/phone";
 import * as XLSX from 'xlsx';
+import OpenAI from 'openai';
 
 // --- HELPER: Get Tenant ID ---
 export async function getTenantId() {
@@ -314,6 +315,7 @@ export async function sendMessage(phone: string, text: string, context: { dealId
             created_at: new Date().toISOString(),
             tenant_id: tenantId,
             instance_name: instanceName,
+            evolution_message_id: successData?.key?.id ?? null,
             // sender_profile_id: user.id // Se tiver essa coluna, bom adicionar
         });
 
@@ -1716,6 +1718,56 @@ export async function getMessages(dealId: string) {
     }
 }
 
+/**
+ * Transcreve (sob demanda) o audio de uma mensagem de WhatsApp via OpenAI Whisper.
+ * Guarda o resultado em messages.transcription e retorna o texto. Idempotente:
+ * se ja houver transcricao, devolve a existente sem chamar a API.
+ */
+export async function transcribeMessageAudio(messageId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data: msg } = await admin
+            .from("messages")
+            .select("id, media_url, transcription")
+            .eq("id", messageId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+
+        if (!msg) return { success: false, error: "Mensagem nao encontrada." };
+        if (msg.transcription) return { success: true, data: msg.transcription as string };
+        if (!msg.media_url) return { success: false, error: "Esta mensagem nao tem audio." };
+
+        const resp = await fetch(msg.media_url);
+        if (!resp.ok) return { success: false, error: "Falha ao baixar o audio." };
+        const buf = Buffer.from(await resp.arrayBuffer());
+
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const file = await OpenAI.toFile(buf, "audio.ogg");
+        const tr = await openai.audio.transcriptions.create({
+            file,
+            model: "whisper-1",
+            language: "pt",
+        });
+        const text = ((tr as any).text || "").trim();
+
+        await admin
+            .from("messages")
+            .update({ transcription: text })
+            .eq("id", messageId)
+            .eq("tenant_id", tenantId);
+
+        return { success: true, data: text };
+    } catch (error: any) {
+        console.error("transcribeMessageAudio Error:", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function getTeamMembers() {
     try {
         const tenantId = await getTenantId();
@@ -1770,7 +1822,8 @@ export async function getConversations(search?: string, ownerId?: string) {
                     type,
                     media_url,
                     direction,
-                    status
+                    status,
+                    instance_name
                 )
             `)
             .eq('tenant_id', tenantId)

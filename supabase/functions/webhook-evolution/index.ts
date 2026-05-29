@@ -59,6 +59,37 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, message: 'Status updated' }), { status: 200 });
     }
 
+    // --- 1.5 Status de Mensagem (entregue / lida) ---
+    // Atualiza o status das mensagens que ENVIAMOS (casadas por evolution_message_id).
+    // Depende da Evolution enviar o evento MESSAGES_UPDATE para este webhook.
+    if (type === 'messages.update' || type === 'MESSAGES_UPDATE') {
+      try {
+        const updates = Array.isArray(data) ? data : [data];
+        for (const u of updates) {
+          const msgId = u?.key?.id || u?.keyId || u?.messageId;
+          const rawStatus = String(u?.update?.status ?? u?.status ?? '').toUpperCase();
+          if (!msgId || !rawStatus) continue;
+
+          if (rawStatus.includes('READ') || rawStatus.includes('PLAYED')) {
+            await supabase.from('messages')
+              .update({ status: 'read' })
+              .eq('evolution_message_id', msgId)
+              .eq('tenant_id', tenantId);
+          } else if (rawStatus.includes('DELIVERY') || rawStatus === 'DELIVERED') {
+            // Nao rebaixa uma mensagem que ja foi lida.
+            await supabase.from('messages')
+              .update({ status: 'delivered' })
+              .eq('evolution_message_id', msgId)
+              .eq('tenant_id', tenantId)
+              .neq('status', 'read');
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao atualizar status de mensagem:', e);
+      }
+      return new Response(JSON.stringify({ success: true, message: 'Message status processed' }), { status: 200 });
+    }
+
     // --- 2. Filtros de Mensagem ---
     // Ignora eventos que não sejam mensagens ou mensagens enviadas por mim
     if (!data || !data.key || data.key.fromMe) {
@@ -349,6 +380,35 @@ serve(async (req) => {
     });
 
     if (msgError) console.error("Erro ao salvar mensagem:", msgError);
+
+    // --- 7.1 Notifica o responsavel sobre a nova mensagem do lead ---
+    try {
+      const { data: dealRow } = await supabase
+        .from('deals').select('owner_id').eq('id', dealId).maybeSingle();
+      const ownerId = dealRow?.owner_id;
+      if (ownerId) {
+        const preview = content && content.length > 0
+          ? (content.length > 80 ? content.slice(0, 80) + '...' : content)
+          : contentType === 'audio' ? '[Áudio]'
+          : contentType === 'image' ? '[Imagem]'
+          : (contentType === 'pdf' || contentType === 'document') ? '[Documento]'
+          : contentType === 'video' ? '[Vídeo]'
+          : '[Mídia]';
+        const nowIso = new Date().toISOString();
+        await supabase.from('notifications').insert({
+          user_id: ownerId,
+          related_lead_id: dealId,
+          kind: 'message',
+          title: `Nova mensagem de ${pushName}`,
+          message: preview,
+          scheduled_for: nowIso,
+          sent_at: nowIso,
+          tenant_id: tenantId,
+        });
+      }
+    } catch (e) {
+      console.error('Erro ao criar notificacao de mensagem:', e);
+    }
 
     return new Response(JSON.stringify({ success: true, dealId }), {
       headers: { "Content-Type": "application/json" }

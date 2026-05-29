@@ -267,6 +267,21 @@ export default function ChatPage() {
         return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
     }
 
+    // Tempo que o lead espera resposta: so quando a ultima msg foi do lead (inbound).
+    function waitingInfo(conv: any): { label: string; mins: number; level: 'ok' | 'warn' | 'late' } | null {
+        const last = conv.last_message;
+        if (!last || last.direction !== 'inbound') return null;
+        const mins = Math.floor((Date.now() - new Date(last.created_at).getTime()) / 60000);
+        const label = mins < 1 ? 'agora' : mins < 60 ? `${mins}m` : mins < 1440 ? `${Math.floor(mins / 60)}h` : `${Math.floor(mins / 1440)}d`;
+        const level: 'ok' | 'warn' | 'late' = mins >= 60 ? 'late' : mins >= 15 ? 'warn' : 'ok';
+        return { label, mins, level };
+    }
+
+    // Numero (instancia) selecionado no filtro -> instance_name para comparar.
+    const selectedInstanceName = filterInstance === 'all'
+        ? null
+        : (instances.find((i: any) => String(i.id) === String(filterInstance))?.instance_name ?? null);
+
     return (
         <div className="flex h-screen bg-gray-100 overflow-hidden text-gray-800 font-sans">
             {/* Promote Lead Modal */}
@@ -479,6 +494,7 @@ export default function ChatPage() {
                         <div className="p-4 text-center text-gray-400 text-sm animate-pulse">Carregando conversas...</div>
                     ) : (
                         conversations.filter((conv) => {
+                            if (selectedInstanceName && conv.last_message?.instance_name !== selectedInstanceName) return false;
                             if (quickFilter === "all") return true;
                             if (quickFilter === "mine") {
                                 return currentUserId && conv.owner_id === currentUserId;
@@ -495,8 +511,15 @@ export default function ChatPage() {
                                 return d.toDateString() === today.toDateString();
                             }
                             return true;
+                        }).sort((a, b) => {
+                            // Na aba "Sem resposta", os que esperam ha mais tempo vem primeiro.
+                            if (quickFilter !== "unanswered") return 0;
+                            const wa = waitingInfo(a)?.mins ?? -1;
+                            const wb = waitingInfo(b)?.mins ?? -1;
+                            return wb - wa;
                         }).map(conv => {
                             const active = selectedDeal?.id === conv.id;
+                            const wait = waitingInfo(conv);
                             const personName = conv.contacts?.name || conv.title || "Desconhecido";
                             const lastMsgTime = formatTime(conv.last_message?.created_at || conv.updated_at);
                             const lastMsgContent = conv.last_message?.content || (conv.last_message?.type === 'image' ? '📸 Imagem' : 'Nenhuma mensagem');
@@ -524,10 +547,18 @@ export default function ChatPage() {
                                             <span className={`font-medium text-base truncate transition-colors ${active ? 'text-blue-700' : 'text-gray-800'}`}>{personName}</span>
                                             <span className={`text-xs ${active ? 'text-blue-600' : 'text-gray-400'}`}>{lastMsgTime}</span>
                                         </div>
-                                        <div className="flex justify-between items-center">
+                                        <div className="flex justify-between items-center gap-2">
                                             <p className={`text-sm truncate transition-colors ${active ? 'text-blue-600/80' : 'text-gray-500 group-hover:text-gray-600'}`}>
                                                 {lastMsgContent}
                                             </p>
+                                            {wait && (
+                                                <span
+                                                    title="Aguardando sua resposta"
+                                                    className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${wait.level === 'late' ? 'bg-red-100 text-red-600' : wait.level === 'warn' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}
+                                                >
+                                                    ⏱ {wait.label}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
