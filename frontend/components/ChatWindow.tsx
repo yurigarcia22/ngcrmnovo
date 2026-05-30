@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio } from "../app/actions";
 import { createClient } from "@/utils/supabase/client";
-import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic, Check, CheckCheck, Clock } from "lucide-react";
+import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic, Check, CheckCheck, Clock, ChevronDown } from "lucide-react";
 import NotesPanel from "./NotesPanel";
 import TasksPanel from "./TasksPanel";
 import { toast } from "@/lib/toast";
@@ -49,6 +49,15 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     const [quickReplies, setQuickReplies] = useState<any[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
     const [categories, setCategories] = useState<string[]>([]);
+    // Painel minimizavel; preferencia persiste entre conversas/sessoes.
+    const [showQuickReplies, setShowQuickReplies] = useState<boolean>(() => {
+        if (typeof window === "undefined") return false;
+        return window.localStorage.getItem("crm:showQuickReplies") === "1";
+    });
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem("crm:showQuickReplies", showQuickReplies ? "1" : "0");
+    }, [showQuickReplies]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -471,37 +480,54 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
 
                     {/* Quick Replies (Chips moved below) */}
                     {quickReplies.length > 0 && (
-                        <div className="mt-2 space-y-2">
-                            {/* Row 1: Categories (Groups) */}
-                            <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar px-1">
-                                {categories.map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setSelectedCategory(cat)}
-                                        className={`text-xs px-3 py-1 rounded-full whitespace-nowrap transition-all shadow-sm ${selectedCategory === cat
-                                            ? 'bg-blue-600 text-white font-bold'
-                                            : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
-                                            }`}
-                                    >
-                                        {cat}
-                                    </button>
-                                ))}
-                            </div>
+                        <div className="mt-2">
+                            <button
+                                onClick={() => setShowQuickReplies(v => !v)}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-700 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
+                                title={showQuickReplies ? "Ocultar respostas rápidas" : "Mostrar respostas rápidas"}
+                            >
+                                <Zap size={11} className="text-yellow-500" />
+                                Respostas rápidas
+                                <ChevronDown
+                                    size={14}
+                                    className={`transition-transform ${showQuickReplies ? 'rotate-180' : ''}`}
+                                />
+                            </button>
 
-                            {/* Row 2: Messages */}
-                            <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar px-1">
-                                {filteredReplies.map((reply: any) => (
-                                    <button
-                                        key={reply.id}
-                                        onClick={() => handleQuickReply(reply.content)}
-                                        className="text-xs px-3 py-1.5 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-center gap-1 whitespace-nowrap"
-                                        title={reply.content}
-                                    >
-                                        <Zap size={10} className="text-yellow-500" />
-                                        {reply.shortcut}
-                                    </button>
-                                ))}
-                            </div>
+                            {showQuickReplies && (
+                                <div className="mt-2 space-y-2">
+                                    {/* Row 1: Categories (Groups) */}
+                                    <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar px-1">
+                                        {categories.map(cat => (
+                                            <button
+                                                key={cat}
+                                                onClick={() => setSelectedCategory(cat)}
+                                                className={`text-xs px-3 py-1 rounded-full whitespace-nowrap transition-all shadow-sm ${selectedCategory === cat
+                                                    ? 'bg-blue-600 text-white font-bold'
+                                                    : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                                                    }`}
+                                            >
+                                                {cat}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Row 2: Messages */}
+                                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar px-1">
+                                        {filteredReplies.map((reply: any) => (
+                                            <button
+                                                key={reply.id}
+                                                onClick={() => handleQuickReply(reply.content)}
+                                                className="text-xs px-3 py-1.5 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-center gap-1 whitespace-nowrap"
+                                                title={reply.content}
+                                            >
+                                                <Zap size={10} className="text-yellow-500" />
+                                                {reply.shortcut}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
