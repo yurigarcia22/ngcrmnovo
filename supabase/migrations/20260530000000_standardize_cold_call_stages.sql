@@ -9,6 +9,12 @@
 --
 -- A migration eh idempotente: pode rodar varias vezes sem efeito colateral.
 
+-- Cold-call tem DUAS terminais perdidas (Descartado e Numero inexistente),
+-- entao removemos o indice unique que limitava a 1 is_lost por funil.
+-- Triggers existentes so usam is_won (cold_lead_auto_convert_to_deal),
+-- portanto a remocao eh segura.
+DROP INDEX IF EXISTS public.stages_one_lost_per_pipeline;
+
 DO $$
 DECLARE
     p RECORD;
@@ -43,6 +49,12 @@ BEGIN
         UPDATE public.stages SET name = 'Numero inexistente'
         WHERE pipeline_id = p.id
           AND lower(name) IN ('numero invalido', 'número invalido', 'sem whatsapp', 'invalido', 'inválido', 'número inexistente');
+
+        -- Zera is_won/is_lost de TODAS as stages do funil antes de re-aplicar
+        -- nas 6 padronizadas. Evita conflito com os indices unique parciais
+        -- (ex.: "Convertido" antiga is_won=true bloqueando setar "Confirmado").
+        UPDATE public.stages SET is_won = false, is_lost = false
+        WHERE pipeline_id = p.id;
 
         -- ----- 2. Garante presenca das 6 etapas padronizadas (cria as faltantes) -----
         IF NOT EXISTS (SELECT 1 FROM public.stages WHERE pipeline_id = p.id AND name = 'Ligação Feita') THEN
