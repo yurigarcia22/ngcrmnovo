@@ -12,6 +12,31 @@ interface ChatWindowProps {
     theme?: 'light' | 'dark'; // Kept for interface compat, but implementation forces light
 }
 
+// Preserva quebras de linha (via whitespace-pre-wrap no parent) e transforma
+// URLs em links clicaveis. Sem isso, mensagens multi-linha colapsavam numa
+// unica linha e links longos quebravam o bubble.
+function renderMessageContent(text: string | null | undefined) {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/\S+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) => {
+        if (/^https?:\/\//.test(part)) {
+            return (
+                <a
+                    key={i}
+                    href={part}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-blue-700 hover:text-blue-800 break-all"
+                >
+                    {part}
+                </a>
+            );
+        }
+        return <span key={i}>{part}</span>;
+    });
+}
+
 export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     const supabase = createClient();
     const [messages, setMessages] = useState<any[]>(() => {
@@ -378,7 +403,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                                 <source src={msg.media_url} type="audio/mpeg" />
                                             </audio>
                                             {msg.transcription ? (
-                                                <p className="px-1 pt-2 mt-1 text-[13px] text-gray-600 italic border-t border-black/5">
+                                                <p className="px-1 pt-2 mt-1 text-[13px] text-gray-600 italic border-t border-black/5 whitespace-pre-wrap break-words">
                                                     {msg.transcription}
                                                 </p>
                                             ) : (
@@ -396,7 +421,9 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                     )}
 
                                     {!isImage && !isDoc && !isAudio && (
-                                        <p className="px-1 pt-1 pb-0 leading-relaxed text-[15px]">{msg.content}</p>
+                                        <p className="px-1 pt-1 pb-0 leading-relaxed text-[15px] whitespace-pre-wrap break-words">
+                                            {renderMessageContent(msg.content)}
+                                        </p>
                                     )}
 
                                     <div className="flex justify-end items-center gap-1 mt-0.5 select-none">
