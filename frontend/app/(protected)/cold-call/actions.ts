@@ -110,11 +110,17 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         // Chave canonica que o dashboard reconhece. Ele conta callsMade/connections/
         // decisionMakers/meetings parseando "Interação Registrada: <chave>" com chaves
         // fixas (ligacao_feita, contato_realizado, contato_decisor, reuniao_marcada,
-        // numero_inexistente). Mapeamos a etapa para uma delas para o dashboard continuar
-        // contando mesmo com etapas configuraveis (etapa custom desconhecida = ligacao_feita).
+        // descartado, numero_inexistente). Distinguimos descartado (negativa do lead)
+        // de numero_inexistente (numero invalido/sem WhatsApp) pelo nome da etapa.
         const sName = (stage.name || "").toLowerCase();
         let resultKey: string;
-        if (stage.is_lost) resultKey = "numero_inexistente";
+        if (stage.is_lost) {
+            if (sName.includes("inexist") || sName.includes("invalid") || sName.includes("sem whatsapp")) {
+                resultKey = "numero_inexistente";
+            } else {
+                resultKey = "descartado";
+            }
+        }
         else if (stage.is_won) resultKey = "reuniao_marcada";
         else if (sName.includes("decisor")) resultKey = "contato_decisor";
         else if (sName.includes("reuni") || sName.includes("confirmad") || sName.includes("agendad")) resultKey = "reuniao_marcada";

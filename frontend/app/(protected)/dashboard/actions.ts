@@ -248,7 +248,9 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
 
         activityNotes?.forEach((note: any) => {
             const rawResult = note.content.replace("Interação Registrada:", "").trim();
-            if (['ligacao_feita', 'contato_realizado', 'contato_decisor', 'reuniao_marcada', 'numero_inexistente'].includes(rawResult)) {
+            // 'descartado' = negativa do lead; 'numero_inexistente' = numero invalido.
+            // Ambos contam como tentativa de ligacao (callsMade) — sao terminais.
+            if (['ligacao_feita', 'contato_realizado', 'contato_decisor', 'reuniao_marcada', 'descartado', 'numero_inexistente'].includes(rawResult)) {
                 callsMade++;
             }
             if (['contato_realizado', 'contato_decisor', 'reuniao_marcada'].includes(rawResult)) {
