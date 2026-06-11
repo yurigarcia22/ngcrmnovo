@@ -573,15 +573,15 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             {/* Phone Box */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Telefone</label>
-                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative group flex items-center justify-between">
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative group flex flex-col gap-3">
                                     {isEditing ? (
-                                        <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900 w-full mr-10" />
+                                        <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900 w-full" />
                                     ) : (
-                                        <div className="text-lg font-mono text-slate-800 font-medium overflow-hidden text-ellipsis whitespace-nowrap">
+                                        <div className="text-lg font-mono text-slate-800 font-medium break-all">
                                             {lead.telefone}
                                         </div>
                                     )}
-                                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                                    <div className="flex items-center gap-1">
                                         {!isEditing && (
                                             <button
                                                 onClick={(e) => {
