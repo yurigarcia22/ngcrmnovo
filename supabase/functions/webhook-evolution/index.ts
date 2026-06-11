@@ -127,8 +127,67 @@ serve(async (req) => {
     const pushName = data.pushName || phone;
     const messageType = data.messageType;
 
-    // --- Helper Upload Mídia (Mantido) ---
+    // --- Helper: pega mídia DESCRIPTOGRAFADA da Evolution (base64) ---
+    // Mídia recebida via WhatsApp vem encriptada na URL crua do servidor da Meta.
+    // Sem este passo, as bytes salvas no Storage ficam ilegíveis (imagens/áudios quebram).
+    async function fetchDecryptedBase64(): Promise<{ base64: string; mimetype?: string } | null> {
+      try {
+        const evoUrl = Deno.env.get('EVOLUTION_API_URL');
+        const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
+        if (!evoUrl || !evoToken || !instanceName) return null;
+        const r = await fetch(
+          `${evoUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: evoToken },
+            body: JSON.stringify({
+              message: { key: data.key, message: data.message },
+              convertToMp4: false,
+            }),
+          },
+        );
+        if (!r.ok) return null;
+        const j = await r.json();
+        const base64 = j?.base64 ?? j?.data?.base64 ?? j?.media?.base64;
+        const mimetype = j?.mimetype ?? j?.data?.mimetype ?? j?.media?.mimetype;
+        if (!base64 || typeof base64 !== 'string') return null;
+        return { base64, mimetype };
+      } catch (e) {
+        console.error('fetchDecryptedBase64 erro:', e);
+        return null;
+      }
+    }
+
+    // --- Helper Upload Mídia ---
+    // 1) Tenta o base64 já descriptografado da Evolution (caminho confiável).
+    // 2) Fallback: tenta a URL crua (pode estar encriptada, mas mantém referência).
     async function uploadMedia(url: string | null, type: string, mimetype?: string): Promise<string | null> {
+      const decrypted = await fetchDecryptedBase64();
+      if (decrypted?.base64) {
+        try {
+          const finalMime =
+            type === 'audio' ? 'audio/ogg' :
+            (decrypted.mimetype || mimetype || 'application/octet-stream');
+          const binStr = atob(decrypted.base64);
+          const bytes = new Uint8Array(binStr.length);
+          for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+          const ext = (finalMime.split('/')[1] || 'bin').split(';')[0] || 'bin';
+          const fileName = `${tenantId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from('crm-media')
+            .upload(fileName, bytes, { contentType: finalMime, upsert: false });
+          if (!upErr) {
+            const { data: publicUrlData } = supabase.storage
+              .from('crm-media')
+              .getPublicUrl(fileName);
+            return publicUrlData.publicUrl;
+          }
+          console.error('Falha ao salvar base64 da Evolution no Storage:', upErr);
+        } catch (e) {
+          console.error('Erro ao processar base64 da Evolution:', e);
+        }
+      }
+
       if (!url) return null;
       try {
         const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -140,7 +199,7 @@ serve(async (req) => {
         if (type === 'audio') contentType = 'audio/ogg';
         else if (mimetype) contentType = mimetype;
 
-        const ext = contentType.split('/')[1].split(';')[0] || 'bin';
+        const ext = (contentType.split('/')[1] || 'bin').split(';')[0] || 'bin';
         const fileName = `${tenantId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
 
         const { error: uploadError } = await supabase.storage

@@ -74,6 +74,11 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
     // Status menu
     const [showStatusMenu, setShowStatusMenu] = useState(false);
 
+    // Foto de perfil do WhatsApp expira (CDN da Meta com TTL).
+    // Marca como falha e mostra fallback ao inves do alt literal.
+    const [photoFailed, setPhotoFailed] = useState(false);
+    useEffect(() => { setPhotoFailed(false); }, [contact?.photo_url]);
+
     useEffect(() => {
         if (!contact?.id) return;
         getContactStats(contact.id).then((res) => res.success && setStats(res.data));
@@ -233,8 +238,13 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                 {/* IDENTITY */}
                 <div className="px-5 py-6 flex flex-col items-center border-b border-gray-100 bg-gradient-to-b from-gray-50/60 to-white">
                     <div className="w-24 h-24 rounded-full overflow-hidden mb-3 ring-4 ring-white shadow-md bg-gray-100">
-                        {contact?.photo_url ? (
-                            <img src={contact.photo_url} className="w-full h-full object-cover" alt={contact.name} />
+                        {contact?.photo_url && !photoFailed ? (
+                            <img
+                                src={contact.photo_url}
+                                className="w-full h-full object-cover"
+                                alt=""
+                                onError={() => setPhotoFailed(true)}
+                            />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center">
                                 <User size={40} className="text-gray-300" />

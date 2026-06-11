@@ -11,6 +11,40 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { toast } from '@/lib/toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
+function getInitials(name?: string | null): string | null {
+    if (!name) return null;
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    const ini = (parts[0][0] ?? '') + (parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : '');
+    return ini.toUpperCase() || null;
+}
+
+function ChatAvatar({ photoUrl, name }: { photoUrl?: string | null; name?: string | null }) {
+    const [failed, setFailed] = useState(false);
+    const initials = getInitials(name);
+    const showImg = !!photoUrl && !failed;
+    return (
+        <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 ring-2 ring-transparent group-hover:ring-blue-100 transition-all">
+            {showImg ? (
+                <img
+                    src={photoUrl ?? ''}
+                    className="w-full h-full object-cover"
+                    alt=""
+                    onError={() => setFailed(true)}
+                />
+            ) : initials ? (
+                <div className="flex items-center justify-center w-full h-full text-gray-600 font-semibold text-sm">
+                    {initials}
+                </div>
+            ) : (
+                <div className="flex items-center justify-center w-full h-full text-gray-400">
+                    <User size={24} />
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ChatPage() {
     const confirm = useConfirm();
     const queryClient = useQueryClient();
@@ -531,15 +565,7 @@ export default function ChatPage() {
                                     className={`flex items-center gap-3 p-3 px-4 cursor-pointer transition-all border-b border-gray-50 group hover:bg-gray-50 ${active ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'border-l-4 border-l-transparent'}`}
                                 >
                                     <div className="relative shrink-0">
-                                        <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 ring-2 ring-transparent group-hover:ring-blue-100 transition-all">
-                                            {conv.contacts?.photo_url ? (
-                                                <img src={conv.contacts.photo_url} className="w-full h-full object-cover" alt="Avatar" />
-                                            ) : (
-                                                <div className="flex items-center justify-center w-full h-full text-gray-400">
-                                                    <User size={24} />
-                                                </div>
-                                            )}
-                                        </div>
+                                        <ChatAvatar photoUrl={conv.contacts?.photo_url} name={personName} />
                                     </div>
 
                                     <div className="flex-1 min-w-0 flex flex-col justify-center">
