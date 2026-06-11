@@ -128,6 +128,14 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, activePanel]);
 
+    // Auto-resize do textarea conforme o usuario digita (ate o max-h do CSS).
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+    }, [newMessage]);
+
     // Campo de texto cresce com o conteudo (ate um limite) e volta ao tamanho
     // original quando a mensagem e enviada/limpa.
     useEffect(() => {
@@ -532,7 +540,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                     )}
 
                     <div className="text-[10px] text-gray-400 text-center font-medium">
-                        Pressione Enter para enviar
+                        Enter envia · Shift+Enter quebra linha
                     </div>
                 </div>
             </div>
