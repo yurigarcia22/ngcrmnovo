@@ -601,6 +601,16 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                 <Phone className="h-4 w-4" />
                                             </button>
                                         )}
+                                        {!isEditing && lead.telefone && lead.telefone.replace(/\D/g, "").length >= 10 && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); openCrmChat(lead.telefone, lead.nome); }}
+                                                disabled={openingChat}
+                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-green-50 text-green-600 hover:bg-green-600 hover:text-white transition-colors disabled:opacity-50"
+                                                title="Abrir conversa no WhatsApp do CRM"
+                                            >
+                                                <MessageCircle className="h-4 w-4" />
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => { navigator.clipboard.writeText(lead.telefone); toast.success("Copiado!"); }}
                                             className="w-8 h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
