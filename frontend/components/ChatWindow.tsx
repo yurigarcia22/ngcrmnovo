@@ -93,9 +93,17 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         async function fetchMessages() {
             const result = await getMessages(deal.id);
             if (result.success && result.data) {
-                setMessages(result.data);
+                setMessages((curr) => {
+                    // Merge: mantem otimistas (status sending) e injeta server data.
+                    const optimistic = curr.filter((m: any) => m.status === 'sending' && String(m.id).startsWith('temp-'));
+                    const serverIds = new Set((result.data as any[]).map((m: any) => m.id));
+                    const stillOptimistic = optimistic.filter((m: any) => !serverIds.has(m.id));
+                    return [...(result.data as any[]), ...stillOptimistic];
+                });
             }
         }
+        // Refetch periodico como rede de seguranca caso o realtime perca eventos.
+        const pollId = setInterval(fetchMessages, 15_000);
         async function fetchQuickReplies() {
             const { data } = await supabase
                 .from("quick_replies")
@@ -146,7 +154,10 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                 }
             )
             .subscribe();
-        return () => { supabase.removeChannel(channel); };
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(pollId);
+        };
     }, [deal?.id]);
 
     useEffect(() => {

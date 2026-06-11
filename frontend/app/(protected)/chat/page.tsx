@@ -74,6 +74,7 @@ export default function ChatPage() {
     }, [search]);
 
     // Conversas: query reativa a debouncedSearch/filterOwner
+    // refetchInterval = rede de seguranca caso o realtime perca eventos.
     const conversationsQuery = useQuery({
         queryKey: [...qk.conversations.list(), debouncedSearch, filterOwner],
         queryFn: async () => {
@@ -81,7 +82,10 @@ export default function ChatPage() {
             if (!res.success) throw new Error(res.error ?? "Falha ao carregar conversas");
             return (res.data ?? []) as any[];
         },
-        staleTime: 15_000,
+        staleTime: 10_000,
+        refetchInterval: 20_000,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
     });
     const rawConversations: any[] = conversationsQuery.data ?? [];
     // Aplica filtro client-side (mensagens vazias, urlDealId, selecionado)
