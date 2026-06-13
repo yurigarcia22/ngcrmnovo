@@ -304,6 +304,9 @@ export async function sendMessage(phone: string, text: string, context: { dealId
                 "apikey": token,
             },
             body: JSON.stringify(body),
+            // Nunca deixa a request pendurar pra sempre (era o "carregando infinito"
+            // que travava a janela inteira do chat quando a Evolution nao respondia).
+            signal: AbortSignal.timeout(30000),
         });
 
         if (!response.ok) {
@@ -324,7 +327,7 @@ export async function sendMessage(phone: string, text: string, context: { dealId
         // 8. Salvar Histórico no Banco
         // Usamos adminClient ou supabase client normal?
         // Como 'messages' pode ter RLS estrito, adminClient garante a escrita.
-        const { error: insertError } = await adminClient.from("messages").insert({
+        const { data: insertedRow, error: insertError } = await adminClient.from("messages").insert({
             deal_id: context.dealId,
             contact_id: context.contactId,
             direction: "outbound",
@@ -336,18 +339,28 @@ export async function sendMessage(phone: string, text: string, context: { dealId
             instance_name: instanceName,
             evolution_message_id: successData?.key?.id ?? null,
             // sender_profile_id: user.id // Se tiver essa coluna, bom adicionar
-        });
+        }).select("id").single();
 
         if (insertError) {
             console.error("Erro ao salvar mensagem:", insertError);
             // Mensagem foi enviada, então retornamos sucesso mas com aviso no log
         }
 
-        return { success: true, data: successData };
+        // Devolve os ids para o cliente reconciliar a bolha otimista com a row real
+        // (em vez de casar por content/type, que duplicava em mensagens iguais).
+        return {
+            success: true,
+            data: successData,
+            messageId: insertedRow?.id ?? null,
+            evolutionMessageId: successData?.key?.id ?? null,
+        };
 
     } catch (error: any) {
         console.error("sendMessage Exception:", error);
-        return { success: false, error: error.message || "Erro interno ao enviar mensagem." };
+        const friendly = error?.name === "TimeoutError" || error?.name === "AbortError"
+            ? "O envio demorou demais e foi cancelado. Verifique a conexão do WhatsApp e tente de novo."
+            : (error.message || "Erro interno ao enviar mensagem.");
+        return { success: false, error: friendly };
     }
 }
 
@@ -534,26 +547,36 @@ export async function createLead(data: {
     }
 }
 
+// Colunas que o app pode alterar num deal (whitelist contra escrita arbitraria).
+const DEAL_UPDATABLE_FIELDS = new Set([
+    "title", "value", "owner_id", "stage_id", "status",
+    "lost_reason_id", "lost_reason", "expected_close_date",
+    "snoozed_until", "resolved_at", "custom_values",
+]);
+
 export async function updateDeal(dealId: string, data: any) {
     try {
-        // Update não precisa de tenant_id explícito se o RLS estiver funcionando,
-        // mas é bom garantir que o usuário tem acesso.
-        // Como estamos usando Service Role aqui, deveríamos verificar o tenant.
-        // Mas para simplificar e manter compatibilidade, vamos confiar que o ID do deal é único e o usuário logado (verificado no frontend) tem acesso.
-        // IDEALMENTE: Usar createServerClient para tudo e deixar o RLS agir.
-        // PORÉM: O código original usa Service Role. Vamos manter Service Role mas injetar tenant_id no update para garantir integridade se o banco exigir.
-
-        // Na verdade, update não muda tenant_id. E o where id = dealId já restringe.
-        // Se quisermos ser estritos: .eq('tenant_id', tenantId)
-
+        // Service role ignora RLS, entao filtramos por tenant_id no servidor para
+        // impedir que um usuario altere um deal de outra empresa (IDOR).
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        // Whitelist: ignora chaves nao permitidas (ex: tenant_id, id).
+        const payload: any = {};
+        for (const k of Object.keys(data || {})) {
+            if (DEAL_UPDATABLE_FIELDS.has(k)) payload[k] = data[k];
+        }
+        if (Object.keys(payload).length === 0) {
+            return { success: false, error: "Nenhum campo válido para atualizar." };
+        }
+
         const { error } = await supabase
             .from("deals")
-            .update(data)
-            .eq("id", dealId);
+            .update(payload)
+            .eq("id", dealId)
+            .eq("tenant_id", tenantId);
 
         if (error) throw error;
 
@@ -566,6 +589,7 @@ export async function updateDeal(dealId: string, data: any) {
 
 export async function updateContact(contactId: string, data: any) {
     try {
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
@@ -573,7 +597,8 @@ export async function updateContact(contactId: string, data: any) {
         const { error } = await supabase
             .from("contacts")
             .update(data)
-            .eq("id", contactId);
+            .eq("id", contactId)
+            .eq("tenant_id", tenantId);
 
         if (error) throw error;
         return { success: true };
@@ -629,16 +654,30 @@ export async function deleteContact(contactId: string, deleteDealsOption: boolea
 
 export async function deleteDeal(dealId: string) {
     try {
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        await supabase.from("messages").delete().eq("deal_id", dealId);
+        // Confirma que o deal pertence ao tenant antes de apagar nada (service role
+        // ignora RLS — sem isso, um id de outro tenant apagaria dados alheios).
+        const { data: owned } = await supabase
+            .from("deals")
+            .select("id")
+            .eq("id", dealId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+        if (!owned) {
+            return { success: false, error: "Negócio não encontrado." };
+        }
+
+        await supabase.from("messages").delete().eq("deal_id", dealId).eq("tenant_id", tenantId);
 
         const { error } = await supabase
             .from("deals")
             .delete()
-            .eq("id", dealId);
+            .eq("id", dealId)
+            .eq("tenant_id", tenantId);
 
         if (error) throw error;
         return { success: true };
@@ -656,18 +695,28 @@ export async function deleteDeals(dealIds: string[]) {
 
         const tenantId = await getTenantId();
 
+        // So opera sobre os deals que REALMENTE pertencem ao tenant (service role
+        // ignora RLS; sem isso, ids de outro tenant apagariam mensagens alheias).
+        const { data: ownedDeals } = await supabase
+            .from("deals")
+            .select("id")
+            .in("id", dealIds)
+            .eq("tenant_id", tenantId);
+        const ownedIds = (ownedDeals ?? []).map((d: any) => d.id);
+        if (ownedIds.length === 0) return { success: true };
+
         // 1. Delete dependent messages
-        await supabase.from("messages").delete().in("deal_id", dealIds);
+        await supabase.from("messages").delete().in("deal_id", ownedIds);
         // 2. Delete tasks
-        await supabase.from("tasks").delete().in("deal_id", dealIds);
+        await supabase.from("tasks").delete().in("deal_id", ownedIds);
         // 3. Delete notes
-        await supabase.from("notes").delete().in("deal_id", dealIds);
+        await supabase.from("notes").delete().in("deal_id", ownedIds);
 
         // 4. Delete Deals
         const { error } = await supabase
             .from("deals")
             .delete()
-            .in("id", dealIds)
+            .in("id", ownedIds)
             .eq("tenant_id", tenantId); // Security check
 
         if (error) throw error;
@@ -887,6 +936,8 @@ export async function sendMedia(formData: FormData) {
         const phone = formData.get('phone') as string;
         const dealId = formData.get('dealId') as string;
         const contactId = formData.get('contactId') as string;
+        const caption = (formData.get('caption') as string) || "";
+        const force = formData.get('force') === 'true';
 
         if (!file || !phone || !dealId) {
             throw new Error("Missing required fields");
@@ -910,6 +961,19 @@ export async function sendMedia(formData: FormData) {
         const evolutionInstance = await resolveSendInstanceName(supabase, tenantId, mediaUserId ?? "");
         if (!evolutionInstance) {
             return { success: false, error: "Nenhum WhatsApp conectado disponível. Verifique as conexões." };
+        }
+
+        // Trava: avisa quando o numero que vai responder diverge do que ja conversava
+        // com o lead (mesma logica do sendMessage; a UI confirma e re-chama com force).
+        if (!force && dealId) {
+            const established = (await getConversationInstances(supabase, dealId)).current;
+            if (established && established !== evolutionInstance) {
+                const [current, wouldUse] = await Promise.all([
+                    describeInstance(supabase, tenantId, established),
+                    describeInstance(supabase, tenantId, evolutionInstance),
+                ]);
+                return { success: false, needsConfirmation: true, current, wouldUse };
+            }
         }
 
         // 1. Upload para Supabase Storage
@@ -942,18 +1006,28 @@ export async function sendMedia(formData: FormData) {
         const cleanPhone = normalizeBrazilPhone(phone);
         const mediaType = file.type.startsWith('image/') ? 'image'
             : file.type.startsWith('video/') ? 'video'
+            : file.type.startsWith('audio/') ? 'audio'
             : 'document';
 
-        const body = {
-            number: cleanPhone,
-            mediatype: mediaType,
-            mimetype: file.type,
-            caption: "",
-            media: mediaUrl,
-            fileName: file.name,
-        };
+        // Audio usa o endpoint dedicado (nota de voz / PTT). Os demais usam sendMedia.
+        let endpoint: string;
+        let body: any;
+        if (mediaType === 'audio') {
+            endpoint = `${evolutionUrl}/message/sendWhatsAppAudio/${encodeURIComponent(evolutionInstance)}`;
+            body = { number: cleanPhone, audio: mediaUrl };
+        } else {
+            endpoint = `${evolutionUrl}/message/sendMedia/${encodeURIComponent(evolutionInstance)}`;
+            body = {
+                number: cleanPhone,
+                mediatype: mediaType,
+                mimetype: file.type,
+                caption: caption || "",
+                media: mediaUrl,
+                fileName: file.name,
+            };
+        }
 
-        const response = await fetch(`${evolutionUrl}/message/sendMedia/${encodeURIComponent(evolutionInstance)}`, {
+        const response = await fetch(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -975,28 +1049,38 @@ export async function sendMedia(formData: FormData) {
 
         const evolutionData = await response.json();
 
-        // 4. Salvar no Banco de Dados com Tenant ID
-        const { error: insertError } = await supabase.from("messages").insert({
+        // 4. Salvar no Banco de Dados com Tenant ID. Audio guarda "" no content
+        // (o player nao mostra texto); os demais guardam a legenda ou o nome do arquivo.
+        const dbContent = mediaType === 'audio' ? "" : (caption || file.name);
+        const { data: insertedRow, error: insertError } = await supabase.from("messages").insert({
             deal_id: dealId,
             contact_id: contactId,
             direction: "outbound",
             type: mediaType,
-            content: file.name,
+            content: dbContent,
             media_url: mediaUrl,
             status: "sent",
             created_at: new Date().toISOString(),
             tenant_id: tenantId,
             instance_name: evolutionInstance,
             evolution_message_id: evolutionData?.key?.id ?? null,
-        });
+        }).select("id").single();
 
         if (insertError) console.error("Error saving media message to DB:", insertError);
 
-        return { success: true, data: evolutionData };
+        return {
+            success: true,
+            data: evolutionData,
+            messageId: insertedRow?.id ?? null,
+            evolutionMessageId: evolutionData?.key?.id ?? null,
+        };
 
     } catch (error: any) {
         console.error("sendMedia Error:", error);
-        return { success: false, error: error.message };
+        const friendly = error?.name === "TimeoutError" || error?.name === "AbortError"
+            ? "O envio demorou demais e foi cancelado. Verifique a conexão e tente de novo."
+            : error.message;
+        return { success: false, error: friendly };
     }
 }
 
@@ -1886,6 +1970,7 @@ export async function getConversations(search?: string, ownerId?: string) {
 
     try {
         const tenantId = await getTenantId();
+        const nowIso = new Date().toISOString();
 
         let query = supabase
             .from('deals')
@@ -1897,11 +1982,15 @@ export async function getConversations(search?: string, ownerId?: string) {
                 created_at,
                 stage_id,
                 owner_id,
+                snoozed_until,
+                resolved_at,
                 contacts!inner (
                     id,
                     name,
                     phone,
-                    photo_url
+                    photo_url,
+                    email,
+                    notes
                 ),
                 messages (
                     id,
@@ -1915,11 +2004,25 @@ export async function getConversations(search?: string, ownerId?: string) {
                 )
             `)
             .eq('tenant_id', tenantId)
+            // So a ULTIMA mensagem por conversa (antes trazia o historico inteiro de
+            // ate 100 deals — dezenas de milhares de linhas a cada refetch de 20s).
+            .order('created_at', { ascending: false, referencedTable: 'messages' })
+            .limit(1, { referencedTable: 'messages' })
+            // Oculta conversas resolvidas e adiadas (ate a hora do snooze).
+            .is('resolved_at', null)
+            .or(`snoozed_until.is.null,snoozed_until.lt.${nowIso}`)
             .order('updated_at', { ascending: false })
             .limit(100);
 
-        if (search) {
-            query = query.ilike('contacts.name', `%${search}%`);
+        if (search && search.trim()) {
+            const s = search.trim();
+            const digits = s.replace(/\D/g, "");
+            // Busca por nome OU telefone (operador costuma lembrar o numero).
+            if (digits.length >= 3) {
+                query = query.or(`name.ilike.%${s}%,phone.ilike.%${digits}%`, { referencedTable: 'contacts' });
+            } else {
+                query = query.ilike('contacts.name', `%${s}%`);
+            }
         }
 
         if (ownerId && ownerId !== "all") {
@@ -1930,22 +2033,33 @@ export async function getConversations(search?: string, ownerId?: string) {
 
         if (error) throw error;
 
-        // Process deals to sort messages and extract the last one
-        const conversations = data.map((deal: any) => {
-            const sortedMessages = deal.messages?.sort((a: any, b: any) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            ) || [];
+        // Contagem real de mensagens nao lidas (inbound, read_at IS NULL) por conversa.
+        // Uma unica query agregada nos deals retornados — nao traz historico.
+        const dealIds = (data ?? []).map((d: any) => d.id);
+        const unreadByDeal: Record<string, number> = {};
+        if (dealIds.length > 0) {
+            const { data: unreadRows } = await supabase
+                .from('messages')
+                .select('deal_id')
+                .eq('tenant_id', tenantId)
+                .eq('direction', 'inbound')
+                .is('read_at', null)
+                .in('deal_id', dealIds);
+            for (const row of (unreadRows ?? [])) {
+                const id = (row as any).deal_id;
+                if (id) unreadByDeal[id] = (unreadByDeal[id] ?? 0) + 1;
+            }
+        }
 
-            const lastMsg = sortedMessages[0];
-
+        const conversations = (data ?? []).map((deal: any) => {
+            const lastMsg = Array.isArray(deal.messages) ? deal.messages[0] : undefined;
             return {
                 ...deal,
                 last_message: lastMsg,
-                unread_count: 0
+                unread_count: unreadByDeal[deal.id] ?? 0,
             };
         });
 
-        // Returning ALL conversations
         return { success: true, data: conversations };
 
     } catch (error: any) {
@@ -2309,27 +2423,26 @@ export async function getContactStats(contactId: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const [msgsRes, dealsRes] = await Promise.all([
-            supabase
-                .from("messages")
-                .select("id, direction, created_at", { count: "exact" })
-                .eq("contact_id", contactId)
-                .eq("tenant_id", tenantId)
-                .order("created_at", { ascending: false })
-                .limit(200),
-            supabase
-                .from("deals")
-                .select("id, status, value, created_at")
-                .eq("contact_id", contactId)
-                .eq("tenant_id", tenantId),
+        // Contagens via count exato (head:true nao traz linhas) e ultima inbound
+        // via order+limit(1) — antes era fatiado de 200 linhas em memoria, o que
+        // subestimava recebidas e errava "ultima resposta" em conversas longas.
+        const [totalRes, inboundRes, outboundRes, lastInboundRes, dealsRes] = await Promise.all([
+            supabase.from("messages").select("id", { count: "exact", head: true })
+                .eq("contact_id", contactId).eq("tenant_id", tenantId),
+            supabase.from("messages").select("id", { count: "exact", head: true })
+                .eq("contact_id", contactId).eq("tenant_id", tenantId).eq("direction", "inbound"),
+            supabase.from("messages").select("id", { count: "exact", head: true })
+                .eq("contact_id", contactId).eq("tenant_id", tenantId).eq("direction", "outbound"),
+            supabase.from("messages").select("created_at")
+                .eq("contact_id", contactId).eq("tenant_id", tenantId).eq("direction", "inbound")
+                .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+            supabase.from("deals").select("id, status, value, created_at")
+                .eq("contact_id", contactId).eq("tenant_id", tenantId),
         ]);
 
-        const msgs = msgsRes.data ?? [];
-        const inbound = msgs.filter((m: any) => m.direction === "inbound").length;
-        const outbound = msgs.filter((m: any) => m.direction === "outbound").length;
-
-        // Ultima resposta do CLIENTE (inbound)
-        const lastInbound = msgs.find((m: any) => m.direction === "inbound");
+        const inbound = inboundRes.count ?? 0;
+        const outbound = outboundRes.count ?? 0;
+        const lastInbound = lastInboundRes.data;
 
         const deals = dealsRes.data ?? [];
         const wonDeals = deals.filter((d: any) => d.status === "won");
@@ -2338,7 +2451,7 @@ export async function getContactStats(contactId: string) {
         return {
             success: true,
             data: {
-                total_messages: msgsRes.count ?? msgs.length,
+                total_messages: totalRes.count ?? (inbound + outbound),
                 inbound,
                 outbound,
                 last_inbound_at: lastInbound?.created_at ?? null,
@@ -2521,15 +2634,9 @@ export async function promoteToLead(dealId: string, title?: string, value?: numb
 
         if (error) throw error;
 
-        // 3. Log Activity
-        await supabase.from("messages").insert({
-            tenant_id: tenantId,
-            deal_id: dealId,
-            content: "[SYSTEM] Conversa promovida a Lead",
-            type: "system",
-            direction: "system",
-            status: "sent"
-        });
+        // (A promocao ja fica registrada em deals.promoted_at. Nao inserimos uma
+        // "mensagem de sistema" porque os CHECK constraints de messages so aceitam
+        // direction inbound/outbound e tipos reais — o insert antigo sempre falhava.)
 
         // 4. Create Meeting Task if date provided
         if (meetingDate) {

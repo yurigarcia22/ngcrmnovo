@@ -18,7 +18,7 @@ interface Props {
     deal: any;
     onContactUpdated?: (patch: any) => void;
     onDelete: () => void;
-    onChange?: () => void;
+    onChange?: (patch?: any) => void;
 }
 
 function formatRelativeTime(iso: string | null): string {
@@ -81,8 +81,13 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
 
     useEffect(() => {
         if (!contact?.id) return;
-        getContactStats(contact.id).then((res) => res.success && setStats(res.data));
-        getContactDealHistory(contact.id, deal.id).then((res) => res.success && setHistory(res.data ?? []));
+        // Guard contra resposta atrasada de um contato anterior sobrescrever o atual
+        // (ao navegar rapido entre conversas).
+        let active = true;
+        setStats(null);
+        getContactStats(contact.id).then((res) => { if (active && res.success) setStats(res.data); });
+        getContactDealHistory(contact.id, deal.id).then((res) => { if (active && res.success) setHistory(res.data ?? []); });
+        return () => { active = false; };
     }, [contact?.id, deal?.id]);
 
     useEffect(() => {
@@ -106,13 +111,19 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
     }
 
     async function saveEmail() {
-        if (tempEmail === contact?.email) {
+        const trimmed = tempEmail.trim();
+        if (trimmed === (contact?.email ?? "")) {
             setEditingEmail(false);
             return;
         }
-        const res = await updateContact(contact.id, { email: tempEmail.trim() });
+        // Valida formato (campo aceitava qualquer string antes). Vazio = limpar.
+        if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+            toast.error("E-mail inválido");
+            return;
+        }
+        const res = await updateContact(contact.id, { email: trimmed || null });
         if (res.success) {
-            onContactUpdated?.({ email: tempEmail.trim() });
+            onContactUpdated?.({ email: trimmed });
             toast.success("E-mail atualizado");
         } else {
             toast.error("Erro: " + res.error);
@@ -139,7 +150,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
         if (res.success) {
             toast.success(`Conversa adiada por ${hours}h`);
             setShowSnooze(false);
-            onChange?.();
+            onChange?.({ snoozed_until: until });
         } else {
             toast.error(res.error ?? "Erro");
         }
@@ -150,7 +161,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
         if (res.success) {
             toast.success(resolved ? "Conversa marcada como resolvida" : "Conversa reaberta");
             setShowStatusMenu(false);
-            onChange?.();
+            onChange?.({ resolved_at: resolved ? new Date().toISOString() : null });
         } else {
             toast.error(res.error ?? "Erro");
         }
@@ -216,7 +227,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
             const owner = teamMembers.find((t) => t.id === forwardOwnerId);
             toast.success(`Conversa atribuída a ${owner?.full_name ?? "vendedor"}`);
             setShowForward(false);
-            onChange?.();
+            onChange?.({ owner_id: forwardOwnerId });
         } else {
             toast.error(res.error ?? "Erro");
         }

@@ -67,15 +67,23 @@ serve(async (req) => {
         const updates = Array.isArray(data) ? data : [data];
         for (const u of updates) {
           const msgId = u?.key?.id || u?.keyId || u?.messageId;
-          const rawStatus = String(u?.update?.status ?? u?.status ?? '').toUpperCase();
-          if (!msgId || !rawStatus) continue;
+          const rawStatusVal = u?.update?.status ?? u?.status;
+          if (!msgId || rawStatusVal == null) continue;
+          const rawStatus = String(rawStatusVal).toUpperCase();
 
-          if (rawStatus.includes('READ') || rawStatus.includes('PLAYED')) {
+          // A Evolution/Baileys manda o status como STRING (READ, DELIVERY_ACK...)
+          // OU como NUMERO (2=server ack, 3=delivery, 4=read, 5=played). Tratamos os dois.
+          const isRead = rawStatus.includes('READ') || rawStatus.includes('PLAYED') ||
+            rawStatus === '4' || rawStatus === '5';
+          const isDelivered = rawStatus.includes('DELIVERY') || rawStatus === 'DELIVERED' ||
+            rawStatus === '2' || rawStatus === '3';
+
+          if (isRead) {
             await supabase.from('messages')
               .update({ status: 'read' })
               .eq('evolution_message_id', msgId)
               .eq('tenant_id', tenantId);
-          } else if (rawStatus.includes('DELIVERY') || rawStatus === 'DELIVERED') {
+          } else if (isDelivered) {
             // Nao rebaixa uma mensagem que ja foi lida.
             await supabase.from('messages')
               .update({ status: 'delivered' })
@@ -117,6 +125,21 @@ serve(async (req) => {
     if (rawId.includes('@lid') && data.key.senderPn) {
       rawId = data.key.senderPn;
     }
+
+    // O CRM e 1:1 com o lead: grupos, broadcast e status nao viram conversa.
+    if (rawId.includes('@g.us') || rawId.includes('broadcast') || rawId.includes('@newsletter')) {
+      return new Response(JSON.stringify({ message: 'Ignored: group/broadcast/newsletter' }), { status: 200 });
+    }
+
+    const messageType = data.messageType;
+
+    // Reacoes (emoji), edicoes e eventos de protocolo (ex: apagar) nao geram
+    // mensagem nova no CRM — senao poluem a conversa e disparam notificacao falsa.
+    if (messageType === 'reactionMessage' || messageType === 'protocolMessage' ||
+        data.message?.reactionMessage || data.message?.protocolMessage) {
+      return new Response(JSON.stringify({ message: 'Ignored: reaction/protocol' }), { status: 200 });
+    }
+
     let phone = rawId.split('@')[0];
     phone = phone.replace(/\D/g, '');
 
@@ -125,7 +148,6 @@ serve(async (req) => {
     }
 
     const pushName = data.pushName || phone;
-    const messageType = data.messageType;
 
     // --- Helper: pega mídia DESCRIPTOGRAFADA da Evolution (base64) ---
     // Mídia recebida via WhatsApp vem encriptada na URL crua do servidor da Meta.
@@ -188,34 +210,11 @@ serve(async (req) => {
         }
       }
 
-      if (!url) return null;
-      try {
-        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if (!response.ok) return url;
-
-        const blob = await response.blob();
-        let contentType = blob.type;
-
-        if (type === 'audio') contentType = 'audio/ogg';
-        else if (mimetype) contentType = mimetype;
-
-        const ext = (contentType.split('/')[1] || 'bin').split(';')[0] || 'bin';
-        const fileName = `${tenantId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('crm-media')
-          .upload(fileName, blob, { contentType, upsert: false });
-
-        if (uploadError) return url;
-
-        const { data: publicUrlData } = supabase.storage
-          .from('crm-media')
-          .getPublicUrl(fileName);
-
-        return publicUrlData.publicUrl;
-      } catch {
-        return url;
-      }
+      // Sem base64 valido da Evolution nao ha midia utilizavel: a URL crua do
+      // WhatsApp e AES-encriptada (.enc) e nao abre no navegador. Retornamos null
+      // para o front mostrar um placeholder, em vez de gravar uma midia quebrada.
+      console.error(`uploadMedia: nao foi possivel obter midia ${type} descriptografada (instancia ${instanceName}).`);
+      return null;
     }
 
     // --- 4. Extração de Conteúdo ---
@@ -226,24 +225,45 @@ serve(async (req) => {
 
     if (messageType === 'imageMessage') {
       contentType = 'image';
-      content = data.message.imageMessage?.caption || '';
       mediaUrl = await uploadMedia(data.message.imageMessage?.url, 'image', data.message.imageMessage?.mimetype);
+      // Legenda quando houver; se a midia falhou, marca como nao baixada.
+      content = data.message.imageMessage?.caption || (mediaUrl ? '' : '[Imagem não baixada]');
+    } else if (messageType === 'stickerMessage') {
+      // Figurinha: tratamos como imagem para tocar inline.
+      contentType = 'image';
+      mediaUrl = await uploadMedia(data.message.stickerMessage?.url, 'image', data.message.stickerMessage?.mimetype || 'image/webp');
+      content = mediaUrl ? '' : '[Figurinha]';
     } else if (messageType === 'audioMessage') {
       contentType = 'audio';
       mediaUrl = await uploadMedia(data.message.audioMessage?.url, 'audio', data.message.audioMessage?.mimetype);
-      content = mediaUrl ? "" : "[Áudio]";
-    } else if (messageType === 'documentMessage') {
-      contentType = 'document';
-      const doc = data.message.documentMessage;
-      if (doc?.mimetype === 'application/pdf') contentType = 'pdf';
+      content = mediaUrl ? "" : "[Áudio não baixado]";
+    } else if (messageType === 'documentMessage' || messageType === 'documentWithCaptionMessage') {
+      const doc = data.message.documentMessage || data.message.documentWithCaptionMessage?.message?.documentMessage;
+      contentType = doc?.mimetype === 'application/pdf' ? 'pdf' : 'document';
       mediaUrl = await uploadMedia(doc?.url, 'document', doc?.mimetype);
       content = doc?.fileName || doc?.caption || "Documento";
     } else if (messageType === 'videoMessage') {
       contentType = 'video';
       mediaUrl = await uploadMedia(data.message.videoMessage?.url, 'video', data.message.videoMessage?.mimetype);
-      content = data.message.videoMessage?.caption || "";
+      content = data.message.videoMessage?.caption || (mediaUrl ? '' : '[Vídeo não baixado]');
+    } else if (messageType === 'locationMessage') {
+      // Localizacao: salva como link de mapa (type location).
+      contentType = 'location';
+      const loc = data.message.locationMessage;
+      const lat = loc?.degreesLatitude;
+      const lng = loc?.degreesLongitude;
+      content = (lat != null && lng != null)
+        ? `📍 Localização: https://www.google.com/maps?q=${lat},${lng}`
+        : '📍 Localização recebida';
+    } else if (messageType === 'contactMessage' || messageType === 'contactsArrayMessage') {
+      // Contato compartilhado: extrai nome (e telefone do vCard quando houver).
+      const c = data.message.contactMessage;
+      const display = c?.displayName || 'Contato';
+      const phoneMatch = (c?.vcard || '').match(/waid=(\d+)/) || (c?.vcard || '').match(/TEL[^:]*:([+\d\s()-]+)/i);
+      const num = phoneMatch ? phoneMatch[1].trim() : '';
+      content = num ? `👤 Contato: ${display} (${num})` : `👤 Contato: ${display}`;
     } else {
-      content = textContent || '[Mídia Desconhecida]';
+      content = textContent || '[Mensagem não suportada]';
     }
 
     // --- 5. Busca ou Cria Contato (Scoped by Tenant) ---
@@ -454,7 +474,19 @@ serve(async (req) => {
       instance_name: instanceName
     });
 
-    if (msgError) console.error("Erro ao salvar mensagem:", msgError);
+    if (msgError) {
+      console.error("Erro ao salvar mensagem:", msgError);
+      // 23505 = violacao do indice unico (tenant_id, evolution_message_id): e uma
+      // duplicata de retry concorrente que passou pelo pre-check. E benigno -> 200.
+      // Qualquer outra falha (constraint/RLS/timeout) e REAL: respondemos 500 para
+      // a Evolution reentregar e a mensagem do lead nao se perder silenciosamente.
+      if ((msgError as any).code !== '23505') {
+        return new Response(
+          JSON.stringify({ error: 'Falha ao salvar mensagem', detail: msgError.message }),
+          { status: 500 },
+        );
+      }
+    }
 
     // --- 7.1 Notifica o responsavel sobre a nova mensagem do lead ---
     try {

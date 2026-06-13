@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/query-keys';
 import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact, markDealMessagesRead } from '@/app/actions';
@@ -146,6 +146,10 @@ export default function ChatPage() {
     }, [supabase]);
 
 
+    // Ref com o id da conversa aberta — usado dentro do realtime (closure []).
+    const selectedDealIdRef = useRef<string | null>(null);
+    useEffect(() => { selectedDealIdRef.current = selectedDeal?.id ?? null; }, [selectedDeal?.id]);
+
     // Update Selected Deal when Conversations refresh (Fix Button state issue)
     useEffect(() => {
         if (!selectedDeal || conversations.length === 0) return;
@@ -156,10 +160,12 @@ export default function ChatPage() {
             const hasChanged =
                 updated.stage_id !== selectedDeal.stage_id ||
                 updated.contacts?.name !== selectedDeal.contacts?.name ||
-                updated.updated_at !== selectedDeal.updated_at;
+                updated.updated_at !== selectedDeal.updated_at ||
+                updated.resolved_at !== selectedDeal.resolved_at ||
+                updated.snoozed_until !== selectedDeal.snoozed_until ||
+                updated.unread_count !== selectedDeal.unread_count;
 
             if (hasChanged) {
-                console.log("Updating selected deal from list version");
                 setSelectedDeal(updated);
             }
         }
@@ -185,8 +191,13 @@ export default function ChatPage() {
             audio.volume = 0.4;
         } catch { /* ignore */ }
 
+        let lastSoundAt = 0;
         const playSound = () => {
             if (!audio) return;
+            // Throttle: no maximo 1 bip a cada 2s (evita rajada de mensagens).
+            const now = Date.now();
+            if (now - lastSoundAt < 2000) return;
+            lastSoundAt = now;
             audio.currentTime = 0;
             audio.play().catch(() => { /* autoplay block — ignora */ });
         };
@@ -197,8 +208,9 @@ export default function ChatPage() {
                 { event: 'INSERT', schema: 'public', table: 'messages' },
                 (payload: any) => {
                     const msg = payload.new;
-                    // Toca som apenas se for inbound (cliente respondeu)
-                    if (msg?.direction === "inbound") {
+                    // Toca som so se for inbound (cliente respondeu) E nao for a conversa
+                    // que ja esta aberta na tela (senao incomoda durante o atendimento).
+                    if (msg?.direction === "inbound" && msg?.deal_id !== selectedDealIdRef.current) {
                         playSound();
                     }
                     loadConversations();
@@ -217,13 +229,21 @@ export default function ChatPage() {
         };
     }, []);
 
-    // Marca msgs como lidas quando seleciona conversa
+    // Marca msgs como lidas quando seleciona conversa e zera o badge na lista.
     useEffect(() => {
         if (selectedDeal?.id) {
-            markDealMessagesRead(selectedDeal.id).then(() => {
-                // Atualiza badge da sidebar (atraves do realtime de UPDATE em messages)
+            markDealMessagesRead(selectedDeal.id).then((res) => {
+                if (res?.success) {
+                    // Zera otimista o contador na lista e invalida pra refletir no servidor.
+                    queryClient.setQueriesData({ queryKey: qk.conversations.list() }, (old: any) => {
+                        if (!Array.isArray(old)) return old;
+                        return old.map((c: any) => c.id === selectedDeal.id ? { ...c, unread_count: 0 } : c);
+                    });
+                    loadConversations();
+                }
             });
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedDeal?.id]);
 
     // loadConversations agora invalida a queryKey (definido acima, antes do return).
@@ -560,7 +580,14 @@ export default function ChatPage() {
                             const wait = waitingInfo(conv);
                             const personName = conv.contacts?.name || conv.title || "Desconhecido";
                             const lastMsgTime = formatTime(conv.last_message?.created_at || conv.updated_at);
-                            const lastMsgContent = conv.last_message?.content || (conv.last_message?.type === 'image' ? '📸 Imagem' : 'Nenhuma mensagem');
+                            const lm = conv.last_message;
+                            const lastMsgContent = lm?.content
+                                || (lm?.type === 'image' ? '📷 Imagem'
+                                    : lm?.type === 'video' ? '🎥 Vídeo'
+                                    : lm?.type === 'audio' ? '🎤 Áudio'
+                                    : (lm?.type === 'document' || lm?.type === 'pdf' || lm?.type === 'file') ? '📄 Documento'
+                                    : lm ? 'Mídia' : 'Nenhuma mensagem');
+                            const unread = (conv.unread_count ?? 0) > 0 && !active;
 
                             return (
                                 <div
@@ -574,21 +601,31 @@ export default function ChatPage() {
 
                                     <div className="flex-1 min-w-0 flex flex-col justify-center">
                                         <div className="flex justify-between items-center mb-0.5">
-                                            <span className={`font-medium text-base truncate transition-colors ${active ? 'text-blue-700' : 'text-gray-800'}`}>{personName}</span>
-                                            <span className={`text-xs ${active ? 'text-blue-600' : 'text-gray-400'}`}>{lastMsgTime}</span>
+                                            <span className={`text-base truncate transition-colors ${active ? 'text-blue-700 font-medium' : unread ? 'text-gray-900 font-bold' : 'text-gray-800 font-medium'}`}>{personName}</span>
+                                            <span className={`text-xs shrink-0 ml-2 ${unread ? 'text-emerald-600 font-bold' : active ? 'text-blue-600' : 'text-gray-400'}`}>{lastMsgTime}</span>
                                         </div>
                                         <div className="flex justify-between items-center gap-2">
-                                            <p className={`text-sm truncate transition-colors ${active ? 'text-blue-600/80' : 'text-gray-500 group-hover:text-gray-600'}`}>
+                                            <p className={`text-sm truncate transition-colors ${active ? 'text-blue-600/80' : unread ? 'text-gray-700 font-medium' : 'text-gray-500 group-hover:text-gray-600'}`}>
                                                 {lastMsgContent}
                                             </p>
-                                            {wait && (
-                                                <span
-                                                    title="Aguardando sua resposta"
-                                                    className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${wait.level === 'late' ? 'bg-red-100 text-red-600' : wait.level === 'warn' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}
-                                                >
-                                                    ⏱ {wait.label}
-                                                </span>
-                                            )}
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                {wait && (
+                                                    <span
+                                                        title="Aguardando sua resposta"
+                                                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${wait.level === 'late' ? 'bg-red-100 text-red-600' : wait.level === 'warn' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}
+                                                    >
+                                                        ⏱ {wait.label}
+                                                    </span>
+                                                )}
+                                                {unread && (
+                                                    <span
+                                                        title={`${conv.unread_count} não lida(s)`}
+                                                        className="min-w-[20px] h-5 px-1.5 flex items-center justify-center text-[11px] font-bold text-white bg-emerald-500 rounded-full"
+                                                    >
+                                                        {conv.unread_count > 99 ? '99+' : conv.unread_count}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -631,7 +668,14 @@ export default function ChatPage() {
                         setSelectedDeal((s: any) => s ? ({ ...s, contacts: { ...s.contacts, ...patch } }) : s);
                     }}
                     onDelete={() => { setDeleteWithDeal(true); setShowDeleteModal(true); }}
-                    onChange={() => { /* refresh conversas if needed */ }}
+                    onChange={(patch?: any) => {
+                        // Patch otimista no deal aberto (badge "Resolvida"/"Adiar" na hora)
+                        // + refetch da lista (snooze/resolved somem da lista).
+                        if (patch && typeof patch === 'object') {
+                            setSelectedDeal((s: any) => s ? ({ ...s, ...patch }) : s);
+                        }
+                        loadConversations();
+                    }}
                 />
             )}
         </div>

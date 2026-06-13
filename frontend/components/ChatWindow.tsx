@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Fragment } from "react";
 import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio } from "../app/actions";
 import { createClient } from "@/utils/supabase/client";
-import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Smile, Mic, Check, CheckCheck, Clock, ChevronDown } from "lucide-react";
+import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Mic, Check, CheckCheck, Clock, ChevronDown, Trash2, AlertCircle, RotateCw, ImageOff } from "lucide-react";
 import NotesPanel from "./NotesPanel";
 import TasksPanel from "./TasksPanel";
 import { toast } from "@/lib/toast";
@@ -37,6 +37,47 @@ function renderMessageContent(text: string | null | undefined) {
     });
 }
 
+// Separador de data estilo WhatsApp (Hoje / Ontem / 12 de junho [de 2025]).
+function formatDayLabel(iso: string): string {
+    const d = new Date(iso);
+    const today = new Date();
+    const yest = new Date(); yest.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return "Hoje";
+    if (d.toDateString() === yest.toDateString()) return "Ontem";
+    const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "long" };
+    if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString("pt-BR", opts);
+}
+
+// Label do documento a partir da extensao do nome (antes era "PDF" fixo).
+function docLabel(filename?: string): string {
+    const ext = (filename?.split(".").pop() || "").toUpperCase();
+    return ext && ext.length >= 2 && ext.length <= 5 ? ext : "ARQUIVO";
+}
+
+// Imagem do chat com fallback visivel quando a URL quebra (em vez de sumir).
+function ChatImage({ src }: { src: string }) {
+    const [err, setErr] = useState(false);
+    if (err) {
+        return (
+            <div className="flex items-center gap-2 text-gray-400 text-xs p-4 justify-center">
+                <ImageOff size={16} /> Imagem indisponível
+            </div>
+        );
+    }
+    return (
+        <a href={src} target="_blank" rel="noopener noreferrer">
+            <img
+                src={src}
+                alt="Imagem da conversa"
+                className="max-w-full max-h-[300px] object-cover hover:opacity-95 transition-opacity cursor-pointer"
+                onError={() => setErr(true)}
+                loading="lazy"
+            />
+        </a>
+    );
+}
+
 export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     const supabase = createClient();
     const [messages, setMessages] = useState<any[]>(() => {
@@ -54,7 +95,16 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     // e a confirmacao quando o numero que vai responder diverge.
     const [numberInfo, setNumberInfo] = useState<any>(null);
     const [pendingConfirm, setPendingConfirm] = useState<{ text: string; current: any; wouldUse: any } | null>(null);
+    const [pendingMediaConfirm, setPendingMediaConfirm] = useState<{ file: File; current: any; wouldUse: any } | null>(null);
     const [transcribingId, setTranscribingId] = useState<string | null>(null);
+
+    // Gravacao de audio (nota de voz)
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordSeconds, setRecordSeconds] = useState(0);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const recordChunksRef = useRef<Blob[]>([]);
+    const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const recordCancelledRef = useRef(false);
 
     async function handleTranscribe(msg: any) {
         setTranscribingId(msg.id);
@@ -87,6 +137,18 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // Rola pro fim so se o usuario JA estava perto do fim (igual WhatsApp Web):
+    // se ele subiu pra reler o historico, uma msg nova nao arrasta a tela.
+    function scrollToBottomIfNear(force = false) {
+        const c = scrollContainerRef.current;
+        if (!c) { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
+        const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 160;
+        if (force || nearBottom) {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+    }
 
     useEffect(() => {
         if (!deal?.id) return;
@@ -94,10 +156,13 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
             const result = await getMessages(deal.id);
             if (result.success && result.data) {
                 setMessages((curr) => {
-                    // Merge: mantem otimistas (status sending) e injeta server data.
-                    const optimistic = curr.filter((m: any) => m.status === 'sending' && String(m.id).startsWith('temp-'));
-                    const serverIds = new Set((result.data as any[]).map((m: any) => m.id));
-                    const stillOptimistic = optimistic.filter((m: any) => !serverIds.has(m.id));
+                    // Merge: mantem otimistas pendentes (enviando ou que falharam) e
+                    // injeta os dados do servidor. Otimistas ja persistidos saem.
+                    const optimistic = curr.filter((m: any) =>
+                        (m.status === 'sending' || m.status === 'failed') && String(m.id).startsWith('temp-'));
+                    const serverContentKeys = new Set((result.data as any[]).map((m: any) => `${m.direction}|${m.type}|${m.content}`));
+                    const stillOptimistic = optimistic.filter((m: any) =>
+                        m.status === 'failed' || !serverContentKeys.has(`${m.direction}|${m.type}|${m.content}`));
                     return [...(result.data as any[]), ...stillOptimistic];
                 });
             }
@@ -128,19 +193,27 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         const channel = supabase
             .channel(channelName)
             .on('postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'messages' },
+                { event: 'INSERT', schema: 'public', table: 'messages', filter: `deal_id=eq.${deal.id}` },
                 (payload: any) => {
                     if (payload.new.deal_id !== deal.id) return;
                     setMessages((current) => {
+                        // Ja existe a row real -> nada a fazer (evita duplicata poll x realtime).
                         if (current.find(m => m.id === payload.new.id)) return current;
                         if (payload.new.direction === 'outbound') {
+                            // Reconcilia a bolha otimista: casa por evolution_message_id
+                            // (preciso) ou, como fallback, por content+type.
                             const optimisticIndex = current.findIndex(m =>
-                                m.status === 'sending' &&
-                                m.content === payload.new.content &&
-                                m.type === payload.new.type
+                                String(m.id).startsWith('temp-') &&
+                                ((m.evolution_message_id && m.evolution_message_id === payload.new.evolution_message_id) ||
+                                 (m.content === payload.new.content && m.type === payload.new.type))
                             );
                             if (optimisticIndex !== -1) {
                                 const newMessages = [...current];
+                                const old = newMessages[optimisticIndex];
+                                // Libera o blob do preview otimista pra nao vazar memoria.
+                                if (old?.media_url && String(old.media_url).startsWith('blob:')) {
+                                    try { URL.revokeObjectURL(old.media_url); } catch { /* noop */ }
+                                }
                                 newMessages[optimisticIndex] = payload.new;
                                 return newMessages;
                             }
@@ -153,6 +226,16 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                     }
                 }
             )
+            .on('postgres_changes',
+                // Status de entrega/leitura muda via UPDATE (webhook). Sem este handler,
+                // os checkmarks so atualizavam no poll de 15s.
+                { event: 'UPDATE', schema: 'public', table: 'messages', filter: `deal_id=eq.${deal.id}` },
+                (payload: any) => {
+                    if (payload.new.deal_id !== deal.id) return;
+                    setMessages((current) => current.map(m =>
+                        m.id === payload.new.id ? { ...m, ...payload.new } : m));
+                }
+            )
             .subscribe();
         return () => {
             supabase.removeChannel(channel);
@@ -161,8 +244,8 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     }, [deal?.id]);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages, activePanel]);
+        scrollToBottomIfNear();
+    }, [messages]);
 
     // Auto-resize do textarea conforme o usuario digita (ate o max-h do CSS).
     useEffect(() => {
@@ -172,35 +255,35 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         el.style.height = Math.min(el.scrollHeight, 140) + 'px';
     }, [newMessage]);
 
-    // Campo de texto cresce com o conteudo (ate um limite) e volta ao tamanho
-    // original quando a mensagem e enviada/limpa.
-    useEffect(() => {
-        const el = inputRef.current;
-        if (!el) return;
-        el.style.height = "auto";
-        el.style.height = Math.min(el.scrollHeight, 140) + "px";
-    }, [newMessage]);
-
     async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
         const file = event.target.files?.[0];
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        await sendFileMessage(file);
+    }
+
+    // Envia um arquivo (anexo ou audio gravado) com bolha otimista, reconciliacao
+    // por id real e estado de erro visivel (toast + bolha "falhou").
+    async function sendFileMessage(file: File | undefined | null, force = false) {
         if (!file || !deal.contacts?.phone) return;
         if (file.size > 45 * 1024 * 1024) {
             toast.warning("Arquivo muito grande (máximo 45MB)");
             return;
         }
 
-        const tempId = "temp-" + Date.now();
+        const tempId = "temp-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
         const mediaType = file.type.startsWith('image/') ? 'image'
             : file.type.startsWith('video/') ? 'video'
+            : file.type.startsWith('audio/') ? 'audio'
             : 'document';
+        const blobUrl = URL.createObjectURL(file);
         const tempMessage = {
-            id: tempId, content: file.name, direction: 'outbound', status: 'sending',
-            created_at: new Date().toISOString(), type: mediaType, media_url: URL.createObjectURL(file)
+            id: tempId, content: mediaType === 'audio' ? '' : file.name, direction: 'outbound', status: 'sending',
+            created_at: new Date().toISOString(), type: mediaType, media_url: blobUrl,
         };
 
         setMessages(curr => [...curr, tempMessage]);
         setIsSending(true);
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+        setTimeout(() => scrollToBottomIfNear(true), 100);
 
         try {
             const formData = new FormData();
@@ -208,13 +291,33 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
             formData.append('phone', deal.contacts.phone);
             formData.append('dealId', deal.id);
             formData.append('contactId', deal.contacts.id || deal.contact_id);
-            const result = await sendMedia(formData);
-            if (!result.success) setMessages(curr => curr.filter(m => m.id !== tempId));
-        } catch (error) {
-            setMessages(curr => curr.filter(m => m.id !== tempId));
+            if (force) formData.append('force', 'true');
+            const result: any = await sendMedia(formData);
+
+            if (result?.needsConfirmation) {
+                setMessages(curr => curr.filter(m => m.id !== tempId));
+                try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ }
+                setPendingMediaConfirm({ file, current: result.current, wouldUse: result.wouldUse });
+                return;
+            }
+            if (!result?.success) {
+                // Marca a bolha como falha (com retry) em vez de sumir sem aviso.
+                setMessages(curr => curr.map(m => m.id === tempId ? { ...m, status: 'failed', _retryFile: file } : m));
+                toast.error(result?.error || "Falha ao enviar arquivo");
+                return;
+            }
+            // Sucesso: troca a bolha otimista pela row real (id do banco) e libera o blob.
+            if (result.messageId) {
+                setMessages(curr => curr.map(m => m.id === tempId
+                    ? { ...m, id: result.messageId, status: 'sent', evolution_message_id: result.evolutionMessageId ?? null }
+                    : m));
+                try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ }
+            }
+        } catch (error: any) {
+            setMessages(curr => curr.map(m => m.id === tempId ? { ...m, status: 'failed', _retryFile: file } : m));
+            toast.error(error?.message || "Falha ao enviar arquivo");
         } finally {
             setIsSending(false);
-            if (fileInputRef.current) fileInputRef.current.value = "";
         }
     }
 
@@ -243,18 +346,33 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                 return;
             }
             if (!result?.success) {
-                setMessages((curr) => curr.filter(m => m.id !== tempId));
+                // Marca como falha (com retry) em vez de sumir sem aviso.
+                setMessages((curr) => curr.map(m => m.id === tempId ? { ...m, status: 'failed', _retryText: text } : m));
                 toast.error(result?.error || "Falha ao enviar mensagem");
                 return;
             }
-            // Sucesso: atualiza qual numero esta falando com o lead.
+            // Sucesso: troca a bolha otimista pela row real (id do banco) p/ reconciliar.
+            if (result.messageId) {
+                setMessages((curr) => curr.map(m => m.id === tempId
+                    ? { ...m, id: result.messageId, status: 'sent', evolution_message_id: result.evolutionMessageId ?? null }
+                    : m));
+            }
+            // Atualiza qual numero esta falando com o lead.
             getConversationNumberInfo(deal.id).then(r => { if (r.success) setNumberInfo(r.data); });
-        } catch (error) {
-            setMessages((curr) => curr.filter(m => m.id !== tempId));
+        } catch (error: any) {
+            setMessages((curr) => curr.map(m => m.id === tempId ? { ...m, status: 'failed', _retryText: text } : m));
+            toast.error(error?.message || "Falha ao enviar mensagem");
             console.error("Error during message send:", error);
         } finally {
             setIsSending(false);
         }
+    }
+
+    // Reenvia uma mensagem/arquivo que falhou (remove a bolha de falha e tenta de novo).
+    function retryFailed(msg: any) {
+        setMessages(curr => curr.filter(m => m.id !== msg.id));
+        if (msg._retryFile) { sendFileMessage(msg._retryFile, true); return; }
+        if (msg._retryText) { doSend(msg._retryText, true); return; }
     }
 
     function handleSendMessage() {
@@ -263,6 +381,57 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         setNewMessage("");
         doSend(text, false);
     }
+
+    // ---- Gravacao de audio (nota de voz, estilo WhatsApp) ----
+    async function startRecording() {
+        if (isRecording || isSending) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Escolhe um mimeType que o navegador suporte (ogg/opus de preferencia).
+            const preferred = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+            const mimeType = preferred.find(t => (window as any).MediaRecorder?.isTypeSupported?.(t)) || '';
+            const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            recordChunksRef.current = [];
+            recordCancelledRef.current = false;
+            mr.ondataavailable = (e) => { if (e.data.size > 0) recordChunksRef.current.push(e.data); };
+            mr.onstop = async () => {
+                stream.getTracks().forEach(t => t.stop());
+                if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+                setIsRecording(false);
+                const cancelled = recordCancelledRef.current;
+                setRecordSeconds(0);
+                if (cancelled) return;
+                const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || 'audio/ogg' });
+                if (blob.size < 1000) { toast.warning("Áudio muito curto"); return; }
+                const ext = (mr.mimeType || 'audio/ogg').includes('webm') ? 'webm'
+                    : (mr.mimeType || '').includes('mp4') ? 'mp4' : 'ogg';
+                const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+                await sendFileMessage(file);
+            };
+            mediaRecorderRef.current = mr;
+            mr.start();
+            setIsRecording(true);
+            setRecordSeconds(0);
+            recordTimerRef.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+        } catch {
+            toast.error("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
+        }
+    }
+
+    function stopRecording(cancel = false) {
+        recordCancelledRef.current = cancel;
+        const mr = mediaRecorderRef.current;
+        if (mr && mr.state !== 'inactive') mr.stop();
+    }
+
+    // Limpa gravacao ao desmontar / trocar de conversa.
+    useEffect(() => {
+        return () => {
+            if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+            const mr = mediaRecorderRef.current;
+            if (mr && mr.state !== 'inactive') { recordCancelledRef.current = true; mr.stop(); }
+        };
+    }, [deal?.id]);
 
     /**
      * Substitui variaveis no formato {{chave}} pelos valores do deal/contact.
@@ -341,7 +510,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                 </div>
 
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-1.5 custom-scrollbar">
                     {messages.length === 0 && (
                         <div className="flex justify-center mt-10">
                             <div className="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm text-xs text-gray-500 uppercase tracking-wide">
@@ -350,111 +519,165 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                         </div>
                     )}
 
-                    {messages.map((msg) => {
+                    {messages.map((msg, idx) => {
                         const type = msg.type || msg.mediatype;
                         const isImage = type === 'image';
-                        const isDoc = type === 'document' || type === 'pdf';
+                        const isVideo = type === 'video';
+                        const isDoc = type === 'document' || type === 'pdf' || type === 'file';
                         const isAudio = type === 'audio';
                         const isOutbound = msg.direction === 'outbound';
+                        const isFailed = msg.status === 'failed';
 
-                        // LIGHT MODE BUBBLE STYLES
-                        const bubbleClass = isOutbound
-                            ? 'bg-[#d9fdd3] text-gray-900 rounded-br-none shadow-[0_1px_0.5px_rgba(0,0,0,0.13)]' // WhatsApp Green
-                            : 'bg-white text-gray-900 rounded-bl-none shadow-[0_1px_0.5px_rgba(0,0,0,0.13)]'; // White
+                        // Separador de data quando muda o dia em relacao a msg anterior.
+                        const prev = messages[idx - 1];
+                        const showDay = !prev ||
+                            new Date(prev.created_at).toDateString() !== new Date(msg.created_at).toDateString();
+
+                        const bubbleClass = isFailed
+                            ? 'bg-rose-50 text-gray-900 rounded-br-none border border-rose-200'
+                            : isOutbound
+                                ? 'bg-[#d9fdd3] text-gray-900 rounded-br-none shadow-[0_1px_0.5px_rgba(0,0,0,0.13)]'
+                                : 'bg-white text-gray-900 rounded-bl-none shadow-[0_1px_0.5px_rgba(0,0,0,0.13)]';
 
                         return (
-                            <div key={msg.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[70%] p-2 rounded-lg text-sm relative group ${bubbleClass}`}>
+                            <Fragment key={msg.id}>
+                                {showDay && (
+                                    <div className="flex justify-center my-3">
+                                        <span className="bg-white/90 text-gray-500 text-[11px] font-medium px-3 py-1 rounded-full shadow-sm uppercase tracking-wide">
+                                            {formatDayLabel(msg.created_at)}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[70%] p-2 rounded-lg text-sm relative group ${bubbleClass}`}>
 
-                                    {isImage && (
-                                        <div className="mb-1 rounded-lg overflow-hidden bg-gray-100">
-                                            {msg.media_url ? (
-                                                <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
-                                                    <img
+                                        {isImage && (
+                                            <div className="mb-1 rounded-lg overflow-hidden bg-gray-100">
+                                                {msg.media_url ? (
+                                                    <ChatImage src={msg.media_url} />
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-500 italic text-xs p-4 justify-center">
+                                                        <Loader2 size={16} className="animate-spin" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {isVideo && (
+                                            <div className="mb-1 rounded-lg overflow-hidden bg-black/5">
+                                                {msg.media_url ? (
+                                                    <video
+                                                        controls
+                                                        preload="metadata"
                                                         src={msg.media_url}
-                                                        alt="Imagem"
-                                                        className="max-w-full max-h-[300px] object-cover hover:opacity-95 transition-opacity cursor-pointer"
-                                                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                                        className="max-w-full max-h-[320px] rounded-lg"
                                                     />
-                                                </a>
-                                            ) : (
-                                                <div className="flex items-center gap-2 text-gray-500 italic text-xs p-4 justify-center">
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-500 italic text-xs p-4 justify-center">
+                                                        <Loader2 size={16} className="animate-spin" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
-                                    {isDoc && (
-                                        <div className="mb-1">
-                                            <a
-                                                href={msg.media_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors border border-black/5"
-                                            >
-                                                <div className="bg-red-100 p-2 rounded-full text-red-500">
-                                                    <FileText size={20} />
-                                                </div>
-                                                <div className="flex flex-col overflow-hidden">
-                                                    <span className="text-sm font-medium text-gray-800 truncate">
-                                                        {msg.content || "Documento"}
-                                                    </span>
-                                                    <span className="text-[10px] text-gray-400 uppercase font-bold">PDF</span>
-                                                </div>
-                                            </a>
-                                        </div>
-                                    )}
+                                        {isDoc && (
+                                            <div className="mb-1">
+                                                {msg.media_url ? (
+                                                    <a
+                                                        href={msg.media_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors border border-black/5"
+                                                    >
+                                                        <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                                                            <FileText size={20} />
+                                                        </div>
+                                                        <div className="flex flex-col overflow-hidden">
+                                                            <span className="text-sm font-medium text-gray-800 truncate">
+                                                                {msg.content || "Documento"}
+                                                            </span>
+                                                            <span className="text-[10px] text-gray-400 uppercase font-bold">{docLabel(msg.content)}</span>
+                                                        </div>
+                                                        <Download size={16} className="text-gray-400 ml-auto shrink-0" />
+                                                    </a>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-500 italic text-xs p-3">
+                                                        <FileText size={16} /> {msg.content || "Documento indisponível"}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
-                                    {isAudio && (
-                                        <div className="mb-1 min-w-[240px] pt-1">
-                                            <audio controls className="w-full h-8">
-                                                <source src={msg.media_url} type="audio/ogg; codecs=opus" />
-                                                <source src={msg.media_url} type="audio/ogg" />
-                                                <source src={msg.media_url} type="audio/mpeg" />
-                                            </audio>
-                                            {msg.transcription ? (
-                                                <p className="px-1 pt-2 mt-1 text-[13px] text-gray-600 italic border-t border-black/5 whitespace-pre-wrap break-words">
-                                                    {msg.transcription}
-                                                </p>
-                                            ) : (
+                                        {isAudio && (
+                                            <div className="mb-1 min-w-[240px] pt-1">
+                                                {msg.media_url ? (
+                                                    <>
+                                                        <audio controls className="w-full h-8">
+                                                            <source src={msg.media_url} type="audio/ogg; codecs=opus" />
+                                                            <source src={msg.media_url} type="audio/ogg" />
+                                                            <source src={msg.media_url} type="audio/webm" />
+                                                            <source src={msg.media_url} type="audio/mpeg" />
+                                                        </audio>
+                                                        {msg.transcription ? (
+                                                            <p className="px-1 pt-2 mt-1 text-[13px] text-gray-600 italic border-t border-black/5 whitespace-pre-wrap break-words">
+                                                                {msg.transcription}
+                                                            </p>
+                                                        ) : !isOutbound && (
+                                                            <button
+                                                                onClick={() => handleTranscribe(msg)}
+                                                                disabled={transcribingId === msg.id}
+                                                                className="mt-1.5 text-[11px] text-blue-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                                                            >
+                                                                {transcribingId === msg.id
+                                                                    ? <><Loader2 size={11} className="animate-spin" /> Transcrevendo...</>
+                                                                    : "Transcrever áudio"}
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-500 italic text-xs p-2">
+                                                        <Mic size={14} /> Áudio indisponível
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {!isImage && !isVideo && !isDoc && !isAudio && (
+                                            <p className="px-1 pt-1 pb-0 leading-relaxed text-[15px] whitespace-pre-wrap break-words">
+                                                {renderMessageContent(msg.content)}
+                                            </p>
+                                        )}
+
+                                        <div className="flex justify-end items-center gap-1 mt-0.5 select-none">
+                                            {isFailed && (
                                                 <button
-                                                    onClick={() => handleTranscribe(msg)}
-                                                    disabled={transcribingId === msg.id}
-                                                    className="mt-1.5 text-[11px] text-blue-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                                                    onClick={() => retryFailed(msg)}
+                                                    className="text-rose-600 hover:text-rose-700 inline-flex items-center gap-0.5 text-[10px] font-semibold mr-1"
+                                                    title="Reenviar"
                                                 >
-                                                    {transcribingId === msg.id
-                                                        ? <><Loader2 size={11} className="animate-spin" /> Transcrevendo...</>
-                                                        : "Transcrever áudio"}
+                                                    <RotateCw size={11} /> tentar de novo
                                                 </button>
                                             )}
+                                            <span className={`text-[10px] ${isOutbound ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                            {isOutbound && (
+                                                isFailed ? (
+                                                    <span title="Falha ao enviar"><AlertCircle size={13} className="text-rose-500" /></span>
+                                                ) : msg.status === 'read' ? (
+                                                    <span title="Lida"><CheckCheck size={14} className="text-blue-500" /></span>
+                                                ) : msg.status === 'delivered' ? (
+                                                    <span title="Entregue"><CheckCheck size={14} className="text-gray-400" /></span>
+                                                ) : msg.status === 'sending' ? (
+                                                    <span title="Enviando"><Clock size={11} className="text-gray-300" /></span>
+                                                ) : (
+                                                    <span title="Enviada"><Check size={14} className="text-gray-400" /></span>
+                                                )
+                                            )}
                                         </div>
-                                    )}
-
-                                    {!isImage && !isDoc && !isAudio && (
-                                        <p className="px-1 pt-1 pb-0 leading-relaxed text-[15px] whitespace-pre-wrap break-words">
-                                            {renderMessageContent(msg.content)}
-                                        </p>
-                                    )}
-
-                                    <div className="flex justify-end items-center gap-1 mt-0.5 select-none">
-                                        <span className={`text-[10px] ${isOutbound ? 'text-gray-500' : 'text-gray-400'}`}>
-                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                        {isOutbound && (
-                                            msg.status === 'read' ? (
-                                                <span title="Lida"><CheckCheck size={14} className="text-blue-500" /></span>
-                                            ) : msg.status === 'delivered' ? (
-                                                <span title="Entregue"><CheckCheck size={14} className="text-gray-400" /></span>
-                                            ) : msg.status === 'sending' ? (
-                                                <span title="Enviando"><Clock size={11} className="text-gray-300" /></span>
-                                            ) : (
-                                                <span title="Enviada"><Check size={14} className="text-gray-400" /></span>
-                                            )
-                                        )}
                                     </div>
                                 </div>
-                            </div>
+                            </Fragment>
                         );
                     })}
                     <div ref={messagesEndRef} />
@@ -469,58 +692,89 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                             type="file"
                             ref={fileInputRef}
                             className="hidden"
-                            accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+                            accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
                             onChange={handleFileSelect}
                         />
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isSending}
-                            className="p-3 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all"
-                            title="Anexar"
-                        >
-                            <Paperclip size={24} strokeWidth={1.5} />
-                        </button>
 
-                        <div className="flex-1 bg-gray-50 rounded-lg border border-transparent focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 transition-all flex items-end">
-                            <textarea
-                                ref={inputRef}
-                                rows={1}
-                                className="w-full bg-transparent px-4 py-3 text-gray-800 placeholder-gray-400 focus:outline-none resize-none max-h-[140px] overflow-y-auto leading-relaxed custom-scrollbar"
-                                placeholder="Digite uma mensagem ou / para ver comandos..."
-                                value={newMessage}
-                                onChange={(e) => {
-                                    setNewMessage(e.target.value);
-                                    if (e.target.value === '/') setShowShortcuts(true);
-                                    else if (showShortcuts && e.target.value === '') setShowShortcuts(false);
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSendMessage();
-                                    }
-                                    if (e.key === 'Escape') setShowShortcuts(false);
-                                }}
-                            />
-                            {/* Optional: Emoji Button inside input */}
-                            <button className="p-2 mr-1 mb-1 text-gray-400 hover:text-yellow-500 transition-colors">
-                                <Smile size={20} />
-                            </button>
-                        </div>
-
-                        {newMessage.trim() || isSending ? (
-                            <button
-                                onClick={handleSendMessage}
-                                disabled={isSending}
-                                className="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-200 transition-all disabled:opacity-50 disabled:shadow-none hover:scale-105 active:scale-95"
-                            >
-                                {isSending ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
-                            </button>
+                        {isRecording ? (
+                            /* Barra de gravacao de audio */
+                            <div className="flex-1 flex items-center justify-between gap-3 px-2 py-1.5">
+                                <button
+                                    onClick={() => stopRecording(true)}
+                                    title="Cancelar gravação"
+                                    aria-label="Cancelar gravação"
+                                    className="p-2.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
+                                >
+                                    <Trash2 size={22} />
+                                </button>
+                                <div className="flex items-center gap-2 text-rose-600 font-medium">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                                    <span className="tabular-nums">{Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}</span>
+                                    <span className="text-gray-400 text-xs font-normal">Gravando áudio...</span>
+                                </div>
+                                <button
+                                    onClick={() => stopRecording(false)}
+                                    title="Enviar áudio"
+                                    aria-label="Enviar áudio"
+                                    className="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-200 transition-all hover:scale-105 active:scale-95"
+                                >
+                                    <Send size={22} />
+                                </button>
+                            </div>
                         ) : (
-                            <button
-                                className="p-3 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all"
-                            >
-                                <Mic size={24} strokeWidth={1.5} />
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isSending}
+                                    className="p-3 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all disabled:opacity-50"
+                                    title="Anexar"
+                                    aria-label="Anexar arquivo"
+                                >
+                                    <Paperclip size={24} strokeWidth={1.5} />
+                                </button>
+
+                                <div className="flex-1 bg-gray-50 rounded-lg border border-transparent focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 transition-all flex items-end">
+                                    <textarea
+                                        ref={inputRef}
+                                        rows={1}
+                                        className="w-full bg-transparent px-4 py-3 text-gray-800 placeholder-gray-400 focus:outline-none resize-none max-h-[140px] overflow-y-auto leading-relaxed custom-scrollbar"
+                                        placeholder="Digite uma mensagem ou / para ver comandos..."
+                                        value={newMessage}
+                                        onChange={(e) => {
+                                            setNewMessage(e.target.value);
+                                            if (e.target.value === '/') setShowShortcuts(true);
+                                            else if (showShortcuts && e.target.value === '') setShowShortcuts(false);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSendMessage();
+                                            }
+                                            if (e.key === 'Escape') setShowShortcuts(false);
+                                        }}
+                                    />
+                                </div>
+
+                                {newMessage.trim() || isSending ? (
+                                    <button
+                                        onClick={handleSendMessage}
+                                        disabled={isSending}
+                                        className="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-200 transition-all disabled:opacity-50 disabled:shadow-none hover:scale-105 active:scale-95"
+                                        aria-label="Enviar mensagem"
+                                    >
+                                        {isSending ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={startRecording}
+                                        className="p-3 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                        title="Gravar áudio"
+                                        aria-label="Gravar áudio"
+                                    >
+                                        <Mic size={24} strokeWidth={1.5} />
+                                    </button>
+                                )}
+                            </>
                         )}
                     </div>
 
@@ -617,6 +871,33 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                 className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
                             >
                                 Responder mesmo assim
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmacao de divergencia de numero ao enviar ANEXO/AUDIO */}
+            {pendingMediaConfirm && (
+                <div className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 space-y-3">
+                        <h3 className="font-bold text-gray-900 text-base">Enviar arquivo por outro número?</h3>
+                        <p className="text-sm text-gray-600 leading-relaxed">
+                            Este lead estava conversando com <b className="text-gray-900">{pendingMediaConfirm.current?.label}</b>.
+                            Você vai enviar pelo <b className="text-gray-900">{pendingMediaConfirm.wouldUse?.label}</b>.
+                        </p>
+                        <div className="flex justify-end gap-2 pt-1">
+                            <button
+                                onClick={() => setPendingMediaConfirm(null)}
+                                className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg font-medium"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => { const f = pendingMediaConfirm.file; setPendingMediaConfirm(null); sendFileMessage(f, true); }}
+                                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                            >
+                                Enviar mesmo assim
                             </button>
                         </div>
                     </div>
