@@ -99,9 +99,25 @@ serve(async (req) => {
     }
 
     // --- 2. Filtros de Mensagem ---
-    // Ignora eventos que não sejam mensagens ou mensagens enviadas por mim
-    if (!data || !data.key || data.key.fromMe) {
-      return new Response(JSON.stringify({ message: 'Ignored: Not a message or fromMe' }), { status: 200 });
+    // Ignora eventos que nao sejam mensagens (sem key).
+    if (!data || !data.key) {
+      return new Response(JSON.stringify({ message: 'Ignored: Not a message' }), { status: 200 });
+    }
+
+    // fromMe = mensagem que SAIU deste numero (inclui o que voce manda pelo
+    // WhatsApp Web). Tratamos como outbound, mas SO para conversas que ja existem
+    // no CRM (nao criamos contato/deal novo a partir de fromMe). O que o proprio
+    // CRM envia tambem volta como fromMe, mas a idempotencia abaixo barra duplicata.
+    const isFromMe = !!data.key.fromMe;
+
+    // Evita flood de historico: ao reconectar a instancia, o WhatsApp reenvia
+    // mensagens antigas fromMe. Mensagem real do WhatsApp Web chega em segundos,
+    // entao so processamos fromMe dos ultimos 10 minutos.
+    if (isFromMe) {
+      const ts = Number(data.messageTimestamp || 0) * 1000;
+      if (ts && (Date.now() - ts) > 10 * 60 * 1000) {
+        return new Response(JSON.stringify({ message: 'Ignored: fromMe antigo (history sync)' }), { status: 200 });
+      }
     }
 
     // --- 2.1 Idempotencia: ignora mensagem ja salva ---
@@ -315,6 +331,12 @@ serve(async (req) => {
     let contactId: string | undefined = contact?.id;
     const hasPhoto = !!(contact?.photo_url && contact.photo_url.length > 0);
 
+    // fromMe (ex: mensagem mandada pelo WhatsApp Web): so puxa pra conversa que JA
+    // existe. Se nao ha contato pra esse numero, ignora (nao cria contato novo).
+    if (isFromMe && !contactId) {
+      return new Response(JSON.stringify({ message: 'Ignored: fromMe sem contato existente' }), { status: 200 });
+    }
+
     // Helper: pega foto de perfil do WhatsApp via Evolution API
     async function fetchProfilePictureUrl(): Promise<string | null> {
       try {
@@ -376,6 +398,11 @@ serve(async (req) => {
       .maybeSingle();
 
     let dealId = deal?.id;
+
+    // fromMe sem conversa aberta: ignora (nao cria deal a partir de mensagem que saiu).
+    if (isFromMe && !dealId) {
+      return new Response(JSON.stringify({ message: 'Ignored: fromMe sem conversa existente' }), { status: 200 });
+    }
 
     // SE CRIAR NOVO DEAL
     if (!dealId) {
@@ -448,7 +475,8 @@ serve(async (req) => {
       const updates: any = { updated_at: new Date() };
 
       // Se o deal não tem dono E a instância tem dono -> Atribui
-      if (!deal.owner_id && instanceOwnerProfileId) {
+      // (so para mensagens recebidas; fromMe nao deve reatribuir a conversa).
+      if (!isFromMe && !deal.owner_id && instanceOwnerProfileId) {
         updates.owner_id = instanceOwnerProfileId;
         console.log(`-> Roteamento: Deal Existente [${dealId}] atribuído ao Dono da Instância (${instanceOwnerProfileId})`);
       }
@@ -461,15 +489,16 @@ serve(async (req) => {
     }
 
     // --- 7. Salva Mensagem ---
+    // fromMe (ex: mandada pelo WhatsApp Web) -> outbound; recebida -> inbound.
     const { error: msgError } = await supabase.from('messages').insert({
       deal_id: dealId,
       contact_id: contactId,
       evolution_message_id: data.key.id,
-      direction: 'inbound',
+      direction: isFromMe ? 'outbound' : 'inbound',
       type: contentType,
       content: content,
       media_url: mediaUrl,
-      status: 'delivered',
+      status: isFromMe ? 'sent' : 'delivered',
       tenant_id: tenantId,
       instance_name: instanceName
     });
@@ -492,9 +521,9 @@ serve(async (req) => {
     try {
       const { data: dealRow } = await supabase
         .from('deals').select('owner_id').eq('id', dealId).maybeSingle();
-      // So notifica se a mensagem foi REALMENTE inserida. Em retry concorrente, o
-      // indice unico barra a 2a mensagem (msgError) e ela nao gera notificacao.
-      const ownerId = msgError ? null : dealRow?.owner_id;
+      // So notifica se a mensagem foi REALMENTE inserida (msgError null) E for do
+      // lead (inbound). Mensagem que VOCE mandou (fromMe) nao gera notificacao.
+      const ownerId = (msgError || isFromMe) ? null : dealRow?.owner_id;
       if (ownerId) {
         const preview = content && content.length > 0
           ? (content.length > 80 ? content.slice(0, 80) + '...' : content)
