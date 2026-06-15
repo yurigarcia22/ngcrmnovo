@@ -586,9 +586,13 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                             <div className="mb-1 rounded-lg overflow-hidden bg-gray-100">
                                                 {msg.media_url ? (
                                                     <ChatImage src={msg.media_url} />
-                                                ) : (
+                                                ) : msg.status === 'sending' ? (
                                                     <div className="flex items-center gap-2 text-gray-500 italic text-xs p-4 justify-center">
                                                         <Loader2 size={16} className="animate-spin" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-400 text-xs p-4 justify-center">
+                                                        <ImageOff size={16} /> Imagem indisponível
                                                     </div>
                                                 )}
                                             </div>
@@ -603,9 +607,13 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                                         src={msg.media_url}
                                                         className="max-w-full max-h-[320px] rounded-lg"
                                                     />
-                                                ) : (
+                                                ) : msg.status === 'sending' ? (
                                                     <div className="flex items-center gap-2 text-gray-500 italic text-xs p-4 justify-center">
                                                         <Loader2 size={16} className="animate-spin" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-400 text-xs p-4 justify-center">
+                                                        <ImageOff size={16} /> Vídeo indisponível
                                                     </div>
                                                 )}
                                             </div>

@@ -169,12 +169,25 @@ serve(async (req) => {
     // Mídia recebida via WhatsApp vem encriptada na URL crua do servidor da Meta.
     // Sem este passo, as bytes salvas no Storage ficam ilegíveis (imagens/áudios quebram).
     async function fetchDecryptedBase64(): Promise<{ base64: string; mimetype?: string } | null> {
+      // CAMINHO PRINCIPAL: com webhookBase64=true na instancia, a Evolution ja manda
+      // a midia DESCRIPTOGRAFADA (base64) dentro do proprio payload. E instantaneo e
+      // sem race de download (era a causa do "[Imagem nao baixada]" / spinner infinito).
+      const inlineB64 = data.message?.base64 ?? data.base64 ?? data.message?.mediaBase64;
+      if (inlineB64 && typeof inlineB64 === 'string' && inlineB64.length > 100) {
+        const mt = data.message?.imageMessage?.mimetype
+          ?? data.message?.videoMessage?.mimetype
+          ?? data.message?.audioMessage?.mimetype
+          ?? data.message?.documentMessage?.mimetype
+          ?? data.message?.stickerMessage?.mimetype;
+        return { base64: inlineB64, mimetype: mt };
+      }
+
       const evoUrl = Deno.env.get('EVOLUTION_API_URL');
       const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
       if (!evoUrl || !evoToken || !instanceName) return null;
 
-      // Quando a mensagem chega, a Evolution as vezes ainda nao terminou de baixar a
-      // midia do WhatsApp -> getBase64 falha. Tentamos algumas vezes com espera curta.
+      // FALLBACK: se nao veio inline, busca via API. Quando a mensagem chega, a
+      // Evolution as vezes ainda nao terminou de baixar a midia -> tenta algumas vezes.
       const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
       const ATTEMPTS = 4;
       for (let i = 0; i < ATTEMPTS; i++) {
