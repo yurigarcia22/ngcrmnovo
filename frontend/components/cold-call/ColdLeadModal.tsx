@@ -10,6 +10,25 @@ import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, crea
 import { registerColdLeadStage } from "@/app/(protected)/cold-call/actions";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
+// Notas "Interação Registrada: <chave>" viram um chip bonito no historico,
+// com label humana, emoji e cor por tipo de resultado.
+const INTERACTION_META: Record<string, { label: string; emoji: string; cls: string }> = {
+    ligacao_feita: { label: "Ligação feita", emoji: "📞", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    contato_realizado: { label: "Contato feito", emoji: "💬", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    contato_decisor: { label: "Falou com o decisor", emoji: "👤", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+    reuniao_marcada: { label: "Reunião marcada", emoji: "📅", cls: "bg-cyan-50 text-cyan-700 border-cyan-200" },
+    convertido: { label: "Convertido", emoji: "🏆", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    descartado: { label: "Descartado", emoji: "🚫", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+    sem_interesse: { label: "Sem interesse", emoji: "🚫", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+    numero_inexistente: { label: "Número inexistente", emoji: "⚠️", cls: "bg-slate-100 text-slate-500 border-slate-200" },
+};
+function parseInteraction(content: string): { label: string; emoji: string; cls: string } | null {
+    const m = /^Interação Registrada:\s*(.+)$/.exec(content || "");
+    if (!m) return null;
+    const key = m[1].trim();
+    return INTERACTION_META[key] || { label: key.replace(/_/g, " "), emoji: "•", cls: "bg-slate-100 text-slate-600 border-slate-200" };
+}
+
 interface ColdLeadModalProps {
     lead: ColdLead;
     isOpen: boolean;
@@ -171,6 +190,13 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             if (!res.success || !res.data) throw new Error(res.error || "Erro");
             toast.success(`Movido para ${stage.name}`);
             (onLeadUpdate ?? onActionComplete)(res.data as ColdLead);
+
+            // Discagem automatica ligada: ao registrar a acao, ja pula pro proximo
+            // lead (que dispara a proxima ligacao). Pequeno delay pra ver o feedback.
+            const autoDial = typeof window !== "undefined" && window.localStorage.getItem("autoDialEnabled") === "true";
+            if (autoDial && hasNext && onNext) {
+                setTimeout(() => onNext(), 600);
+            }
         } catch (e) {
             toast.error("Erro ao registrar ação");
         } finally {
@@ -1042,7 +1068,23 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
                                 <div className="p-4 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
                                     <div className="text-center text-xs text-slate-400 py-2">Início do histórico</div>
-                                    {notesHistory.map((note) => (
+                                    {notesHistory.map((note) => {
+                                        // Evento de interacao (ligacao_feita etc) -> chip centralizado bonito.
+                                        const evt = editingNoteId !== note.id ? parseInteraction(note.content) : null;
+                                        if (evt) {
+                                            return (
+                                                <div key={note.id} className="flex justify-center">
+                                                    <div className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-full border ${evt.cls}`}>
+                                                        <span>{evt.emoji}</span>
+                                                        {evt.label}
+                                                        <span className="opacity-50 font-normal ml-1">
+                                                            {new Date(note.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                        return (
                                         <div key={note.id} className="group relative flex flex-col gap-1 items-start max-w-[90%]">
                                             {editingNoteId === note.id ? (
                                                 <div className="w-full bg-white p-2 rounded-lg border border-blue-200 shadow-sm">
@@ -1072,7 +1114,8 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                 </>
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                     <div ref={notesEndRef} />
                                 </div>
 
