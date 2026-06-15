@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { ArrowUpRight, ArrowDownRight, MessageCircle, MessageSquare } from "lucide-react";
+import Link from "next/link";
 
 interface StatCardProps {
     title: string;
@@ -75,7 +76,7 @@ export function MessagesCard({ conversationsCount = 0, unansweredCount = 0, avgR
             <h3 className="text-xs font-bold text-gray-400 tracking-widest uppercase mb-6">MENSAGENS</h3>
 
             <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white/5 rounded-xl p-4 border border-white/5 hover:border-emerald-500/30 transition-colors">
+                <Link href="/chat" className="bg-white/5 rounded-xl p-4 border border-white/5 hover:border-emerald-500/30 hover:bg-white/10 transition-colors cursor-pointer block">
                     <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400">
                             <MessageCircle className="w-4 h-4" />
@@ -83,9 +84,9 @@ export function MessagesCard({ conversationsCount = 0, unansweredCount = 0, avgR
                         <span className="text-xs text-gray-400 font-medium uppercase">Ativas</span>
                     </div>
                     <div className="text-2xl font-bold text-white">{conversationsCount}</div>
-                </div>
+                </Link>
 
-                <div className="bg-white/5 rounded-xl p-4 border border-white/5 hover:border-orange-500/30 transition-colors">
+                <Link href="/chat?filter=unanswered" className="bg-white/5 rounded-xl p-4 border border-white/5 hover:border-orange-500/30 hover:bg-white/10 transition-colors cursor-pointer block">
                     <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 bg-orange-500/20 rounded-lg text-orange-400">
                             <MessageSquare className="w-4 h-4" />
@@ -93,7 +94,7 @@ export function MessagesCard({ conversationsCount = 0, unansweredCount = 0, avgR
                         <span className="text-xs text-gray-400 font-medium uppercase">Aguardando</span>
                     </div>
                     <div className="text-2xl font-bold text-white">{unansweredCount}</div>
-                </div>
+                </Link>
             </div>
 
             <div className="mt-6 pt-4 border-t border-white/5">

@@ -63,7 +63,11 @@ export default function ChatPage() {
     // Filter State
     const [filterOwner, setFilterOwner] = useState<string>("all");
     const [filterInstance, setFilterInstance] = useState<string>("all");
-    const [quickFilter, setQuickFilter] = useState<"all" | "unanswered" | "mine" | "today">("all");
+    // Filtro inicial vindo da URL (ex: dashboard manda /chat?filter=unanswered).
+    const [quickFilter, setQuickFilter] = useState<"all" | "unanswered" | "mine" | "today">(() => {
+        const f = searchParams.get("filter");
+        return (f === "unanswered" || f === "mine" || f === "today") ? f : "all";
+    });
     const [currentUserId, setCurrentUserId] = useState<string>("");
 
     // Debounce search (300ms) — declarado aqui pra disponibilizar pra queryKey

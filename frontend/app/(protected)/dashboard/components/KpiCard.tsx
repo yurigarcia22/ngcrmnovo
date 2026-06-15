@@ -2,6 +2,7 @@
 
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 interface Props {
     /** Elemento JSX do icone (ex: <Trophy />). NAO passe o componente direto
@@ -15,6 +16,8 @@ interface Props {
     /** Texto auxiliar do change (ex: "vs período anterior") */
     changeLabel?: string;
     accent?: "indigo" | "emerald" | "rose" | "amber" | "blue" | "purple";
+    /** Se informado, o card vira um link clicavel (drill-down). */
+    href?: string;
 }
 
 const accentColors = {
@@ -26,14 +29,17 @@ const accentColors = {
     purple: { ring: "ring-purple-500/30", bg: "bg-purple-500/10", icon: "text-purple-300" },
 } as const;
 
-export function KpiCard({ icon, label, value, sub, changePct, changeLabel, accent = "indigo" }: Props) {
+export function KpiCard({ icon, label, value, sub, changePct, changeLabel, accent = "indigo", href }: Props) {
     const c = accentColors[accent];
     const hasChange = typeof changePct === "number";
     const isPositive = hasChange && changePct! > 0;
     const isNegative = hasChange && changePct! < 0;
 
+    const Wrapper: any = href ? Link : "div";
+    const wrapperProps: any = href ? { href } : {};
+
     return (
-        <div className={`bg-white/[0.04] backdrop-blur-sm rounded-2xl p-5 border border-white/10 ring-1 ${c.ring} hover:bg-white/[0.06] transition-all`}>
+        <Wrapper {...wrapperProps} className={`block bg-white/[0.04] backdrop-blur-sm rounded-2xl p-5 border border-white/10 ring-1 ${c.ring} hover:bg-white/[0.06] transition-all ${href ? 'cursor-pointer' : ''}`}>
             <div className="flex items-start justify-between mb-3">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                     {label}
@@ -63,6 +69,6 @@ export function KpiCard({ icon, label, value, sub, changePct, changeLabel, accen
                     </span>
                 )}
             </div>
-        </div>
+        </Wrapper>
     );
 }

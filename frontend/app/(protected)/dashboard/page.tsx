@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { getDashboardData, getSellersPerformance } from "@/app/(protected)/dashboard/actions";
 import { getTeamMembers } from "@/app/actions";
 import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
@@ -212,6 +213,7 @@ async function DashboardContent({
                         value={formatCurrencyCompact(data.totalOpenValue)}
                         sub={`${data.totalLeads} ${data.totalLeads === 1 ? "lead" : "leads"}`}
                         accent="indigo"
+                        href="/leads"
                     />
                     <KpiCard
                         icon={<Target className="w-4 h-4" />}
@@ -219,6 +221,7 @@ async function DashboardContent({
                         value={`${data.conversionRate}%`}
                         sub={`${data.wonDeals} ganhos · ${data.lostDeals} perdidos`}
                         accent="blue"
+                        href="/leads"
                     />
                     <KpiCard
                         icon={<Coins className="w-4 h-4" />}
@@ -354,7 +357,7 @@ function ColdCard({
     icon: typeof Users; label: string; value: number; color: string; pct?: number;
 }) {
     return (
-        <div className="bg-[#0f172a]/40 p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors relative">
+        <Link href="/cold-call" className="block bg-[#0f172a]/40 p-4 rounded-xl border border-white/5 hover:border-white/10 hover:bg-[#0f172a]/60 transition-colors relative cursor-pointer">
             {typeof pct === "number" && (
                 <div className="absolute top-2 right-2 text-[9px] font-bold text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
                     {pct}%
@@ -365,7 +368,7 @@ function ColdCard({
                 {label}
             </div>
             <div className={`text-xl font-bold ${color}`}>{value}</div>
-        </div>
+        </Link>
     );
 }
 
