@@ -2150,7 +2150,14 @@ export async function startConversationForPhone(phone: string, name?: string) {
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-        if (deal?.id) return { success: true, dealId: deal.id, contactId };
+        if (deal?.id) {
+            // Abrir a conversa a reativa: limpa resolved/snooze pra ela voltar ao
+            // inbox e ser selecionavel na lista (senao "nao abre" se estava resolvida).
+            await admin.from("deals")
+                .update({ resolved_at: null, snoozed_until: null })
+                .eq("id", deal.id).eq("tenant_id", tenantId);
+            return { success: true, dealId: deal.id, contactId };
+        }
 
         // 3. Cria conversa nova na etapa de entrada do funil padrao
         const { data: inboxStageRpc } = await admin.rpc("get_tenant_inbox_stage", { p_tenant_id: tenantId });

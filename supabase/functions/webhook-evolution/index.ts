@@ -481,6 +481,14 @@ serve(async (req) => {
         console.log(`-> Roteamento: Deal Existente [${dealId}] atribuído ao Dono da Instância (${instanceOwnerProfileId})`);
       }
 
+      // Mensagem recebida do lead REABRE a conversa: limpa resolved_at e o snooze
+      // (uma conversa marcada como resolvida deve voltar ao inbox quando o cliente
+      // responde, senao some pra sempre mesmo recebendo mensagens novas).
+      if (!isFromMe) {
+        updates.resolved_at = null;
+        updates.snoozed_until = null;
+      }
+
       await supabase.from('deals').update(updates).eq('id', dealId);
     }
 
