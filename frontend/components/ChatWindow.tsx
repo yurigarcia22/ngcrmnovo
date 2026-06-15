@@ -175,6 +175,8 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
 
     useEffect(() => {
         if (!deal?.id) return;
+        // Ao ABRIR a conversa, sempre pula pra ultima mensagem (instantaneo).
+        let firstLoad = true;
         async function fetchMessages() {
             const result = await getMessages(deal.id);
             if (result.success && result.data) {
@@ -188,6 +190,12 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                         m.status === 'failed' || !serverContentKeys.has(`${m.direction}|${m.type}|${m.content}`));
                     return [...(result.data as any[]), ...stillOptimistic];
                 });
+                if (firstLoad) {
+                    firstLoad = false;
+                    // Espera o render das mensagens e desce direto pro fim, sem animacao.
+                    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" }), 60);
+                    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" }), 250);
+                }
             }
         }
         // Refetch periodico como rede de seguranca caso o realtime perca eventos.
