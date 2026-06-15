@@ -890,21 +890,40 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                             </label>
                                             <div className="space-y-2 mt-2">
                                                 {quickStages.length > 0 ? (
-                                                    <div className="grid grid-cols-3 gap-2">
+                                                    <div className="grid grid-cols-2 gap-2">
                                                         {quickStages.map((s: any) => {
                                                             const isCurrent = Number((lead as any).stage_id) === Number(s.id);
+                                                            const nm = (s.name || "").toLowerCase();
+                                                            const isInvalid = s.is_lost && (nm.includes("inexist") || nm.includes("invalid") || nm.includes("sem whatsapp"));
+                                                            // Cor por tipo de resultado: ganho=verde, descarte=vermelho,
+                                                            // numero invalido=cinza, etapas de cadencia=neutro c/ cor da etapa.
+                                                            const tone = s.is_won ? "won" : isInvalid ? "invalid" : s.is_lost ? "lost" : "neutral";
+                                                            const toneCls = tone === "won"
+                                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                                                : tone === "lost"
+                                                                    ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                                                    : tone === "invalid"
+                                                                        ? "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+                                                                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50";
                                                             return (
-                                                                <Button
+                                                                <button
                                                                     key={s.id}
-                                                                    variant="outline"
                                                                     onClick={() => handleStageAction(s)}
                                                                     disabled={loading}
                                                                     title={isCurrent ? "Etapa atual (registra nova tentativa)" : `Mover para ${s.name}`}
-                                                                    className={`h-10 justify-start text-xs text-slate-700 border-slate-200 hover:bg-slate-50 ${isCurrent ? "ring-1 ring-slate-300 bg-slate-50" : ""}`}
-                                                                    style={{ borderLeftColor: s.color || "#94a3b8", borderLeftWidth: 3 }}
+                                                                    className={`flex items-center gap-2 h-11 px-3 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50 ${toneCls} ${isCurrent ? "ring-2 ring-offset-1 ring-slate-300" : ""}`}
                                                                 >
-                                                                    <span className="truncate">{s.name}</span>
-                                                                </Button>
+                                                                    {tone === "won" ? (
+                                                                        <CheckCircle size={15} className="shrink-0" />
+                                                                    ) : tone === "lost" ? (
+                                                                        <X size={15} className="shrink-0" />
+                                                                    ) : tone === "invalid" ? (
+                                                                        <AlertTriangle size={14} className="shrink-0" />
+                                                                    ) : (
+                                                                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color || "#94a3b8" }} />
+                                                                    )}
+                                                                    <span className="truncate text-left flex-1">{s.name}</span>
+                                                                </button>
                                                             );
                                                         })}
                                                     </div>
@@ -920,7 +939,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                     className="w-full h-10 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200"
                                                     disabled={loading}
                                                 >
-                                                    <Calendar size={14} className="mr-2 shrink-0" /> Reunião (Converter em Lead)
+                                                    <Calendar size={14} className="mr-2 shrink-0" /> Agendar reunião + converter
                                                 </Button>
                                             </div>
                                 </div>
