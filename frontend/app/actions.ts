@@ -1709,13 +1709,25 @@ export async function sendStoredMedia(opts: {
         const mt = opts.mediaType;
 
         // Baixa a midia do Storage e manda em BASE64 (URL nao entrega de verdade).
+        // Captura o mimetype real do Content-Type: SEM mimetype a Evolution aceita
+        // mas a mensagem fica PENDING e nao chega (anexo do PC funcionava porque
+        // mandava o mimetype). Fallback por extensao/tipo se o header faltar.
         let mediaB64 = "";
+        let mimetype = "";
         try {
             const mr = await fetch(opts.mediaUrl, { signal: AbortSignal.timeout(20000) });
             if (!mr.ok) return { success: false, error: "Não consegui carregar a imagem da resposta rápida." };
+            mimetype = (mr.headers.get('content-type') || "").split(';')[0];
             mediaB64 = Buffer.from(await mr.arrayBuffer()).toString('base64');
         } catch {
             return { success: false, error: "Falha ao carregar a mídia." };
+        }
+        if (!mimetype || mimetype === 'application/octet-stream') {
+            const ext = (opts.mediaUrl.split('.').pop() || '').toLowerCase();
+            mimetype = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp'
+                : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg'
+                : ext === 'mp4' ? 'video/mp4' : ext === 'pdf' ? 'application/pdf'
+                : mt === 'image' ? 'image/jpeg' : mt === 'video' ? 'video/mp4' : 'application/octet-stream';
         }
 
         let endpoint: string; let body: any;
@@ -1723,8 +1735,10 @@ export async function sendStoredMedia(opts: {
             endpoint = `${evolutionUrl}/message/sendWhatsAppAudio/${encodeURIComponent(instanceName)}`;
             body = { number: cleanPhone, audio: mediaB64 };
         } else {
+            const extFromMime = (mimetype.split('/')[1] || 'jpg').split('+')[0];
+            const fileName = (opts.fileName && opts.fileName.includes('.')) ? opts.fileName : `arquivo.${extFromMime}`;
             endpoint = `${evolutionUrl}/message/sendMedia/${encodeURIComponent(instanceName)}`;
-            body = { number: cleanPhone, mediatype: mt, caption: opts.caption || "", media: mediaB64, fileName: opts.fileName || "arquivo" };
+            body = { number: cleanPhone, mediatype: mt, mimetype, caption: opts.caption || "", media: mediaB64, fileName };
         }
 
         const response = await fetch(endpoint, {
