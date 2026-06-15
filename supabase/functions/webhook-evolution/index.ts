@@ -360,7 +360,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ message: 'Ignored: fromMe sem contato existente' }), { status: 200 });
     }
 
-    // Helper: pega foto de perfil do WhatsApp via Evolution API
+    // Helper: pega a foto de perfil do WhatsApp e SALVA no Storage (permanente).
+    // A URL crua da Meta (pps.whatsapp.net) expira em horas/dias -> o avatar
+    // quebrava. Baixamos a imagem e guardamos no bucket, retornando a URL publica.
     async function fetchProfilePictureUrl(): Promise<string | null> {
       try {
         const evoUrl = Deno.env.get('EVOLUTION_API_URL');
@@ -373,11 +375,33 @@ serve(async (req) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', apikey: evoToken },
             body: JSON.stringify({ number: phone }),
+            signal: AbortSignal.timeout(15000),
           }
         );
         if (!r.ok) return null;
         const j = await r.json();
-        return j?.profilePictureUrl ?? null;
+        const metaUrl = j?.profilePictureUrl;
+        if (!metaUrl || typeof metaUrl !== 'string') return null;
+
+        // Baixa a imagem da URL volatil e persiste no Storage.
+        try {
+          const imgResp = await fetch(metaUrl, { signal: AbortSignal.timeout(15000) });
+          if (imgResp.ok) {
+            const bytes = new Uint8Array(await imgResp.arrayBuffer());
+            if (bytes.length > 200) {
+              const fileName = `${tenantId}/avatars/${canonicalPhone}.jpg`;
+              const { error: upErr } = await supabase.storage
+                .from('crm-media')
+                .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: true });
+              if (!upErr) {
+                return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
+              }
+            }
+          }
+        } catch { /* se falhar o download/upload, cai no fallback abaixo */ }
+
+        // Fallback: ao menos guarda a URL volatil (melhor que nada).
+        return metaUrl;
       } catch {
         return null;
       }
