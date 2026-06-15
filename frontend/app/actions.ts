@@ -1011,12 +1011,15 @@ export async function sendMedia(formData: FormData) {
             : file.type.startsWith('audio/') ? 'audio'
             : 'document';
 
-        // Audio usa o endpoint dedicado (nota de voz / PTT). Os demais usam sendMedia.
+        // Enviamos a midia em BASE64 (nao por URL). Mandar a URL do Storage fazia a
+        // Evolution aceitar mas NAO entregar a midia pro lead (so 1 tracinho). Com
+        // base64 o arquivo vai junto no request e e entregue de verdade.
+        const mediaB64 = fileBuffer.toString('base64');
         let endpoint: string;
         let body: any;
         if (mediaType === 'audio') {
             endpoint = `${evolutionUrl}/message/sendWhatsAppAudio/${encodeURIComponent(evolutionInstance)}`;
-            body = { number: cleanPhone, audio: mediaUrl };
+            body = { number: cleanPhone, audio: mediaB64 };
         } else {
             endpoint = `${evolutionUrl}/message/sendMedia/${encodeURIComponent(evolutionInstance)}`;
             body = {
@@ -1024,7 +1027,7 @@ export async function sendMedia(formData: FormData) {
                 mediatype: mediaType,
                 mimetype: file.type,
                 caption: caption || "",
-                media: mediaUrl,
+                media: mediaB64,
                 fileName: file.name,
             };
         }
@@ -1704,13 +1707,24 @@ export async function sendStoredMedia(opts: {
 
         const cleanPhone = normalizeBrazilPhone(opts.phone);
         const mt = opts.mediaType;
+
+        // Baixa a midia do Storage e manda em BASE64 (URL nao entrega de verdade).
+        let mediaB64 = "";
+        try {
+            const mr = await fetch(opts.mediaUrl, { signal: AbortSignal.timeout(20000) });
+            if (!mr.ok) return { success: false, error: "Não consegui carregar a imagem da resposta rápida." };
+            mediaB64 = Buffer.from(await mr.arrayBuffer()).toString('base64');
+        } catch {
+            return { success: false, error: "Falha ao carregar a mídia." };
+        }
+
         let endpoint: string; let body: any;
         if (mt === 'audio') {
             endpoint = `${evolutionUrl}/message/sendWhatsAppAudio/${encodeURIComponent(instanceName)}`;
-            body = { number: cleanPhone, audio: opts.mediaUrl };
+            body = { number: cleanPhone, audio: mediaB64 };
         } else {
             endpoint = `${evolutionUrl}/message/sendMedia/${encodeURIComponent(instanceName)}`;
-            body = { number: cleanPhone, mediatype: mt, caption: opts.caption || "", media: opts.mediaUrl, fileName: opts.fileName || "arquivo" };
+            body = { number: cleanPhone, mediatype: mt, caption: opts.caption || "", media: mediaB64, fileName: opts.fileName || "arquivo" };
         }
 
         const response = await fetch(endpoint, {
@@ -3529,11 +3543,13 @@ export async function updateColdCallFollowup(id: string, updates: any) {
             .update(updates)
             .eq("id", id)
             .eq("tenant_id", tenantId)
-            .select()
-            .single();
+            .select();
 
-        if (error) throw error;
-        return { success: true, data };
+        if (error) return { success: false, error: error.message };
+        if (!data || data.length === 0) {
+            return { success: false, error: "Follow-up não encontrado para este usuário." };
+        }
+        return { success: true, data: data[0] };
     } catch (error: any) {
         return { success: false, error: error.message };
     }

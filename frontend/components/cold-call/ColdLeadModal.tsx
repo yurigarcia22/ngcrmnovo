@@ -1040,12 +1040,15 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                 </div>
                                                 <button
                                                     onClick={async () => {
+                                                        // Otimista: tira da lista na hora.
+                                                        setLeadFollowups(prev => prev.filter((x: any) => x.id !== fup.id));
                                                         const res = await updateColdCallFollowup(fup.id, { status: 'concluido' });
                                                         if (res.success) {
                                                             toast.success('Follow-up concluído!');
                                                             fetchLeadFollowups();
                                                         } else {
-                                                            toast.error('Erro ao concluir follow-up.');
+                                                            toast.error(res.error || 'Erro ao concluir follow-up.');
+                                                            fetchLeadFollowups(); // volta o item se falhou
                                                         }
                                                     }}
                                                     className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors font-bold text-[11px] border border-emerald-200"
