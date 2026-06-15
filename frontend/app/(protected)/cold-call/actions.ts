@@ -40,27 +40,105 @@ export async function getColdCallPipelinesWithStages() {
 }
 
 /**
- * Move um cold_lead para outra stage. Atualiza apenas stage_id —
- * o trigger SQL cuida de status text + criar deal automatico em is_won.
+ * Move um cold_lead para outra stage.
+ * Unificado com a Acao Rapida: mover pelo Kanban agora registra a interacao
+ * igual ao botao do modal (incrementa cadencia, grava nota da metrica, sincroniza
+ * status e, em etapa is_won, converte em deal). Antes so trocava stage_id e o
+ * comentario citava um "trigger SQL" que nao existe.
  */
 export async function moveColdLeadToStage(leadId: string, stageId: number) {
+    return registerColdLeadStage(leadId, stageId);
+}
+
+/**
+ * Converte um cold_lead em deal no funil de vendas (idempotente: reaproveita um
+ * deal aberto do mesmo contato). Cria/acha o contato, cria o deal na etapa de
+ * entrada do funil padrao e replica as notas. Usado quando o lead vai para uma
+ * etapa is_won (Confirmado). Retorna o dealId.
+ */
+async function convertColdLeadToDeal(
+    admin: any,
+    tenantId: string,
+    ownerId: string | null,
+    lead: { id: string; nome?: string | null; telefone?: string | null; custom_fields?: any },
+): Promise<string | null> {
     try {
-        const tenantId = await getTenantId();
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        );
+        const rawDigits = String(lead.telefone || "").replace(/\D/g, "");
+        if (rawDigits.length < 10) return null;
+        // Canonico BR: 55 + DDD + (9) + numero.
+        let canonical = rawDigits;
+        if (!canonical.startsWith("55")) canonical = "55" + canonical;
+        if (canonical.length === 12) canonical = canonical.slice(0, 4) + "9" + canonical.slice(4); // insere 9o digito
+        const variants = Array.from(new Set([canonical, rawDigits,
+            canonical.length === 13 && canonical[4] === "9" ? canonical.slice(0, 4) + canonical.slice(5) : ""].filter(Boolean)));
 
-        const { error } = await supabase
-            .from("cold_leads")
-            .update({ stage_id: stageId })
-            .eq("id", leadId)
-            .eq("tenant_id", tenantId);
+        // 1. Contato (acha ou cria)
+        let contactId: string;
+        const { data: existing } = await admin
+            .from("contacts").select("id, phone").eq("tenant_id", tenantId).in("phone", variants);
+        if (existing && existing.length > 0) {
+            contactId = (existing.find((c: any) => c.phone === canonical) ?? existing[0]).id;
+        } else {
+            const { data: nc, error } = await admin
+                .from("contacts")
+                .insert({ name: lead.nome?.trim() || canonical, phone: canonical, tenant_id: tenantId, photo_url: "" })
+                .select("id").single();
+            if (error || !nc) return null;
+            contactId = nc.id;
+        }
 
-        if (error) return { success: false, error: error.message };
-        return { success: true };
-    } catch (error: any) {
-        return { success: false, error: error.message };
+        // 2. Idempotente: reaproveita deal aberto existente do contato.
+        const { data: openDeal } = await admin
+            .from("deals").select("id").eq("tenant_id", tenantId).eq("contact_id", contactId).eq("status", "open")
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (openDeal?.id) return openDeal.id;
+
+        // 3. Etapa de entrada do funil de vendas padrao.
+        const { data: inboxStageRpc } = await admin.rpc("get_tenant_inbox_stage", { p_tenant_id: tenantId });
+        const stageId = inboxStageRpc as number | string | null;
+        if (stageId == null) return null;
+
+        // Decisor (nome + telefone direto) vai pro card de /leads.
+        const decisorNome = lead.custom_fields?.decisor_nome;
+        const decisorTelefone = lead.custom_fields?.decisor_telefone;
+        const customValues: any = {};
+        if (decisorNome) customValues.responsible_name = decisorNome;
+        if (decisorTelefone) customValues.responsible_direct_phone = decisorTelefone;
+
+        const { data: newDeal, error: dErr } = await admin
+            .from("deals")
+            .insert({
+                title: lead.nome?.trim() || canonical,
+                value: 0,
+                contact_id: contactId,
+                stage_id: stageId,
+                status: "open",
+                tenant_id: tenantId,
+                owner_id: ownerId,
+                custom_values: Object.keys(customValues).length ? customValues : null,
+            })
+            .select("id").single();
+        if (dErr || !newDeal) return null;
+
+        // 4. Replica o historico (cold_lead_notes -> notes do deal).
+        try {
+            const { data: leadNotes } = await admin
+                .from("cold_lead_notes").select("content, created_at").eq("cold_lead_id", lead.id)
+                .order("created_at", { ascending: true });
+            if (leadNotes && leadNotes.length > 0) {
+                await admin.from("notes").insert(leadNotes.map((n: any) => ({
+                    deal_id: newDeal.id,
+                    content: `[Histórico Cold Call]: ${n.content}`,
+                    tenant_id: tenantId,
+                    created_at: n.created_at,
+                })));
+            }
+        } catch (e) { console.error("Replicar notas cold lead:", e); }
+
+        return newDeal.id;
+    } catch (e) {
+        console.error("convertColdLeadToDeal Error:", e);
+        return null;
     }
 }
 
@@ -85,7 +163,7 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
 
         const { data: lead, error: leadErr } = await admin
             .from("cold_leads")
-            .select("id, status, tentativas")
+            .select("id, status, tentativas, nome, telefone, custom_fields, responsavel_id")
             .eq("id", leadId)
             .eq("tenant_id", tenantId)
             .maybeSingle();
@@ -108,22 +186,22 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         else if (TERMINAIS.has(lead.status as string)) newStatus = "ligacao_feita";
 
         // Chave canonica que o dashboard reconhece. Ele conta callsMade/connections/
-        // decisionMakers/meetings parseando "Interação Registrada: <chave>" com chaves
-        // fixas (ligacao_feita, contato_realizado, contato_decisor, reuniao_marcada,
-        // descartado, numero_inexistente). Distinguimos descartado (negativa do lead)
-        // de numero_inexistente (numero invalido/sem WhatsApp) pelo nome da etapa.
+        // decisionMakers/meetings/conversions parseando "Interação Registrada: <chave>".
+        // is_won -> 'convertido' (conta separado de 'reuniao_marcada', que antes inflava
+        // o contador de reunioes). Distinguimos descartado x numero_inexistente.
         const sName = (stage.name || "").toLowerCase();
         let resultKey: string;
-        if (stage.is_lost) {
+        if (stage.is_won) {
+            resultKey = "convertido";
+        } else if (stage.is_lost) {
             if (sName.includes("inexist") || sName.includes("invalid") || sName.includes("sem whatsapp")) {
                 resultKey = "numero_inexistente";
             } else {
                 resultKey = "descartado";
             }
         }
-        else if (stage.is_won) resultKey = "reuniao_marcada";
         else if (sName.includes("decisor")) resultKey = "contato_decisor";
-        else if (sName.includes("reuni") || sName.includes("confirmad") || sName.includes("agendad")) resultKey = "reuniao_marcada";
+        else if (sName.includes("reuni") || sName.includes("agendad")) resultKey = "reuniao_marcada";
         else if (sName.includes("contato")) resultKey = "contato_realizado";
         else resultKey = "ligacao_feita";
 
@@ -145,9 +223,11 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         if (updErr) return { success: false, error: updErr.message };
 
         // Nota de atividade (metrica do dashboard)
+        let actingUserId: string | null = null;
         try {
             const ssr = await createSSRClient();
             const { data: { user } } = await ssr.auth.getUser();
+            actingUserId = user?.id ?? null;
             if (user) {
                 await admin.from("cold_lead_notes").insert({
                     cold_lead_id: leadId,
@@ -159,8 +239,20 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
             console.error("registerColdLeadStage log error:", e);
         }
 
+        // Etapa de ganho (is_won) -> converte o cold lead em deal no funil de vendas
+        // (cria contato + deal + replica notas). Antes so a Acao Rapida nao convertia,
+        // deixando a venda orfa de /leads. Idempotente (reaproveita deal aberto).
+        let convertedDealId: string | null = null;
+        if (stage.is_won) {
+            convertedDealId = await convertColdLeadToDeal(
+                admin, tenantId, (lead as any).responsavel_id ?? actingUserId,
+                { id: lead.id, nome: (lead as any).nome, telefone: (lead as any).telefone, custom_fields: (lead as any).custom_fields },
+            );
+            revalidatePath("/leads");
+        }
+
         revalidatePath("/cold-call");
-        return { success: true, data: updated };
+        return { success: true, data: updated, convertedDealId };
     } catch (error: any) {
         console.error("registerColdLeadStage Error:", error);
         return { success: false, error: error.message };

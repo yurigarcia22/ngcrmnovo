@@ -298,7 +298,7 @@ async function DashboardContent({
                         </h2>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                         <ColdCard
                             icon={Users}
                             label="Importados"
@@ -332,6 +332,13 @@ async function DashboardContent({
                             value={data.coldMetrics?.meetings ?? 0}
                             color="text-emerald-300"
                             pct={data.coldMetrics?.decisionMakers ? Math.round((data.coldMetrics.meetings / data.coldMetrics.decisionMakers) * 100) : 0}
+                        />
+                        <ColdCard
+                            icon={Trophy}
+                            label="Convertidos"
+                            value={data.coldMetrics?.conversions ?? 0}
+                            color="text-green-300"
+                            pct={data.coldMetrics?.calls ? Math.round(((data.coldMetrics.conversions || 0) / data.coldMetrics.calls) * 100) : 0}
                         />
                     </div>
                 </div>

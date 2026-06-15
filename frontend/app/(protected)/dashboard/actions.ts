@@ -245,22 +245,27 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         let connections = 0;
         let decisionMakers = 0;
         let meetings = 0;
+        let conversions = 0;
 
         activityNotes?.forEach((note: any) => {
             const rawResult = note.content.replace("Interação Registrada:", "").trim();
-            // 'descartado' = negativa do lead; 'numero_inexistente' = numero invalido.
-            // Ambos contam como tentativa de ligacao (callsMade) — sao terminais.
-            if (['ligacao_feita', 'contato_realizado', 'contato_decisor', 'reuniao_marcada', 'descartado', 'numero_inexistente'].includes(rawResult)) {
+            // Terminais (descartado/sem_interesse/numero_inexistente) e convertido
+            // tambem contam como tentativa de ligacao (callsMade).
+            if (['ligacao_feita', 'contato_realizado', 'contato_decisor', 'reuniao_marcada', 'convertido', 'descartado', 'sem_interesse', 'numero_inexistente'].includes(rawResult)) {
                 callsMade++;
             }
-            if (['contato_realizado', 'contato_decisor', 'reuniao_marcada'].includes(rawResult)) {
+            // Convertido implica ter falado com o decisor -> conta nas etapas anteriores.
+            if (['contato_realizado', 'contato_decisor', 'reuniao_marcada', 'convertido'].includes(rawResult)) {
                 connections++;
             }
-            if (['contato_decisor', 'reuniao_marcada'].includes(rawResult)) {
+            if (['contato_decisor', 'reuniao_marcada', 'convertido'].includes(rawResult)) {
                 decisionMakers++;
             }
             if (rawResult === 'reuniao_marcada') {
                 meetings++;
+            }
+            if (rawResult === 'convertido') {
+                conversions++;
             }
         });
 
@@ -306,7 +311,8 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
                 calls: callsMade,
                 connections: connections,
                 decisionMakers: decisionMakers,
-                meetings: meetings
+                meetings: meetings,
+                conversions: conversions
             }
         };
 
@@ -330,7 +336,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             conversationsCount: 0,
             unansweredChatsCount: 0,
             longestWaitTime: "0m",
-            coldMetrics: { total: 0, calls: 0, connections: 0, decisionMakers: 0, meetings: 0 }
+            coldMetrics: { total: 0, calls: 0, connections: 0, decisionMakers: 0, meetings: 0, conversions: 0 }
         };
     }
 }

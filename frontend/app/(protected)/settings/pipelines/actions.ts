@@ -51,15 +51,16 @@ export async function createPipeline(name: string, kind: "deals" | "cold_call" =
         // 2. Stages padrao conforme o kind do funil
         let defaultStages: any[];
         if (kind === "cold_call") {
+            // 6 etapas padrao (Acao Rapida) + Inbox. Devem bater com a migration
+            // 20260530000000_standardize_cold_call_stages e com registerColdLeadStage.
             defaultStages = [
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Novo",             position: 0, color: "#94a3b8", is_inbox: true,  is_won: false, is_lost: false, is_quick_action: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 1",      position: 1, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Tentativa 2+",     position: 2, color: "#f97316", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Contato feito",    position: 3, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Falou c/ decisor", position: 4, color: "#8b5cf6", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Reunião marcada",  position: 5, color: "#06b6d4", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Convertido",       position: 6, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false, is_quick_action: false },
-                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Descartado",      position: 7, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true,  is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Novo",               position: 0, color: "#94a3b8", is_inbox: true,  is_won: false, is_lost: false, is_quick_action: false },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Ligação Feita",       position: 1, color: "#fbbf24", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Contato feito",       position: 2, color: "#3b82f6", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Falou c/ decisor",    position: 3, color: "#8b5cf6", is_inbox: false, is_won: false, is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Confirmado",          position: 4, color: "#22c55e", is_inbox: false, is_won: true,  is_lost: false, is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Descartado",          position: 5, color: "#ef4444", is_inbox: false, is_won: false, is_lost: true,  is_quick_action: true },
+                { pipeline_id: pipeline.id, tenant_id: tenantId, name: "Numero inexistente",  position: 6, color: "#6b7280", is_inbox: false, is_won: false, is_lost: true,  is_quick_action: true },
             ];
         } else {
             defaultStages = [
