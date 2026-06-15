@@ -1549,9 +1549,15 @@ export async function createQuickReply(formData: FormData) {
         const shortcut = formData.get('shortcut') as string;
         const category = formData.get('category') as string;
         const content = formData.get('content') as string;
+        const file = formData.get('file') as File | null;
 
-        if (!content || !category) {
+        // Resposta pode ser texto, imagem, ou os dois (imagem com legenda).
+        const media = await uploadQuickReplyMedia(supabase, tenantId, file);
+        if ((!content || !content.trim()) && !media && !category) {
             return { success: false, error: "Conteúdo e Categoria são obrigatórios." };
+        }
+        if (!category) {
+            return { success: false, error: "Categoria é obrigatória." };
         }
 
         const { error } = await supabase
@@ -1559,7 +1565,9 @@ export async function createQuickReply(formData: FormData) {
             .insert([{
                 shortcut,
                 category,
-                content,
+                content: content ?? "",
+                media_url: media?.url ?? null,
+                media_type: media?.type ?? null,
                 tenant_id: tenantId
             }]);
 
@@ -1574,6 +1582,23 @@ export async function createQuickReply(formData: FormData) {
     } catch (error: any) {
         return { success: false, error: error.message };
     }
+}
+
+// Sobe a imagem/arquivo de uma resposta rapida no Storage e devolve url + tipo.
+async function uploadQuickReplyMedia(supabase: any, tenantId: string, file: File | null): Promise<{ url: string; type: string } | null> {
+    if (!file || typeof file === 'string' || !(file as any).arrayBuffer || file.size === 0) return null;
+    const safe = file.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const fileName = `${tenantId}/quick-replies/${Date.now()}_${safe}`;
+    const buf = Buffer.from(await file.arrayBuffer());
+    const { error } = await supabase.storage.from('crm-media').upload(fileName, buf, {
+        contentType: file.type || 'application/octet-stream', upsert: false,
+    });
+    if (error) { console.error("upload quick reply media:", error); return null; }
+    const url = supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
+    const type = file.type.startsWith('image/') ? 'image'
+        : file.type.startsWith('video/') ? 'video'
+        : file.type.startsWith('audio/') ? 'audio' : 'document';
+    return { url, type };
 }
 
 export async function deleteQuickReply(id: string) {
@@ -1621,17 +1646,107 @@ export async function updateQuickReply(id: string, formData: FormData) {
     const shortcut = formData.get('shortcut') as string;
     const category = formData.get('category') as string;
     const content = formData.get('content') as string;
+    const file = formData.get('file') as File | null;
+    const removeMedia = formData.get('removeMedia') === 'true';
+
+    const tenantId = await getTenantId();
+    const patch: any = { shortcut, category, content: content ?? "" };
+    const media = await uploadQuickReplyMedia(supabase, tenantId, file);
+    if (media) {
+        patch.media_url = media.url;
+        patch.media_type = media.type;
+    } else if (removeMedia) {
+        patch.media_url = null;
+        patch.media_type = null;
+    }
 
     const { error } = await supabase
         .from('quick_replies')
-        .update({ shortcut, category, content })
-        .eq('id', id);
+        .update(patch)
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
 
     if (error) return { success: false, error: error.message };
 
     revalidatePath('/settings');
     revalidatePath('/');
     return { success: true };
+}
+
+// Envia uma midia que JA esta no Storage (ex: imagem de resposta rapida) pelo
+// WhatsApp, sem re-upload. Reusa a instancia conectada e registra a mensagem.
+export async function sendStoredMedia(opts: {
+    phone: string; dealId: string; contactId?: string;
+    mediaUrl: string; mediaType: string; caption?: string; fileName?: string; force?: boolean;
+}) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        const evolutionUrl = process.env.EVOLUTION_API_URL!;
+        const evolutionToken = process.env.EVOLUTION_API_TOKEN!;
+
+        let userId: string | undefined;
+        try { const ssr = await createSupabaseServerClient(); userId = (await ssr.auth.getUser()).data.user?.id; } catch { /* */ }
+        const instanceName = await resolveSendInstanceName(supabase, tenantId, userId ?? "");
+        if (!instanceName) return { success: false, error: "Nenhum WhatsApp conectado disponível." };
+
+        // Trava de divergencia de numero (igual sendMessage/sendMedia).
+        if (!opts.force && opts.dealId) {
+            const established = (await getConversationInstances(supabase, opts.dealId)).current;
+            if (established && established !== instanceName) {
+                const [current, wouldUse] = await Promise.all([
+                    describeInstance(supabase, tenantId, established),
+                    describeInstance(supabase, tenantId, instanceName),
+                ]);
+                return { success: false, needsConfirmation: true, current, wouldUse };
+            }
+        }
+
+        const cleanPhone = normalizeBrazilPhone(opts.phone);
+        const mt = opts.mediaType;
+        let endpoint: string; let body: any;
+        if (mt === 'audio') {
+            endpoint = `${evolutionUrl}/message/sendWhatsAppAudio/${encodeURIComponent(instanceName)}`;
+            body = { number: cleanPhone, audio: opts.mediaUrl };
+        } else {
+            endpoint = `${evolutionUrl}/message/sendMedia/${encodeURIComponent(instanceName)}`;
+            body = { number: cleanPhone, mediatype: mt, caption: opts.caption || "", media: opts.mediaUrl, fileName: opts.fileName || "arquivo" };
+        }
+
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "apikey": evolutionToken },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(45000),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            const evoMsg = Array.isArray(err?.response?.message) ? err.response.message.join("; ") : (err?.response?.message || err?.message || `HTTP ${response.status}`);
+            return { success: false, error: `Evolution recusou o envio: ${evoMsg}` };
+        }
+        const evolutionData = await response.json();
+
+        const { data: insertedRow } = await supabase.from("messages").insert({
+            deal_id: opts.dealId,
+            contact_id: opts.contactId,
+            direction: "outbound",
+            type: mt === 'audio' ? 'audio' : mt,
+            content: mt === 'audio' ? "" : (opts.caption || ""),
+            media_url: opts.mediaUrl,
+            status: "sent",
+            created_at: new Date().toISOString(),
+            tenant_id: tenantId,
+            instance_name: instanceName,
+            evolution_message_id: evolutionData?.key?.id ?? null,
+        }).select("id").single();
+
+        return { success: true, data: evolutionData, messageId: insertedRow?.id ?? null, evolutionMessageId: evolutionData?.key?.id ?? null };
+    } catch (error: any) {
+        const friendly = error?.name === "TimeoutError" || error?.name === "AbortError"
+            ? "O envio demorou demais e foi cancelado. Tente de novo."
+            : error.message;
+        return { success: false, error: friendly };
+    }
 }
 
 // Acha a etapa terminal (is_won ou is_lost) do MESMO funil do deal, para mover o

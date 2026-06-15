@@ -1,9 +1,9 @@
 "use client";
 
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createQuickReply, updateQuickReply, deleteQuickReply } from "../app/actions";
-import { Plus, Trash2, Zap, Search, Edit2, X, MessageSquare, Tag, Folder } from "lucide-react";
+import { Plus, Trash2, Zap, Search, Edit2, X, MessageSquare, Tag, Folder, Image as ImageIcon } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -12,6 +12,8 @@ interface QuickReply {
     shortcut: string;
     category: string;
     content: string;
+    media_url?: string | null;
+    media_type?: string | null;
 }
 
 interface QuickReplyManagerProps {
@@ -30,6 +32,10 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
     const [category, setCategory] = useState("");
     const [content, setContent] = useState("");
     const [loading, setLoading] = useState(false);
+    // Midia (imagem/arquivo) da resposta
+    const [file, setFile] = useState<File | null>(null);
+    const [mediaPreview, setMediaPreview] = useState<string | null>(null); // url existente ou objectURL novo
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Get unique categories for suggestions
     const existingCategories = Array.from(new Set(replies.map(r => r.category))).sort();
@@ -57,6 +63,8 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
         setShortcut("");
         setCategory("");
         setContent("");
+        setFile(null);
+        setMediaPreview(null);
         setIsModalOpen(true);
     }
 
@@ -65,12 +73,29 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
         setShortcut(reply.shortcut);
         setCategory(reply.category);
         setContent(reply.content);
+        setFile(null);
+        setMediaPreview(reply.media_url ?? null);
         setIsModalOpen(true);
     }
 
+    function handlePickImage(e: React.ChangeEvent<HTMLInputElement>) {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        if (f.size > 16 * 1024 * 1024) { toast.warning("Imagem muito grande (máximo 16MB)"); return; }
+        setFile(f);
+        setMediaPreview(URL.createObjectURL(f));
+    }
+
+    function removeImage() {
+        setFile(null);
+        setMediaPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+
     async function handleSave() {
-        if (!content.trim() || !category.trim()) {
-            toast.warning("Conteudo e Categoria sao obrigatorios");
+        // Conteudo OU imagem e obrigatorio (resposta pode ser so imagem).
+        if ((!content.trim() && !file && !mediaPreview) || !category.trim()) {
+            toast.warning("Informe a Categoria e ao menos um texto ou imagem");
             return;
         }
 
@@ -79,45 +104,33 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
         formData.append("shortcut", shortcut);
         formData.append("category", category);
         formData.append("content", content);
+        if (file) formData.append("file", file);
+        // Editando e removeu a imagem que existia (sem subir nova).
+        if (editingId && !file && !mediaPreview) formData.append("removeMedia", "true");
 
         try {
             if (editingId) {
-                // UPDATE
-                const updatedReplies = replies.map(r =>
-                    r.id === editingId ? { ...r, shortcut, category, content } : r
-                );
-                setReplies(updatedReplies); // Optimistic
-
                 const result = await updateQuickReply(editingId, formData);
                 if (!result.success) {
                     toast.error("Erro ao atualizar", result.error);
-                    setReplies(replies); // Rollback
                 } else {
                     setIsModalOpen(false);
+                    toast.success("Resposta atualizada");
+                    setTimeout(() => window.location.reload(), 300); // reflete a midia salva
                 }
             } else {
-                // CREATE
-                const tempReply = {
-                    id: "temp-" + Date.now(),
-                    shortcut,
-                    category,
-                    content
-                };
-                setReplies([...replies, tempReply]); // Optimistic
-
                 const result = await createQuickReply(formData);
                 if (result.success) {
                     setIsModalOpen(false);
-                    // In real app, revalidate would fetch real data. 
-                    // For now keeping optimistic data is okay or we rely on page refresh
+                    toast.success("Resposta criada");
+                    setTimeout(() => window.location.reload(), 300);
                 } else {
                     toast.error("Erro ao criar", result.error);
-                    setReplies(replies); // Rollback
                 }
             }
         } catch (error) {
             console.error("Erro:", error);
-            setReplies(replies);
+            toast.error("Erro ao salvar");
         } finally {
             setLoading(false);
         }
@@ -202,8 +215,13 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
                                         </div>
 
                                         {/* Content Column */}
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed">{reply.content}</p>
+                                        <div className="flex-1 min-w-0 flex items-start gap-3">
+                                            {reply.media_url && (
+                                                <img src={reply.media_url} alt="" className="w-12 h-12 rounded object-cover border border-gray-200 shrink-0" />
+                                            )}
+                                            <p className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed flex-1 min-w-0">
+                                                {reply.content || (reply.media_url ? <span className="text-gray-400 italic">📷 Imagem</span> : "")}
+                                            </p>
                                         </div>
 
                                         {/* Actions Column */}
@@ -278,7 +296,7 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Conteúdo</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Conteúdo {mediaPreview && <span className="text-gray-400 font-normal">(legenda da imagem, opcional)</span>}</label>
                                 <div className="relative">
                                     <MessageSquare className="absolute left-3 top-3 text-gray-400" size={16} />
                                     <textarea
@@ -311,6 +329,39 @@ export default function QuickReplyManager({ initialReplies }: QuickReplyManagerP
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            {/* Imagem (opcional) */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Imagem (opcional)</label>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handlePickImage}
+                                />
+                                {mediaPreview ? (
+                                    <div className="relative inline-block">
+                                        <img src={mediaPreview} alt="Prévia" className="max-h-40 rounded-lg border border-gray-200" />
+                                        <button
+                                            type="button"
+                                            onClick={removeImage}
+                                            className="absolute -top-2 -right-2 bg-rose-500 hover:bg-rose-600 text-white rounded-full p-1 shadow"
+                                            title="Remover imagem"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-lg py-4 text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-colors text-sm"
+                                    >
+                                        <ImageIcon size={18} /> Anexar imagem
+                                    </button>
+                                )}
                             </div>
 
                             <button

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, Fragment } from "react";
-import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio, importWhatsappHistory } from "../app/actions";
+import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio, importWhatsappHistory, sendStoredMedia } from "../app/actions";
 import { createClient } from "@/utils/supabase/client";
 import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Mic, Check, CheckCheck, Clock, ChevronDown, Trash2, AlertCircle, RotateCw, ImageOff, History } from "lucide-react";
 import NotesPanel from "./NotesPanel";
@@ -95,7 +95,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     // e a confirmacao quando o numero que vai responder diverge.
     const [numberInfo, setNumberInfo] = useState<any>(null);
     const [pendingConfirm, setPendingConfirm] = useState<{ text: string; current: any; wouldUse: any } | null>(null);
-    const [pendingMediaConfirm, setPendingMediaConfirm] = useState<{ file: File; current: any; wouldUse: any } | null>(null);
+    const [pendingMediaConfirm, setPendingMediaConfirm] = useState<{ file?: File; quickReply?: any; current: any; wouldUse: any } | null>(null);
     const [transcribingId, setTranscribingId] = useState<string | null>(null);
 
     const [importingHistory, setImportingHistory] = useState(false);
@@ -493,9 +493,55 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         });
     }
 
-    function handleQuickReply(content: string) {
-        setNewMessage(renderTemplate(content));
+    function handleQuickReply(reply: any) {
+        // Resposta com imagem -> envia a midia (texto vira legenda). So texto -> preenche o campo.
+        if (reply?.media_url) {
+            sendQuickReplyMedia(reply, false);
+            return;
+        }
+        setNewMessage(renderTemplate(reply?.content ?? ""));
         inputRef.current?.focus();
+    }
+
+    // Envia a imagem/midia de uma resposta rapida (ja esta no Storage), com o
+    // texto renderizado como legenda. Bolha otimista + reconciliacao + falha.
+    async function sendQuickReplyMedia(reply: any, force: boolean) {
+        if (!deal.contacts?.phone) return;
+        const mediaType = reply.media_type || 'image';
+        const caption = reply.content ? renderTemplate(reply.content) : "";
+        const tempId = "temp-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+        setMessages(curr => [...curr, {
+            id: tempId, content: mediaType === 'audio' ? '' : caption, direction: 'outbound', status: 'sending',
+            created_at: new Date().toISOString(), type: mediaType, media_url: reply.media_url,
+        }]);
+        setIsSending(true);
+        setTimeout(() => scrollToBottomIfNear(true), 100);
+        try {
+            const result: any = await sendStoredMedia({
+                phone: deal.contacts.phone, dealId: deal.id, contactId: deal.contacts.id || deal.contact_id,
+                mediaUrl: reply.media_url, mediaType, caption, fileName: "imagem", force,
+            });
+            if (result?.needsConfirmation) {
+                setMessages(curr => curr.filter(m => m.id !== tempId));
+                setPendingMediaConfirm({ quickReply: reply, current: result.current, wouldUse: result.wouldUse });
+                return;
+            }
+            if (!result?.success) {
+                setMessages(curr => curr.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
+                toast.error(result?.error || "Falha ao enviar resposta");
+                return;
+            }
+            if (result.messageId) {
+                setMessages(curr => curr.map(m => m.id === tempId
+                    ? { ...m, id: result.messageId, status: 'sent', evolution_message_id: result.evolutionMessageId ?? null }
+                    : m));
+            }
+        } catch (e: any) {
+            setMessages(curr => curr.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
+            toast.error(e?.message || "Falha ao enviar resposta");
+        } finally {
+            setIsSending(false);
+        }
     }
 
     const filteredReplies = selectedCategory === "Todos"
@@ -864,12 +910,12 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                         {filteredReplies.map((reply: any) => (
                                             <button
                                                 key={reply.id}
-                                                onClick={() => handleQuickReply(reply.content)}
+                                                onClick={() => handleQuickReply(reply)}
                                                 className="text-xs px-3 py-1.5 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all flex items-center gap-1 whitespace-nowrap"
-                                                title={reply.content}
+                                                title={reply.content || (reply.media_url ? "Enviar imagem" : "")}
                                             >
-                                                <Zap size={10} className="text-yellow-500" />
-                                                {reply.shortcut}
+                                                {reply.media_url ? <Paperclip size={10} className="text-blue-500" /> : <Zap size={10} className="text-yellow-500" />}
+                                                {reply.shortcut || (reply.media_url ? "Imagem" : "")}
                                             </button>
                                         ))}
                                     </div>
@@ -941,7 +987,12 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                 Cancelar
                             </button>
                             <button
-                                onClick={() => { const f = pendingMediaConfirm.file; setPendingMediaConfirm(null); sendFileMessage(f, true); }}
+                                onClick={() => {
+                                    const pm = pendingMediaConfirm;
+                                    setPendingMediaConfirm(null);
+                                    if (pm.quickReply) sendQuickReplyMedia(pm.quickReply, true);
+                                    else if (pm.file) sendFileMessage(pm.file, true);
+                                }}
                                 className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
                             >
                                 Enviar mesmo assim
