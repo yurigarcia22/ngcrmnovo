@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
     CheckSquare, Square, Clock, AlarmClock, Calendar,
     Plus, X, Trash2, Repeat, Flame, ChevronRight, ChevronLeft,
-    AlertTriangle, Sun, CalendarDays, Trophy, List,
+    AlertTriangle, Sun, CalendarDays, Trophy, List, MessageSquare,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
@@ -136,8 +136,9 @@ export function MeuDiaClient({ initialTasks }: Props) {
             reload();
             return;
         }
-        toast.success(t.is_recurring ? "Concluída + próxima ocorrência criada" : "Tarefa concluída");
-        if (t.is_recurring) reload(); // realtime nao tem aqui — força refresh pra mostrar a próxima
+        // Usa o nextCreated REAL retornado (antes prometia "próxima ocorrência" sempre).
+        toast.success(res.nextCreated ? "Concluída + próxima ocorrência criada" : "Tarefa concluída");
+        if (res.nextCreated) reload(); // força refresh pra mostrar a próxima
     }
 
     async function handleDelete(t: Task) {
@@ -382,6 +383,15 @@ function TaskRow({
                         ) : (
                             <span>· {linkedName}</span>
                         )
+                    )}
+                    {task.deals?.id && (
+                        <Link
+                            href={`/chat?dealId=${task.deals.id}`}
+                            className="inline-flex items-center gap-1 text-emerald-600 hover:underline"
+                            title="Abrir conversa no WhatsApp"
+                        >
+                            <MessageSquare className="w-3 h-3" /> Conversa
+                        </Link>
                     )}
                 </div>
             </div>

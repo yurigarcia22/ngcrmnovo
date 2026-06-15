@@ -889,6 +889,7 @@ export async function removeDealMember(memberId: string) {
 // MEETING RESCHEDULE ACTION
 export async function rescheduleTask(taskId: string, newDate: string) {
     try {
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
@@ -896,7 +897,8 @@ export async function rescheduleTask(taskId: string, newDate: string) {
         const { error } = await supabase
             .from("tasks")
             .update({ due_date: newDate })
-            .eq("id", taskId);
+            .eq("id", taskId)
+            .eq("tenant_id", tenantId);
 
         if (error) throw error;
         return { success: true };
@@ -1424,11 +1426,22 @@ export async function createTask(dealId: string | null, description: string, due
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
+        // Resolve o usuario logado via cookie (o client service-role nao tem sessao).
+        // Sem assigned_to, a tarefa NUNCA aparecia no Meu Dia (que filtra por assigned_to).
+        const cookieStore = await cookies();
+        const ssrClient = createServerClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            { cookies: { getAll() { return cookieStore.getAll() }, setAll() { } } }
+        );
+        const { data: { user } } = await ssrClient.auth.getUser();
+
         const payload: any = {
             description: description,
             due_date: dueDate,
             is_completed: false,
-            tenant_id: tenantId
+            tenant_id: tenantId,
+            assigned_to: user?.id ?? null,
         };
 
         if (dealId) payload.deal_id = dealId;
@@ -1442,19 +1455,11 @@ export async function createTask(dealId: string | null, description: string, due
 
         if (error) throw error;
 
-        // Schedule Notifications
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user && newTask) {
-            // We need to import this function at top of file
-            // await scheduleTaskNotifications(newTask.id, user.id, dueDate, tenantId);
-            // Since I can't easily add import with replace_file_content in one go if I don't see top, I will handle import separately or assume I can add it if I knew line 1.
-            // Wait, I can't add import here easily without reading top. I will add the call here and then add import at top.
+        if (user?.id && newTask) {
             await scheduleTaskNotifications(newTask.id, user.id, dueDate, tenantId);
         }
 
         return { success: true };
-
-
     } catch (error: any) {
         console.error("createTask Error:", error);
         return { success: false, error: error.message };
@@ -1493,6 +1498,7 @@ export async function updateTask(taskId: string, description: string, dueDate: s
 
 export async function toggleTask(taskId: string, isCompleted: boolean) {
     try {
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
@@ -1500,7 +1506,8 @@ export async function toggleTask(taskId: string, isCompleted: boolean) {
         const { error } = await supabase
             .from("tasks")
             .update({ is_completed: isCompleted })
-            .eq("id", taskId);
+            .eq("id", taskId)
+            .eq("tenant_id", tenantId);
 
         if (error) throw error;
         return { success: true };
@@ -1512,6 +1519,7 @@ export async function toggleTask(taskId: string, isCompleted: boolean) {
 
 export async function deleteTask(taskId: string) {
     try {
+        const tenantId = await getTenantId();
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
         const supabase = createClient(supabaseUrl, supabaseKey);
@@ -1519,7 +1527,8 @@ export async function deleteTask(taskId: string) {
         const { error } = await supabase
             .from("tasks")
             .delete()
-            .eq("id", taskId);
+            .eq("id", taskId)
+            .eq("tenant_id", tenantId);
 
         if (error) throw error;
         return { success: true };
@@ -2786,6 +2795,14 @@ export async function completeTask(taskId: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
+        // Le a task antes (precisamos dos campos de recorrencia + contexto).
+        const { data: task } = await supabase
+            .from("tasks")
+            .select("due_date, is_recurring, recurrence_pattern, recurrence_until, assigned_to, deal_id, cold_lead_id, priority, description, title")
+            .eq("id", taskId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+
         const { error } = await supabase
             .from("tasks")
             .update({ is_completed: true })
@@ -2793,7 +2810,39 @@ export async function completeTask(taskId: string) {
             .eq("tenant_id", tenantId);
 
         if (error) throw error;
-        return { success: true };
+
+        // Gera a proxima ocorrencia se a task for recorrente (antes a UI dizia
+        // "proxima ocorrencia criada" mas nada era gerado).
+        let nextCreated = false;
+        if (task?.is_recurring && task.recurrence_pattern && task.due_date) {
+            const next = new Date(task.due_date);
+            if (task.recurrence_pattern === "daily") next.setDate(next.getDate() + 1);
+            else if (task.recurrence_pattern === "weekly") next.setDate(next.getDate() + 7);
+            else if (task.recurrence_pattern === "monthly") next.setMonth(next.getMonth() + 1);
+
+            const withinUntil = !task.recurrence_until || next <= new Date(task.recurrence_until);
+            if (withinUntil) {
+                const payload: any = {
+                    tenant_id: tenantId,
+                    description: task.description,
+                    title: task.title ?? null,
+                    due_date: next.toISOString(),
+                    is_completed: false,
+                    assigned_to: task.assigned_to ?? null,
+                    priority: task.priority ?? "normal",
+                    is_recurring: true,
+                    recurrence_pattern: task.recurrence_pattern,
+                    recurrence_until: task.recurrence_until ?? null,
+                };
+                if (task.deal_id) payload.deal_id = task.deal_id;
+                if (task.cold_lead_id) payload.cold_lead_id = task.cold_lead_id;
+                const { error: insErr } = await supabase.from("tasks").insert(payload);
+                if (!insErr) nextCreated = true;
+                else console.error("Erro ao gerar proxima ocorrencia:", insErr.message);
+            }
+        }
+
+        return { success: true, nextCreated };
     } catch (error: any) {
         console.error("completeTask Error:", error);
         return { success: false, error: error.message };
