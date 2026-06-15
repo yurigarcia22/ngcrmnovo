@@ -306,11 +306,12 @@ serve(async (req) => {
     }
 
     // --- 5. Busca ou Cria Contato (Scoped by Tenant) ---
-    // Normaliza para formato canonico BR: sempre 13 chars com nono digito.
-    // Telefones do BR sem o "9" (12 chars) sao reescritos para 13.
+    // Normaliza para canonico BR. SO adiciona o nono digito em CELULAR (1o digito
+    // do assinante 6-9). Fixo (2-5, ex: numero de loja no WhatsApp Business) tem 8
+    // digitos e NAO leva o 9 — adicionar quebrava o numero.
     let canonicalPhone = phone;
-    if (phone.startsWith('55') && phone.length === 12) {
-      // 55 + DDD + 8 digitos -> 55 + DDD + "9" + 8 digitos
+    if (phone.startsWith('55') && phone.length === 12 && /^[6-9]/.test(phone.substring(4))) {
+      // 55 + DDD + 8 digitos (celular sem o 9) -> insere o 9
       canonicalPhone = phone.substring(0, 4) + '9' + phone.substring(4);
     }
 

@@ -19,25 +19,33 @@ export function cleanPhoneDigits(input: string): string {
  * Retorna o telefone no formato canonico (13 chars com 9) quando possivel.
  * Se nao for um numero BR reconhecivel, retorna o input limpo (so digitos).
  */
+// Celular BR: 1o digito do assinante e 6-9 (em geral 9). Fixo: 2-5 (8 digitos,
+// SEM o nono digito). So adicionamos o "9" em CELULAR — fixo no WhatsApp Business
+// (ex: numero de loja) tem 8 digitos e adicionar 9 quebrava o envio.
+function isMobileSubscriber(sub: string): boolean {
+    return /^[6-9]/.test(sub);
+}
+
 export function normalizeToCanonical(input: string): string {
     const digits = cleanPhoneDigits(input);
 
-    // 11 digitos: assume Brasil sem o "55" (DDD + 9 + 8 digitos)
+    // 11 digitos: BR sem "55" (DDD + 9 + 8) -> ja e celular com 9.
     if (digits.length === 11) return "55" + digits;
 
-    // 10 digitos: numero antigo sem o "9". Adiciona "55" e o "9".
+    // 10 digitos: DDD + 8. Celular antigo (sem 9) ganha o 9; fixo mantem 8.
     if (digits.length === 10) {
         const ddd = digits.substring(0, 2);
         const rest = digits.substring(2);
-        return "55" + ddd + "9" + rest;
+        return isMobileSubscriber(rest) ? "55" + ddd + "9" + rest : "55" + ddd + rest;
     }
 
-    // 13 chars comecando com 55: ja canonico
+    // 13 chars com 55: ja canonico (celular com 9).
     if (digits.length === 13 && digits.startsWith("55")) return digits;
 
-    // 12 chars comecando com 55: 55 + DDD + 8 digitos (faltando o "9")
+    // 12 chars com 55: 55 + DDD + 8. Celular sem 9 -> adiciona; FIXO -> mantem.
     if (digits.length === 12 && digits.startsWith("55")) {
-        return digits.substring(0, 4) + "9" + digits.substring(4);
+        const sub = digits.substring(4); // 8 digitos do assinante
+        return isMobileSubscriber(sub) ? digits.substring(0, 4) + "9" + digits.substring(4) : digits;
     }
 
     return digits;
@@ -54,11 +62,11 @@ export function getPossibleVariants(input: string): string[] {
     set.add(canonical);
     set.add(digits);
 
-    // Sem 55 prefix
-    if (canonical.length === 13 && canonical.startsWith("55")) {
+    // Sem 55 prefix (celular 13 ou fixo 12)
+    if (canonical.startsWith("55") && (canonical.length === 13 || canonical.length === 12)) {
         set.add(canonical.substring(2));
     }
-    // Sem o "9" (caso legacy)
+    // Sem o "9" (caso legacy de celular)
     if (canonical.length === 13 && canonical[4] === "9") {
         set.add(canonical.substring(0, 4) + canonical.substring(5));
     }
