@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useRef, Fragment } from "react";
-import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio } from "../app/actions";
+import { sendMessage, sendMedia, getMessages, getConversationNumberInfo, transcribeMessageAudio, importWhatsappHistory } from "../app/actions";
 import { createClient } from "@/utils/supabase/client";
-import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Mic, Check, CheckCheck, Clock, ChevronDown, Trash2, AlertCircle, RotateCw, ImageOff } from "lucide-react";
+import { Send, Paperclip, FileText, Download, StickyNote, CalendarCheck, Zap, Loader2, Mic, Check, CheckCheck, Clock, ChevronDown, Trash2, AlertCircle, RotateCw, ImageOff, History } from "lucide-react";
 import NotesPanel from "./NotesPanel";
 import TasksPanel from "./TasksPanel";
 import { toast } from "@/lib/toast";
@@ -97,6 +97,29 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
     const [pendingConfirm, setPendingConfirm] = useState<{ text: string; current: any; wouldUse: any } | null>(null);
     const [pendingMediaConfirm, setPendingMediaConfirm] = useState<{ file: File; current: any; wouldUse: any } | null>(null);
     const [transcribingId, setTranscribingId] = useState<string | null>(null);
+
+    const [importingHistory, setImportingHistory] = useState(false);
+
+    async function handleImportHistory() {
+        if (importingHistory || !deal?.contacts?.phone) return;
+        setImportingHistory(true);
+        try {
+            const res = await importWhatsappHistory(deal.id, deal.contacts.phone);
+            if (res.success) {
+                if ((res.imported ?? 0) > 0) {
+                    toast.success(`${res.imported} mensagem(ns) do WhatsApp importada(s)`);
+                    const r = await getMessages(deal.id);
+                    if (r.success && r.data) setMessages(r.data);
+                } else {
+                    toast.info("Nenhuma mensagem nova encontrada no WhatsApp");
+                }
+            } else {
+                toast.error(res.error || "Falha ao importar histórico");
+            }
+        } finally {
+            setImportingHistory(false);
+        }
+    }
 
     // Gravacao de audio (nota de voz)
     const [isRecording, setIsRecording] = useState(false);
@@ -492,6 +515,14 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                     </div>
 
                     <div className="flex items-center gap-1">
+                        <button
+                            onClick={handleImportHistory}
+                            disabled={importingHistory}
+                            className="p-2 rounded-full text-gray-500 hover:bg-gray-200 transition-all disabled:opacity-50"
+                            title="Importar histórico do WhatsApp"
+                        >
+                            {importingHistory ? <Loader2 size={20} className="animate-spin" /> : <History size={20} />}
+                        </button>
                         <button
                             onClick={() => setActivePanel(activePanel === 'notes' ? 'none' : 'notes')}
                             className={`p-2 rounded-full transition-all ${activePanel === 'notes' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-200'}`}

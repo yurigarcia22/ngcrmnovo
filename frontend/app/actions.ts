@@ -2115,7 +2115,7 @@ export async function startConversationForPhone(phone: string, name?: string) {
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-        if (deal?.id) return { success: true, dealId: deal.id };
+        if (deal?.id) return { success: true, dealId: deal.id, contactId };
 
         // 3. Cria conversa nova na etapa de entrada do funil padrao
         const { data: inboxStageRpc } = await admin.rpc("get_tenant_inbox_stage", { p_tenant_id: tenantId });
@@ -2144,10 +2144,137 @@ export async function startConversationForPhone(phone: string, name?: string) {
             .single();
         if (dErr || !newDeal) return { success: false, error: "Erro ao criar conversa." };
 
-        return { success: true, dealId: newDeal.id };
+        return { success: true, dealId: newDeal.id, contactId };
     } catch (e: any) {
         console.error("startConversationForPhone Error:", e);
         return { success: false, error: e.message };
+    }
+}
+
+// Importa o historico de mensagens do WhatsApp (via Evolution) para uma conversa
+// do CRM. Usado ao abrir/criar uma conversa de um lead que ja conversava no zap.
+// Idempotente: dedupe por evolution_message_id. created_at vem do timestamp real
+// da mensagem, entao o historico aparece na ordem cronologica correta.
+export async function importWhatsappHistory(dealId: string, phone: string) {
+    try {
+        const tenantId = await getTenantId();
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+
+        // Confirma que o deal e do tenant e pega o contato.
+        const { data: dealRow } = await admin
+            .from("deals").select("id, contact_id").eq("id", dealId).eq("tenant_id", tenantId).maybeSingle();
+        if (!dealRow) return { success: false, error: "Conversa não encontrada." };
+        const contactId = dealRow.contact_id;
+
+        // Instancia conectada para este usuario/tenant.
+        let userId: string | undefined;
+        try {
+            const ssr = await createSupabaseServerClient();
+            const { data: { user } } = await ssr.auth.getUser();
+            userId = user?.id;
+        } catch { /* ignore */ }
+        const instanceName = await resolveSendInstanceName(admin, tenantId, userId ?? "");
+        if (!instanceName) return { success: false, error: "Nenhum WhatsApp conectado.", imported: 0 };
+
+        const evolutionUrl = process.env.EVOLUTION_API_URL!;
+        const evolutionToken = process.env.EVOLUTION_API_TOKEN!;
+
+        // O WhatsApp usa o numero SEM o 9o digito em muitos casos (jid de 12 chars).
+        // Tentamos ambos os formatos + o cru.
+        const digits = String(phone || "").replace(/\D/g, "");
+        const canonical = normalizeToCanonical(phone).replace(/\D/g, "");
+        const jidSet = new Set<string>();
+        for (const d of [canonical, digits]) {
+            if (d) jidSet.add(d);
+            if (d.length === 13 && d[4] === '9') jidSet.add(d.slice(0, 4) + d.slice(5)); // remove 9o digito
+        }
+        const jids = [...jidSet].map(d => `${d}@s.whatsapp.net`);
+
+        // Busca mensagens na Evolution para cada jid candidato (cap de seguranca).
+        const MAX = 500;
+        const records: any[] = [];
+        for (const jid of jids) {
+            if (records.length >= MAX) break;
+            try {
+                const r = await fetch(`${evolutionUrl}/chat/findMessages/${encodeURIComponent(instanceName)}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "apikey": evolutionToken },
+                    body: JSON.stringify({ where: { key: { remoteJid: jid } } }),
+                    signal: AbortSignal.timeout(30000),
+                });
+                if (!r.ok) continue;
+                const j = await r.json();
+                const recs = j?.messages?.records ?? j?.records ?? [];
+                if (Array.isArray(recs) && recs.length > 0) records.push(...recs);
+            } catch (e) {
+                console.error("findMessages erro:", e);
+            }
+        }
+        if (records.length === 0) return { success: true, imported: 0 };
+
+        // Ja existentes (dedupe por evolution_message_id) nesta conversa/tenant.
+        const { data: existingRows } = await admin
+            .from("messages").select("evolution_message_id").eq("tenant_id", tenantId).eq("deal_id", dealId);
+        const existingIds = new Set((existingRows ?? []).map((m: any) => m.evolution_message_id).filter(Boolean));
+
+        // Extrai conteudo/tipo de cada mensagem do historico (midia vira marcador
+        // de texto — o arquivo antigo do WhatsApp normalmente ja expirou).
+        const extract = (rec: any): { type: string; content: string } => {
+            const m = rec?.message || {};
+            if (m.conversation) return { type: "text", content: m.conversation };
+            if (m.extendedTextMessage?.text) return { type: "text", content: m.extendedTextMessage.text };
+            if (m.imageMessage) return { type: "text", content: m.imageMessage.caption ? `📷 ${m.imageMessage.caption}` : "📷 Imagem" };
+            if (m.videoMessage) return { type: "text", content: m.videoMessage.caption ? `🎥 ${m.videoMessage.caption}` : "🎥 Vídeo" };
+            if (m.audioMessage) return { type: "text", content: "🎤 Áudio" };
+            if (m.documentMessage) return { type: "text", content: `📄 ${m.documentMessage.fileName || "Documento"}` };
+            if (m.stickerMessage) return { type: "text", content: "🩷 Figurinha" };
+            if (m.locationMessage) return { type: "text", content: "📍 Localização" };
+            return { type: "text", content: "[Mensagem]" };
+        };
+
+        const rows: any[] = [];
+        for (const rec of records) {
+            const evoId = rec?.key?.id;
+            if (!evoId || existingIds.has(evoId)) continue;
+            existingIds.add(evoId); // evita duplicar entre jids
+            const ts = Number(rec?.messageTimestamp || 0);
+            if (!ts) continue;
+            const createdAt = new Date(ts * 1000).toISOString();
+            const fromMe = !!rec?.key?.fromMe;
+            const { type, content } = extract(rec);
+            if (!content) continue;
+            rows.push({
+                deal_id: dealId,
+                contact_id: contactId,
+                evolution_message_id: evoId,
+                direction: fromMe ? "outbound" : "inbound",
+                type,
+                content,
+                status: fromMe ? "sent" : "read",
+                read_at: fromMe ? null : createdAt, // historico inbound ja foi lido
+                created_at: createdAt,
+                tenant_id: tenantId,
+                instance_name: instanceName,
+            });
+        }
+        if (rows.length === 0) return { success: true, imported: 0 };
+
+        // Insere em lotes, ignorando duplicatas pelo indice unico.
+        let imported = 0;
+        for (let i = 0; i < rows.length; i += 100) {
+            const chunk = rows.slice(i, i + 100);
+            const { error } = await admin.from("messages").insert(chunk);
+            if (!error) imported += chunk.length;
+            else console.error("Erro ao importar lote de historico:", error.message);
+        }
+
+        return { success: true, imported };
+    } catch (e: any) {
+        console.error("importWhatsappHistory Error:", e);
+        return { success: false, error: e.message, imported: 0 };
     }
 }
 

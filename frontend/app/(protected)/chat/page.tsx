@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/query-keys';
-import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact, markDealMessagesRead } from '@/app/actions';
+import { getConversations, getTeamMembers, getWhatsappInstances, promoteToLead, checkOngoingDeals, updateContact, deleteContact, markDealMessagesRead, startConversationForPhone, importWhatsappHistory } from '@/app/actions';
 import ChatWindow from '@/components/ChatWindow';
 import ChatContactPanel from '@/components/chat/ChatContactPanel';
 import { createClient } from '@/utils/supabase/client';
@@ -138,6 +138,43 @@ export default function ChatPage() {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteWithDeal, setDeleteWithDeal] = useState(true);
 
+    // Nova conversa (botao + no topo da lista)
+    const [showNewConversation, setShowNewConversation] = useState(false);
+    const [newConvPhone, setNewConvPhone] = useState("");
+    const [newConvName, setNewConvName] = useState("");
+    const [creatingConv, setCreatingConv] = useState(false);
+    // Apos criar/abrir uma conversa, seleciona-la quando aparecer na lista.
+    const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+
+    async function handleCreateConversation() {
+        const digits = newConvPhone.replace(/\D/g, "");
+        if (digits.length < 10) { toast.error("Telefone inválido"); return; }
+        setCreatingConv(true);
+        try {
+            const res = await startConversationForPhone(newConvPhone, newConvName.trim() || undefined);
+            if (res.success && res.dealId) {
+                setShowNewConversation(false);
+                const phoneUsed = newConvPhone;
+                const dealId = res.dealId;
+                setNewConvPhone(""); setNewConvName("");
+                setSelectedDeal(null);
+                setPendingSelectId(dealId);
+                await queryClient.invalidateQueries({ queryKey: qk.conversations.list() });
+                // Puxa o historico do WhatsApp (se a conversa ja rolava no zap).
+                importWhatsappHistory(dealId, phoneUsed).then((imp) => {
+                    if (imp?.success && (imp.imported ?? 0) > 0) {
+                        toast.success(`${imp.imported} mensagem(ns) do WhatsApp importada(s)`);
+                        queryClient.invalidateQueries({ queryKey: qk.conversations.list() });
+                    }
+                });
+            } else {
+                toast.error(res.error || "Erro ao iniciar conversa");
+            }
+        } finally {
+            setCreatingConv(false);
+        }
+    }
+
     // Carrega user atual
     useEffect(() => {
         supabase.auth.getSession().then(({ data: session }) => {
@@ -171,6 +208,13 @@ export default function ChatPage() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversations]); // Only run when list changes, not when selectedDeal changes (to break loop)
+
+    // Apos criar uma conversa nova, seleciona-la assim que aparecer na lista.
+    useEffect(() => {
+        if (!pendingSelectId) return;
+        const found = conversations.find(c => c.id === pendingSelectId);
+        if (found) { setSelectedDeal(found); setPendingSelectId(null); }
+    }, [pendingSelectId, conversations]);
 
     // Handle URL Deep Link
     useEffect(() => {
@@ -465,14 +509,72 @@ export default function ChatPage() {
                 </div>
             )}
 
+            {/* New Conversation Modal */}
+            {showNewConversation && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white p-6 rounded-2xl shadow-xl w-[400px] space-y-4">
+                        <div className="flex items-center gap-3 text-blue-600">
+                            <div className="p-3 bg-blue-100 rounded-full"><MessageSquare size={22} /></div>
+                            <h3 className="text-lg font-bold text-gray-800">Nova conversa</h3>
+                        </div>
+                        <p className="text-gray-500 text-sm">
+                            Informe o número do WhatsApp. Se já houver conversa com esse número, o histórico do WhatsApp é puxado automaticamente.
+                        </p>
+                        <div className="space-y-2">
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Telefone (com DDD)</label>
+                                <input
+                                    autoFocus
+                                    value={newConvPhone}
+                                    onChange={(e) => setNewConvPhone(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' && !creatingConv) handleCreateConversation(); }}
+                                    placeholder="Ex: (37) 99999-9999"
+                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-gray-50 font-mono"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nome (opcional)</label>
+                                <input
+                                    value={newConvName}
+                                    onChange={(e) => setNewConvName(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' && !creatingConv) handleCreateConversation(); }}
+                                    placeholder="Nome do contato"
+                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-gray-50"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex gap-3 justify-end pt-1">
+                            <button
+                                onClick={() => setShowNewConversation(false)}
+                                disabled={creatingConv}
+                                className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleCreateConversation}
+                                disabled={creatingConv}
+                                className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-semibold shadow-md shadow-blue-200 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                            >
+                                {creatingConv ? 'Abrindo...' : 'Abrir conversa'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* LEFT SIDEBAR: Conversations List */}
             <div className="w-[400px] border-r border-gray-200 flex flex-col bg-white transition-all">
                 {/* Header */}
                 <div className="h-16 px-4 bg-gray-50 flex items-center justify-between shrink-0 border-b border-gray-200">
                     <h1 className="text-xl font-bold text-gray-700">Conversas</h1>
-                    <div className="flex gap-3 text-gray-500">
-                        <MessageSquare className="cursor-pointer hover:text-blue-600 transition-colors" />
-                    </div>
+                    <button
+                        onClick={() => { setNewConvPhone(""); setNewConvName(""); setShowNewConversation(true); }}
+                        className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-3 py-2 rounded-lg shadow-sm transition-colors"
+                        title="Nova conversa"
+                    >
+                        <Plus size={16} /> Nova
+                    </button>
                 </div>
 
                 {/* Filters & Search */}
