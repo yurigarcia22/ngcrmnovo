@@ -46,6 +46,8 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
     const [tempName, setTempName] = useState(contact?.name ?? "");
     const [editingEmail, setEditingEmail] = useState(false);
     const [tempEmail, setTempEmail] = useState(contact?.email ?? "");
+    const [editingPhone, setEditingPhone] = useState(false);
+    const [tempPhone, setTempPhone] = useState(contact?.phone ?? "");
 
     // Notes
     const [notes, setNotes] = useState<string>(contact?.notes ?? "");
@@ -127,6 +129,29 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
             toast.error("Erro: " + res.error);
         }
         setEditingEmail(false);
+    }
+
+    async function savePhone() {
+        const digits = tempPhone.replace(/\D/g, "");
+        if (digits.length < 10) {
+            toast.error("Telefone inválido (mínimo 10 dígitos com DDD)");
+            return;
+        }
+        // Normaliza pro formato canonico BR (55 + DDD + numero).
+        let canonical = digits;
+        if (!canonical.startsWith("55")) canonical = "55" + canonical;
+        if (canonical === (contact?.phone ?? "").replace(/\D/g, "")) {
+            setEditingPhone(false);
+            return;
+        }
+        const res = await updateContact(contact.id, { phone: canonical });
+        if (res.success) {
+            onContactUpdated?.({ phone: canonical });
+            toast.success("Telefone atualizado");
+        } else {
+            toast.error("Erro: " + res.error);
+        }
+        setEditingPhone(false);
     }
 
     async function saveNotes() {
@@ -280,10 +305,33 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                         </button>
                     )}
 
-                    {/* Phone */}
-                    <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                        <Phone size={11} />
-                        <span className="font-mono">{contact?.phone ?? ""}</span>
+                    {/* Phone (editavel) */}
+                    <div className="mt-0.5">
+                        {editingPhone ? (
+                            <div className="flex items-center gap-1">
+                                <Phone size={11} className="text-gray-400 shrink-0" />
+                                <input
+                                    value={tempPhone}
+                                    onChange={(e) => setTempPhone(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") savePhone(); if (e.key === "Escape") setEditingPhone(false); }}
+                                    autoFocus
+                                    type="tel"
+                                    placeholder="55 DDD nº"
+                                    className="w-40 px-2 py-1 border border-blue-300 rounded text-center text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                />
+                                <button onMouseDown={savePhone} className="p-1 bg-emerald-500 text-white rounded"><Check size={12} /></button>
+                                <button onMouseDown={() => setEditingPhone(false)} className="p-1 bg-gray-200 text-gray-600 rounded"><X size={12} /></button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => { setTempPhone(contact?.phone ?? ""); setEditingPhone(true); }}
+                                className="group flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                            >
+                                <Phone size={11} />
+                                <span className="font-mono">{contact?.phone || "+ adicionar telefone"}</span>
+                                <Pencil size={9} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                        )}
                     </div>
 
                     {/* Email */}
