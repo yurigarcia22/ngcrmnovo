@@ -436,7 +436,7 @@ serve(async (req) => {
     // --- 6. Busca ou Cria Deal (Roteamento Multi-Agente) ---
     let { data: deal } = await supabase
       .from('deals')
-      .select('id, owner_id')
+      .select('id, owner_id, resolved_at')
       .eq('contact_id', contactId)
       .eq('status', 'open')
       .eq('tenant_id', tenantId)
@@ -445,6 +445,8 @@ serve(async (req) => {
       .maybeSingle();
 
     let dealId = deal?.id;
+    // A conversa estava resolvida e o lead mandou mensagem? -> reabriu (avisa diferente).
+    const reopened = !isFromMe && !!deal?.resolved_at;
 
     // fromMe sem conversa aberta: ignora (nao cria deal a partir de mensagem que saiu).
     if (isFromMe && !dealId) {
@@ -588,11 +590,15 @@ serve(async (req) => {
           : contentType === 'video' ? '[Vídeo]'
           : '[Mídia]';
         const nowIso = new Date().toISOString();
+        // Se a conversa estava RESOLVIDA, o lead a reabriu -> aviso destacado.
+        const title = reopened
+          ? `🔄 ${pushName} reabriu a conversa`
+          : `Nova mensagem de ${pushName}`;
         await supabase.from('notifications').insert({
           user_id: ownerId,
           related_lead_id: dealId,
-          kind: 'message',
-          title: `Nova mensagem de ${pushName}`,
+          kind: reopened ? 'reopened' : 'message',
+          title,
           message: preview,
           scheduled_for: nowIso,
           sent_at: nowIso,
