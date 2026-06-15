@@ -71,8 +71,6 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
     const [scheduleAt, setScheduleAt] = useState("");
     const [scheduling, setScheduling] = useState(false);
 
-    // Status menu
-    const [showStatusMenu, setShowStatusMenu] = useState(false);
 
     // Foto de perfil do WhatsApp expira (CDN da Meta com TTL).
     // Marca como falha e mostra fallback ao inves do alt literal.
@@ -160,7 +158,6 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
         const res = await setDealResolved(deal.id, resolved);
         if (res.success) {
             toast.success(resolved ? "Conversa marcada como resolvida" : "Conversa reaberta");
-            setShowStatusMenu(false);
             onChange?.({ resolved_at: resolved ? new Date().toISOString() : null });
         } else {
             toast.error(res.error ?? "Erro");
@@ -181,7 +178,6 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
         const iso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
         setScheduleAt(iso);
         setShowSchedule(true);
-        setShowStatusMenu(false);
     }
 
     async function doSchedule() {
@@ -456,60 +452,13 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                             onClick={() => setShowSnooze(true)}
                             active={!!deal.snoozed_until && new Date(deal.snoozed_until).getTime() > Date.now()}
                         />
-                        <div className="relative">
-                            <QuickAction
-                                icon={<CheckCircle2 size={13} />}
-                                label={deal.resolved_at ? "Status: ✓" : "Status"}
-                                onClick={() => setShowStatusMenu(!showStatusMenu)}
-                                active={!!deal.resolved_at || showStatusMenu}
-                            />
-                            {showStatusMenu && (
-                                <>
-                                    <button
-                                        onClick={() => setShowStatusMenu(false)}
-                                        className="fixed inset-0 z-30 cursor-default"
-                                        tabIndex={-1}
-                                        aria-label="Fechar menu"
-                                    />
-                                    <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-xl z-40 py-1 animate-in fade-in slide-in-from-top-1">
-                                        {!deal.resolved_at ? (
-                                            <>
-                                                <button
-                                                    onClick={() => openSchedule({ desc: "Retornar conversa", hoursAhead: 2 })}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-blue-50 text-gray-700"
-                                                >
-                                                    <Clock size={13} className="text-blue-500" />
-                                                    Marcar para retornar
-                                                </button>
-                                                <button
-                                                    onClick={() => openSchedule({ desc: "Follow-up", hoursAhead: 24 })}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-amber-50 text-gray-700"
-                                                >
-                                                    <Calendar size={13} className="text-amber-500" />
-                                                    Agendar follow-up
-                                                </button>
-                                                <div className="my-1 border-t border-gray-100" />
-                                                <button
-                                                    onClick={() => doResolve(true)}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-emerald-50 text-gray-700"
-                                                >
-                                                    <CheckCircle2 size={13} className="text-emerald-500" />
-                                                    Marcar como resolvida
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                onClick={() => doResolve(false)}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"
-                                            >
-                                                <CheckCircle2 size={13} className="text-gray-400" />
-                                                Reabrir conversa
-                                            </button>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </div>
+                        <QuickAction
+                            icon={<CheckCircle2 size={13} />}
+                            label={deal.resolved_at ? "Reabrir" : "Resolver"}
+                            onClick={() => doResolve(!deal.resolved_at)}
+                            active={!!deal.resolved_at}
+                            tone="success"
+                        />
                     </div>
                 </div>
 
@@ -702,14 +651,17 @@ function StatCard({ icon, label, value, sub }: {
     );
 }
 
-function QuickAction({ icon, label, onClick, active }: {
-    icon: React.ReactNode; label: string; onClick: () => void; active?: boolean;
+function QuickAction({ icon, label, onClick, active, tone = "default" }: {
+    icon: React.ReactNode; label: string; onClick: () => void; active?: boolean; tone?: "default" | "success";
 }) {
+    const activeCls = tone === "success"
+        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+        : "bg-blue-50 text-blue-700 border-blue-200";
     return (
         <button
             onClick={onClick}
             className={`flex items-center justify-center gap-1.5 px-2 py-2 text-[11px] font-semibold rounded-md border transition-colors ${active
-                ? "bg-blue-50 text-blue-700 border-blue-200"
+                ? activeCls
                 : "bg-white hover:bg-gray-50 text-gray-600 border-gray-200"
                 }`}
         >
