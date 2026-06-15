@@ -186,21 +186,20 @@ serve(async (req) => {
       const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
       if (!evoUrl || !evoToken || !instanceName) return null;
 
-      // FALLBACK: se nao veio inline, busca via API. Quando a mensagem chega, a
-      // Evolution as vezes ainda nao terminou de baixar a midia -> tenta algumas vezes.
+      // Passamos SO a key: a Evolution carrega a mensagem completa (com mediaKey) do
+      // store DELA e descriptografa. Passar o data.message "fresco" do payload falhava
+      // porque vem sem a mediaKey. Retry da tempo de a Evolution baixar/persistir a midia.
       const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
-      const ATTEMPTS = 4;
-      for (let i = 0; i < ATTEMPTS; i++) {
+      const backoffs = [0, 2000, 3000, 4000, 5000]; // 1a tentativa imediata, depois espera
+      for (let i = 0; i < backoffs.length; i++) {
+        if (backoffs[i] > 0) await sleep(backoffs[i]);
         try {
           const r = await fetch(
             `${evoUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', apikey: evoToken },
-              body: JSON.stringify({
-                message: { key: data.key, message: data.message },
-                convertToMp4: false,
-              }),
+              body: JSON.stringify({ message: { key: data.key }, convertToMp4: false }),
               signal: AbortSignal.timeout(20000),
             },
           );
@@ -209,13 +208,13 @@ serve(async (req) => {
             const base64 = j?.base64 ?? j?.data?.base64 ?? j?.media?.base64;
             const mimetype = j?.mimetype ?? j?.data?.mimetype ?? j?.media?.mimetype;
             if (base64 && typeof base64 === 'string') return { base64, mimetype };
+            console.error(`getBase64 tentativa ${i + 1}: ok mas sem base64`);
           } else {
-            console.error(`getBase64 tentativa ${i + 1}/${ATTEMPTS}: HTTP ${r.status}`);
+            console.error(`getBase64 tentativa ${i + 1}/${backoffs.length}: HTTP ${r.status}`);
           }
         } catch (e) {
-          console.error(`getBase64 tentativa ${i + 1}/${ATTEMPTS} erro:`, e);
+          console.error(`getBase64 tentativa ${i + 1}/${backoffs.length} erro:`, e);
         }
-        if (i < ATTEMPTS - 1) await sleep(1500 * (i + 1)); // backoff: 1.5s, 3s, 4.5s
       }
       return null;
     }
