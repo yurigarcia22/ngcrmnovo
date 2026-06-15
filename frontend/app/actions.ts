@@ -285,13 +285,13 @@ export async function sendMessage(phone: string, text: string, context: { dealId
         if (!url || !token) throw new Error("Configuração da Evolution API ausente.");
 
         // 6. Preparar Envio
+        // Sem presence "composing": broadcastar "digitando/online" marca o numero
+        // como ativo no WhatsApp e pode suprimir a notificacao no celular do operador.
         const cleanPhone = normalizeBrazilPhone(phone);
         const body = {
             number: cleanPhone,
             text: text,
             options: {
-                delay: 1200,
-                presence: "composing",
                 linkPreview: true
             }
         };
