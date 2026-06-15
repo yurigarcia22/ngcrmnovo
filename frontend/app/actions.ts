@@ -1634,50 +1634,76 @@ export async function updateQuickReply(id: string, formData: FormData) {
     return { success: true };
 }
 
+// Acha a etapa terminal (is_won ou is_lost) do MESMO funil do deal, para mover o
+// card pra coluna certa ao marcar Ganho/Perdido pelo menu (paridade com o drag).
+async function resolveTerminalStage(admin: any, tenantId: string, dealId: string, kind: 'won' | 'lost'): Promise<number | string | null> {
+    try {
+        const { data: deal } = await admin.from('deals').select('stage_id').eq('id', dealId).eq('tenant_id', tenantId).maybeSingle();
+        if (!deal?.stage_id) return null;
+        const { data: cur } = await admin.from('stages').select('pipeline_id').eq('id', deal.stage_id).maybeSingle();
+        if (!cur?.pipeline_id) return null;
+        const flag = kind === 'won' ? 'is_won' : 'is_lost';
+        const { data: term } = await admin.from('stages').select('id').eq('pipeline_id', cur.pipeline_id).eq(flag, true).limit(1).maybeSingle();
+        return term?.id ?? null;
+    } catch { return null; }
+}
+
 export async function markAsWon(dealId: string) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
 
-    const { error } = await supabase
-        .from('deals')
-        .update({
-            status: 'won',
-            closed_at: new Date().toISOString()
-        })
-        .eq('id', dealId);
+        const update: any = { status: 'won', closed_at: new Date().toISOString() };
+        const wonStageId = await resolveTerminalStage(supabase, tenantId, dealId, 'won');
+        if (wonStageId != null) update.stage_id = wonStageId; // move o card pra coluna Ganho
 
-    if (error) return { success: false, error: error.message };
+        const { error } = await supabase
+            .from('deals')
+            .update(update)
+            .eq('id', dealId)
+            .eq('tenant_id', tenantId);
 
-    revalidatePath('/');
-    return { success: true };
+        if (error) return { success: false, error: error.message };
+
+        revalidatePath('/'); revalidatePath('/leads');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
 }
 
 export async function markAsLost(dealId: string, reason?: string, details?: string, lossReasonId?: string) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
 
-    const updateData: any = {
-        status: 'lost',
-        closed_at: new Date().toISOString()
-    };
+        const updateData: any = { status: 'lost', closed_at: new Date().toISOString() };
+        if (reason) updateData.lost_reason = reason;
+        if (details) updateData.lost_details = details;
+        if (lossReasonId) updateData.lost_reason_id = lossReasonId;
 
-    if (reason) updateData.lost_reason = reason;
-    if (details) updateData.lost_details = details;
-    if (lossReasonId) updateData.lost_reason_id = lossReasonId;
+        const lostStageId = await resolveTerminalStage(supabase, tenantId, dealId, 'lost');
+        if (lostStageId != null) updateData.stage_id = lostStageId; // move o card pra coluna Perdido
 
-    const { error } = await supabase
-        .from('deals')
-        .update(updateData)
-        .eq('id', dealId);
+        const { error } = await supabase
+            .from('deals')
+            .update(updateData)
+            .eq('id', dealId)
+            .eq('tenant_id', tenantId);
 
-    if (error) return { success: false, error: error.message };
+        if (error) return { success: false, error: error.message };
 
-    revalidatePath('/');
-    return { success: true };
+        revalidatePath('/'); revalidatePath('/leads');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
 }
 
 export async function recoverDeal(dealId: string) {

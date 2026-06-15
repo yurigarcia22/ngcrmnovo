@@ -231,8 +231,6 @@ export default function LeadsPage() {
         const newStage = stages.find(s => Number(s.id) === newStageId);
         const isPromoting = oldStage?.is_inbox === true && newStage?.is_inbox === false;
 
-        console.log('Movendo Deal:', dealId, 'Para Estágio:', newStageId, isPromoting ? '[PROMOVIDO]' : '');
-
         // Optimistic UI: atualiza cache do React Query imediatamente
         const oldDeals = [...deals];
         patchBoardDeals((curr) => curr.map((deal: any) => {
@@ -247,13 +245,6 @@ export default function LeadsPage() {
         }));
 
         try {
-            const { data: session } = await supabase.auth.getSession();
-            console.log('DEBUG RLS:', {
-                user_id: session.session?.user.id,
-                deal_id: dealId,
-                new_stage: newStageId
-            });
-
             // Monta update payload
             const updatePayload: any = { stage_id: newStageId };
             if (isPromoting) {
@@ -272,9 +263,6 @@ export default function LeadsPage() {
                 .update(updatePayload)
                 .eq("id", dealId)
                 .select();
-
-            if (error) console.error('ERRO SUPABASE PURO:', error);
-            console.log('LINHAS AFETADAS:', data?.length);
 
             if (error) throw error;
 

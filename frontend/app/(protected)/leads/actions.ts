@@ -14,13 +14,21 @@ export async function getPipelines() {
 
         const { data, error } = await supabase
             .from("pipelines")
-            .select("*, stages(id, name, position)")
+            // is_inbox/is_won/is_lost/color sao usados pelo NewLeadModal para esconder
+            // Ganho/Perdido e escolher a etapa de entrada. Sem eles vinham undefined e
+            // o usuario conseguia criar lead direto em "Ganho"/"Perdido".
+            .select("*, stages(id, name, position, is_inbox, is_won, is_lost, color)")
             .eq("tenant_id", tenantId)
             .eq("kind", "deals")  // /leads so mostra funis de venda
             .order("created_at", { ascending: true });
 
         if (error) throw error;
-        return { success: true, data };
+        // Ordena as stages por position (o embed nao garante ordem).
+        const sorted = (data ?? []).map((p: any) => ({
+            ...p,
+            stages: (p.stages ?? []).slice().sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)),
+        }));
+        return { success: true, data: sorted };
     } catch (error: any) {
         return { success: false, error: error.message };
     }

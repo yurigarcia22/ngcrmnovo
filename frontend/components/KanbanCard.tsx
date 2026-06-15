@@ -254,6 +254,15 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
 
                     {/* Telefones */}
                     <div className="flex flex-col gap-1 mb-3">
+                        {/* Abrir conversa no chat interno do CRM (preserva historico/contexto) */}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); router.push(`/chat?dealId=${deal.id}`); }}
+                            className="inline-flex items-center gap-2 text-blue-700 hover:text-blue-900 w-fit"
+                            title="Abrir conversa no CRM"
+                        >
+                            <MessageCircle size={13} className="shrink-0" strokeWidth={2.5} />
+                            <span className="text-xs font-semibold">Abrir conversa</span>
+                        </button>
                         {deal.contacts?.phone && (
                             <a
                                 href={`https://wa.me/${String(deal.contacts.phone).replace(/\D/g,'')}`}
@@ -261,7 +270,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-2 text-emerald-700 hover:text-emerald-900"
-                                title="Abrir no WhatsApp"
+                                title="Abrir no WhatsApp externo"
                             >
                                 <Phone size={13} className="shrink-0" strokeWidth={2.5} />
                                 <span className="text-xs font-semibold tabular-nums">
