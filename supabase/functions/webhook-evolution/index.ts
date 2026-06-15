@@ -169,31 +169,42 @@ serve(async (req) => {
     // Mídia recebida via WhatsApp vem encriptada na URL crua do servidor da Meta.
     // Sem este passo, as bytes salvas no Storage ficam ilegíveis (imagens/áudios quebram).
     async function fetchDecryptedBase64(): Promise<{ base64: string; mimetype?: string } | null> {
-      try {
-        const evoUrl = Deno.env.get('EVOLUTION_API_URL');
-        const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
-        if (!evoUrl || !evoToken || !instanceName) return null;
-        const r = await fetch(
-          `${evoUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: evoToken },
-            body: JSON.stringify({
-              message: { key: data.key, message: data.message },
-              convertToMp4: false,
-            }),
-          },
-        );
-        if (!r.ok) return null;
-        const j = await r.json();
-        const base64 = j?.base64 ?? j?.data?.base64 ?? j?.media?.base64;
-        const mimetype = j?.mimetype ?? j?.data?.mimetype ?? j?.media?.mimetype;
-        if (!base64 || typeof base64 !== 'string') return null;
-        return { base64, mimetype };
-      } catch (e) {
-        console.error('fetchDecryptedBase64 erro:', e);
-        return null;
+      const evoUrl = Deno.env.get('EVOLUTION_API_URL');
+      const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
+      if (!evoUrl || !evoToken || !instanceName) return null;
+
+      // Quando a mensagem chega, a Evolution as vezes ainda nao terminou de baixar a
+      // midia do WhatsApp -> getBase64 falha. Tentamos algumas vezes com espera curta.
+      const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+      const ATTEMPTS = 4;
+      for (let i = 0; i < ATTEMPTS; i++) {
+        try {
+          const r = await fetch(
+            `${evoUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: evoToken },
+              body: JSON.stringify({
+                message: { key: data.key, message: data.message },
+                convertToMp4: false,
+              }),
+              signal: AbortSignal.timeout(20000),
+            },
+          );
+          if (r.ok) {
+            const j = await r.json();
+            const base64 = j?.base64 ?? j?.data?.base64 ?? j?.media?.base64;
+            const mimetype = j?.mimetype ?? j?.data?.mimetype ?? j?.media?.mimetype;
+            if (base64 && typeof base64 === 'string') return { base64, mimetype };
+          } else {
+            console.error(`getBase64 tentativa ${i + 1}/${ATTEMPTS}: HTTP ${r.status}`);
+          }
+        } catch (e) {
+          console.error(`getBase64 tentativa ${i + 1}/${ATTEMPTS} erro:`, e);
+        }
+        if (i < ATTEMPTS - 1) await sleep(1500 * (i + 1)); // backoff: 1.5s, 3s, 4.5s
       }
+      return null;
     }
 
     // --- Helper Upload Mídia ---

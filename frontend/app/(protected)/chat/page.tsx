@@ -64,9 +64,9 @@ export default function ChatPage() {
     const [filterOwner, setFilterOwner] = useState<string>("all");
     const [filterInstance, setFilterInstance] = useState<string>("all");
     // Filtro inicial vindo da URL (ex: dashboard manda /chat?filter=unanswered).
-    const [quickFilter, setQuickFilter] = useState<"all" | "unanswered" | "mine" | "today">(() => {
+    const [quickFilter, setQuickFilter] = useState<"all" | "unanswered" | "mine" | "today" | "resolved">(() => {
         const f = searchParams.get("filter");
-        return (f === "unanswered" || f === "mine" || f === "today") ? f : "all";
+        return (f === "unanswered" || f === "mine" || f === "today" || f === "resolved") ? f : "all";
     });
     const [currentUserId, setCurrentUserId] = useState<string>("");
 
@@ -79,10 +79,11 @@ export default function ChatPage() {
 
     // Conversas: query reativa a debouncedSearch/filterOwner
     // refetchInterval = rede de seguranca caso o realtime perca eventos.
+    const showResolved = quickFilter === "resolved";
     const conversationsQuery = useQuery({
-        queryKey: [...qk.conversations.list(), debouncedSearch, filterOwner],
+        queryKey: [...qk.conversations.list(), debouncedSearch, filterOwner, showResolved],
         queryFn: async () => {
-            const res = await getConversations(debouncedSearch, filterOwner);
+            const res = await getConversations(debouncedSearch, filterOwner, showResolved);
             if (!res.success) throw new Error(res.error ?? "Falha ao carregar conversas");
             return (res.data ?? []) as any[];
         },
@@ -622,6 +623,7 @@ export default function ChatPage() {
                             { key: "unanswered", label: "Sem resposta" },
                             { key: "mine", label: "Minhas" },
                             { key: "today", label: "Hoje" },
+                            { key: "resolved", label: "Resolvidas" },
                         ] as const).map((f) => {
                             const active = quickFilter === f.key;
                             return (
@@ -660,6 +662,8 @@ export default function ChatPage() {
                         conversations.filter((conv) => {
                             if (selectedInstanceName && conv.last_message?.instance_name !== selectedInstanceName) return false;
                             if (quickFilter === "all") return true;
+                            // "Resolvidas": o servidor ja retornou apenas as resolvidas.
+                            if (quickFilter === "resolved") return true;
                             if (quickFilter === "mine") {
                                 return currentUserId && conv.owner_id === currentUserId;
                             }

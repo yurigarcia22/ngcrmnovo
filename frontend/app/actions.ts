@@ -1997,7 +1997,7 @@ export async function getTeamMembers() {
     }
 }
 
-export async function getConversations(search?: string, ownerId?: string) {
+export async function getConversations(search?: string, ownerId?: string, showResolved?: boolean) {
     const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -2042,10 +2042,19 @@ export async function getConversations(search?: string, ownerId?: string) {
             // So a ULTIMA mensagem por conversa (antes trazia o historico inteiro de
             // ate 100 deals — dezenas de milhares de linhas a cada refetch de 20s).
             .order('created_at', { ascending: false, referencedTable: 'messages' })
-            .limit(1, { referencedTable: 'messages' })
-            // Oculta conversas resolvidas e adiadas (ate a hora do snooze).
-            .is('resolved_at', null)
-            .or(`snoozed_until.is.null,snoozed_until.lt.${nowIso}`)
+            .limit(1, { referencedTable: 'messages' });
+
+        if (showResolved) {
+            // Aba "Resolvidas": mostra SO as conversas marcadas como resolvidas.
+            query = query.not('resolved_at', 'is', null);
+        } else {
+            // Padrao: oculta resolvidas e adiadas (ate a hora do snooze).
+            query = query
+                .is('resolved_at', null)
+                .or(`snoozed_until.is.null,snoozed_until.lt.${nowIso}`);
+        }
+
+        query = query
             .order('updated_at', { ascending: false })
             .limit(100);
 
