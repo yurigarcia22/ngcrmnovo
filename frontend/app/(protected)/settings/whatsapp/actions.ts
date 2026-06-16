@@ -69,7 +69,12 @@ export async function getInstances() {
     }
 }
 
-export async function setupInstance(customName: string, ownerProfileId?: string) {
+export async function setupInstance(
+    customName: string,
+    ownerProfileId?: string,
+    method: "qr" | "code" = "qr",
+    phoneNumber?: string
+) {
     try {
         console.log("--- INICIANDO CONFIGURAÇÃO DA INSTÂNCIA ---");
         const tenantId = await getTenantId();
@@ -173,43 +178,111 @@ export async function setupInstance(customName: string, ownerProfileId?: string)
             console.log("-> Webhook configurado.");
         }
 
-        // 5. Obter QR Code
-        console.log("5. Buscando QR Code...");
-        const connectRes = await fetch(`${evolutionUrl}/instance/connect/${instanceName}`, {
-            method: "GET",
-            headers: { "apikey": evolutionToken }
-        });
+        // 5. Conectar (QR Code por padrao, ou codigo de pareamento)
+        console.log(`5. Conectando via ${method}...`);
+        const conn = await connectInstance(instanceName, { method, phoneNumber });
 
-        if (!connectRes.ok) {
-            const err = await connectRes.json();
-            console.error("ERRO ao buscar QR Code:", err);
-            throw new Error("Falha ao gerar QR Code.");
+        if (!conn.success) {
+            throw new Error(conn.error || "Falha ao gerar a conexão.");
         }
 
-        const connectData = await connectRes.json();
-        const qrCode = connectData.base64 || connectData.qrcode?.base64;
-
-        if (!qrCode) {
-            // Verifica se já conectou nesse meio tempo
-            const statusCheck = await refreshInstanceStatus(instanceName);
-            if (statusCheck.status === 'connected') {
-                // Atualiza status no banco
-                await supabaseAdmin.from("whatsapp_instances").update({ status: 'connected' }).eq('instance_name', instanceName);
-                return { success: true, instanceName, status: 'connected' };
-            }
-            throw new Error("API não retornou o QR Code.");
+        if (conn.status === 'connected') {
+            await supabaseAdmin
+                .from("whatsapp_instances")
+                .update({ status: 'connected' })
+                .eq('instance_name', instanceName);
+            return { success: true, instanceName, status: 'connected' };
         }
 
         revalidatePath('/settings/whatsapp');
         return {
             success: true,
             instanceName,
-            qrCode,
-            status: 'waiting_qr'
+            qrCode: conn.qrCode,
+            pairingCode: conn.pairingCode,
+            status: conn.status ?? 'waiting_qr'
         };
 
     } catch (error: any) {
         console.error("setupInstance EXCEPTION:", error);
+        return { success: false, error: error.message || "Erro desconhecido." };
+    }
+}
+
+/**
+ * Conecta (ou reconecta) uma instancia ja existente na Evolution.
+ *   method 'qr'   -> retorna { qrCode } (base64) para escanear
+ *   method 'code' -> retorna { pairingCode } (8 digitos) para digitar no celular
+ *
+ * O codigo de pareamento exige o numero completo (DDI+DDD+numero), pois o
+ * WhatsApp gera o codigo vinculado aquele numero especifico.
+ */
+export async function connectInstance(
+    instanceName: string,
+    opts?: { method?: "qr" | "code"; phoneNumber?: string }
+): Promise<{
+    success: boolean;
+    qrCode?: string;
+    pairingCode?: string;
+    status?: string;
+    error?: string;
+}> {
+    try {
+        const evolutionUrl = process.env.EVOLUTION_API_URL;
+        const evolutionToken = process.env.EVOLUTION_API_TOKEN;
+        if (!evolutionUrl || !evolutionToken) {
+            throw new Error("Configuração da Evolution API ausente (URL ou Token).");
+        }
+
+        const method = opts?.method ?? "qr";
+        let url = `${evolutionUrl}/instance/connect/${instanceName}`;
+
+        if (method === "code") {
+            const digits = (opts?.phoneNumber ?? "").replace(/\D/g, "");
+            // Precisa do numero completo: DDI(2) + DDD(2) + numero(8/9) = 12 ou 13.
+            if (digits.length < 12 || digits.length > 13) {
+                throw new Error(
+                    "Informe o número completo com DDI e DDD. Ex: 5531999999999"
+                );
+            }
+            url += `?number=${digits}`;
+        }
+
+        const res = await fetch(url, {
+            method: "GET",
+            headers: { apikey: evolutionToken },
+        });
+
+        if (!res.ok) {
+            // Pode ja estar conectado — confere antes de falhar.
+            const st = await refreshInstanceStatus(instanceName);
+            if (st.status === "connected") return { success: true, status: "connected" };
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.message || "Falha ao gerar a conexão.");
+        }
+
+        const data = await res.json();
+        const qrCode = data.base64 || data.qrcode?.base64 || null;
+        const pairingCode = data.pairingCode || data.qrcode?.pairingCode || null;
+
+        if (method === "code") {
+            if (!pairingCode) {
+                const st = await refreshInstanceStatus(instanceName);
+                if (st.status === "connected") return { success: true, status: "connected" };
+                throw new Error("A API não retornou o código. Tente novamente em alguns segundos.");
+            }
+            return { success: true, pairingCode, status: "waiting_code" };
+        }
+
+        if (!qrCode) {
+            const st = await refreshInstanceStatus(instanceName);
+            if (st.status === "connected") return { success: true, status: "connected" };
+            throw new Error("A API não retornou o QR Code.");
+        }
+
+        return { success: true, qrCode, status: "waiting_qr" };
+    } catch (error: any) {
+        console.error("connectInstance EXCEPTION:", error);
         return { success: false, error: error.message || "Erro desconhecido." };
     }
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { setupInstance, deleteInstance, refreshInstanceStatus, setInstancePurpose } from "./actions";
-import { Loader2, Smartphone, Plus, Trash2, User, RefreshCw, X, QrCode as QrIcon, Briefcase, Megaphone, Boxes } from "lucide-react";
+import { setupInstance, deleteInstance, refreshInstanceStatus, setInstancePurpose, connectInstance } from "./actions";
+import { Loader2, Smartphone, Plus, Trash2, RefreshCw, X, QrCode as QrIcon, Briefcase, Megaphone, Boxes, KeyRound, Copy, Check, ArrowLeft, Plug } from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useRouter } from "next/navigation";
@@ -33,6 +33,12 @@ interface WhatsAppSettingsClientProps {
     teamMembers: TeamMember[];
 }
 
+interface Connection {
+    instanceName: string;
+    qrCode?: string;
+    pairingCode?: string;
+}
+
 export default function WhatsAppSettingsClient({
     initialInstances,
     teamMembers
@@ -47,17 +53,18 @@ export default function WhatsAppSettingsClient({
     const [newConnectionName, setNewConnectionName] = useState("");
     const [selectedMemberId, setSelectedMemberId] = useState("");
 
-    // Modal de QR Code
-    const [qrCodeData, setQrCodeData] = useState<string | null>(null);
-    const [qrInstanceName, setQrInstanceName] = useState<string | null>(null);
+    // Modal de Conexao (QR + Codigo)
+    const [connection, setConnection] = useState<Connection | null>(null);
+    const [connView, setConnView] = useState<"qr" | "code">("qr");
+    const [connPhone, setConnPhone] = useState("");
+    const [connLoading, setConnLoading] = useState(false);
+    const [copied, setCopied] = useState(false);
 
-    // --- REAL-TIME STATUS CHECK (NEW) ---
+    // --- REAL-TIME STATUS CHECK ---
     useEffect(() => {
         const checkStatuses = async () => {
-            // Itera sobre as instâncias para verificar status real
             const updatedInstances = await Promise.all(instances.map(async (inst) => {
                 const res = await refreshInstanceStatus(inst.instance_name);
-                // Se mudou status ou trouxemos dados novos (fone/foto)
                 if (res.success && (res.status !== inst.status || res.phoneNumber !== inst.phone_number || res.profilePicUrl !== inst.profile_pic_url)) {
                     return {
                         ...inst,
@@ -69,7 +76,6 @@ export default function WhatsAppSettingsClient({
                 return inst;
             }));
 
-            // Verifica se houve mudança para evitar re-render desnecessário
             const hasChanged = JSON.stringify(updatedInstances) !== JSON.stringify(instances);
             if (hasChanged) {
                 setInstances(updatedInstances);
@@ -81,25 +87,50 @@ export default function WhatsAppSettingsClient({
         }
     }, []); // Run once on mount
 
+    // --- POLLING enquanto o modal de conexao esta aberto ---
+    useEffect(() => {
+        if (!connection) return;
+        const target = connection.instanceName;
+        const id = setInterval(async () => {
+            const res = await refreshInstanceStatus(target);
+            if (res.success && res.status === "connected") {
+                clearInterval(id);
+                toast.success("WhatsApp conectado com sucesso!");
+                window.location.reload();
+            }
+        }, 3000);
+        return () => clearInterval(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [connection?.instanceName]);
+
     // Helper para formatar telefone
     const formatPhone = (phone: string | undefined) => {
         if (!phone) return "";
-        // +55 31 9999-9999
         if (phone.length === 12 || phone.length === 13) {
             return `+${phone.slice(0, 2)} ${phone.slice(2, 4)} ${phone.slice(4, 8)}-${phone.slice(8)}`;
         }
         return `+${phone}`;
     }
 
+    // Formata o codigo de pareamento (8 chars -> XXXX-XXXX)
+    const formatPairing = (code: string) =>
+        code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+
     async function handleSubmitNew(e: React.FormEvent) {
         e.preventDefault();
         setLoading(true);
         try {
+            // Cria a instancia e ja gera o QR Code (metodo padrao).
             const result = await setupInstance(newConnectionName, selectedMemberId || undefined);
-            if (result.success && result.qrCode) {
-                setQrCodeData(result.qrCode);
-                setQrInstanceName(result.instanceName || null);
-                setIsAddModalOpen(false); // Fecha formulário
+            if (result.success && (result.qrCode || result.pairingCode)) {
+                setConnection({
+                    instanceName: result.instanceName || "",
+                    qrCode: result.qrCode,
+                    pairingCode: result.pairingCode,
+                });
+                setConnView("qr");
+                setConnPhone("");
+                setIsAddModalOpen(false);
             } else if (result.success && result.status === 'connected') {
                 toast.success("Conectado com sucesso!");
                 window.location.reload();
@@ -111,6 +142,73 @@ export default function WhatsAppSettingsClient({
         } finally {
             setLoading(false);
         }
+    }
+
+    // Abre o modal de conexao para uma instancia ja existente (reconectar).
+    async function handleReconnect(instance: Instance) {
+        setConnection({ instanceName: instance.instance_name });
+        setConnView("qr");
+        setConnPhone(instance.phone_number || "");
+        setConnLoading(true);
+        try {
+            const res = await connectInstance(instance.instance_name, { method: "qr" });
+            if (res.success && res.qrCode) {
+                setConnection({ instanceName: instance.instance_name, qrCode: res.qrCode });
+            } else if (res.success && res.status === "connected") {
+                toast.success("Esta conexão já está ativa!");
+                window.location.reload();
+            } else {
+                toast.error(res.error || "Erro ao gerar QR Code.");
+            }
+        } catch {
+            toast.error("Erro ao conectar.");
+        } finally {
+            setConnLoading(false);
+        }
+    }
+
+    // Gera o codigo de pareamento (8 digitos) para o numero informado.
+    async function handleGenerateCode() {
+        if (!connection) return;
+        const digits = connPhone.replace(/\D/g, "");
+        if (digits.length < 12 || digits.length > 13) {
+            toast.error("Digite o número completo com DDI e DDD. Ex: 5531999999999");
+            return;
+        }
+        setConnLoading(true);
+        try {
+            const res = await connectInstance(connection.instanceName, {
+                method: "code",
+                phoneNumber: digits,
+            });
+            if (res.success && res.pairingCode) {
+                setConnection({ ...connection, pairingCode: res.pairingCode });
+            } else if (res.success && res.status === "connected") {
+                toast.success("Conectado com sucesso!");
+                window.location.reload();
+            } else {
+                toast.error(res.error || "Erro ao gerar o código.");
+            }
+        } catch {
+            toast.error("Erro ao gerar o código.");
+        } finally {
+            setConnLoading(false);
+        }
+    }
+
+    function copyCode() {
+        if (!connection?.pairingCode) return;
+        navigator.clipboard.writeText(connection.pairingCode).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        });
+    }
+
+    function closeConnection() {
+        setConnection(null);
+        setConnView("qr");
+        setConnPhone("");
+        setCopied(false);
     }
 
     async function handleDelete(instanceName: string) {
@@ -266,13 +364,22 @@ export default function WhatsAppSettingsClient({
                         </div>
 
                         {instance.status !== 'connected' && (
-                            <button
-                                onClick={() => window.location.reload()}
-                                className="w-full py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center justify-center gap-2"
-                            >
-                                <RefreshCw size={14} />
-                                Atualizar Status
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => handleReconnect(instance)}
+                                    className="flex-1 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                                >
+                                    <Plug size={14} />
+                                    Conectar
+                                </button>
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="py-2 px-3 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center justify-center gap-2"
+                                    title="Atualizar status"
+                                >
+                                    <RefreshCw size={14} />
+                                </button>
+                            </div>
                         )}
                     </div>
                 ))}
@@ -330,30 +437,128 @@ export default function WhatsAppSettingsClient({
                                 className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70"
                             >
                                 {loading ? <Loader2 className="animate-spin" /> : <QrIcon size={20} />}
-                                Gerar QR Code
+                                Conectar WhatsApp
                             </button>
                         </form>
                     </div>
                 </div>
             )}
 
-            {/* Modal QR Code */}
-            {qrCodeData && (
+            {/* Modal de Conexão (QR Code + Código) */}
+            {connection && (
                 <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-sm p-8 text-center shadow-2xl">
-                        <h2 className="text-xl font-bold text-gray-800 mb-2">Escaneie o QR Code</h2>
-                        <p className="text-gray-500 mb-6 text-sm">Abra o WhatsApp no seu celular → Configurações → Aparelhos conectados → Conectar aparelho.</p>
-
-                        <div className="bg-white p-2 border rounded-lg inline-block mb-6">
-                            <img src={qrCodeData} alt="QR Code" className="w-64 h-64 object-contain" />
-                        </div>
-
+                    <div className="bg-white rounded-xl w-full max-w-sm p-7 text-center shadow-2xl relative">
                         <button
-                            onClick={() => window.location.reload()}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium"
+                            onClick={closeConnection}
+                            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
                         >
-                            Concluído
+                            <X size={22} />
                         </button>
+
+                        {/* ===== VIEW: QR CODE ===== */}
+                        {connView === "qr" && (
+                            <>
+                                <h2 className="text-xl font-bold text-gray-800 mb-2">Escaneie o QR Code</h2>
+                                <p className="text-gray-500 mb-5 text-sm">
+                                    Abra o WhatsApp no celular → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b>.
+                                </p>
+
+                                <div className="bg-white p-2 border rounded-lg inline-block mb-5 min-h-[272px] min-w-[272px] flex items-center justify-center">
+                                    {connection.qrCode ? (
+                                        <img src={connection.qrCode} alt="QR Code" className="w-64 h-64 object-contain" />
+                                    ) : (
+                                        <Loader2 className="animate-spin text-gray-400" size={40} />
+                                    )}
+                                </div>
+
+                                {/* Opção embaixo: conectar via código */}
+                                <button
+                                    onClick={() => setConnView("code")}
+                                    className="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 py-3 rounded-lg font-medium flex items-center justify-center gap-2 mb-3"
+                                >
+                                    <KeyRound size={18} />
+                                    Não consigo ler o QR — conectar via código
+                                </button>
+
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium"
+                                >
+                                    Concluído
+                                </button>
+                            </>
+                        )}
+
+                        {/* ===== VIEW: CÓDIGO ===== */}
+                        {connView === "code" && (
+                            <>
+                                <h2 className="text-xl font-bold text-gray-800 mb-2">Conectar via código</h2>
+
+                                {!connection.pairingCode ? (
+                                    <>
+                                        <p className="text-gray-500 mb-5 text-sm">
+                                            Digite o número do WhatsApp que você vai conectar (com DDI e DDD).
+                                        </p>
+                                        <input
+                                            type="tel"
+                                            inputMode="numeric"
+                                            placeholder="Ex: 5531999999999"
+                                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-center text-lg font-mono tracking-wide focus:ring-2 focus:ring-green-500 focus:outline-none mb-2"
+                                            value={connPhone}
+                                            onChange={e => setConnPhone(e.target.value)}
+                                        />
+                                        <p className="text-xs text-gray-400 mb-5">
+                                            DDI (55) + DDD + número. Sem espaços ou símbolos.
+                                        </p>
+                                        <button
+                                            onClick={handleGenerateCode}
+                                            disabled={connLoading}
+                                            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-70 mb-3"
+                                        >
+                                            {connLoading ? <Loader2 className="animate-spin" size={18} /> : <KeyRound size={18} />}
+                                            Gerar código
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-gray-500 mb-5 text-sm">
+                                            No WhatsApp do celular: <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> →
+                                            {" "}<b>Conectar com número de telefone</b> e digite o código abaixo.
+                                        </p>
+
+                                        <button
+                                            onClick={copyCode}
+                                            title="Clique para copiar"
+                                            className="w-full bg-gray-900 hover:bg-black text-white rounded-xl py-5 mb-2 flex items-center justify-center gap-3 transition-colors"
+                                        >
+                                            <span className="text-3xl font-mono font-bold tracking-[0.3em]">
+                                                {formatPairing(connection.pairingCode)}
+                                            </span>
+                                            {copied ? <Check size={20} className="text-green-400" /> : <Copy size={18} className="opacity-70" />}
+                                        </button>
+                                        <p className="text-xs text-gray-400 mb-5">
+                                            O código expira em alguns minutos. Se não funcionar, gere um novo.
+                                        </p>
+
+                                        <button
+                                            onClick={() => setConnection({ ...connection, pairingCode: undefined })}
+                                            className="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-lg font-medium mb-3"
+                                        >
+                                            Gerar novo código
+                                        </button>
+                                    </>
+                                )}
+
+                                {/* Voltar para o QR */}
+                                <button
+                                    onClick={() => setConnView("qr")}
+                                    className="w-full text-gray-500 hover:text-gray-700 py-2 text-sm font-medium flex items-center justify-center gap-1"
+                                >
+                                    <ArrowLeft size={14} />
+                                    Voltar para o QR Code
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
