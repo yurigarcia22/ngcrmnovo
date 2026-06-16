@@ -153,9 +153,14 @@ export default function ColdCallPage() {
         } catch { return null; }
     });
 
-    // Quando funis carregam pela primeira vez, escolhe default se nenhum esta selecionado
+    // Escolhe o funil default quando os funis carregam. Tambem corrige o caso do
+    // id salvo no localStorage ser de OUTRO tenant (ou nao existir mais): antes
+    // travava em "Carregando funil..." pra sempre porque o id setado nao batia
+    // com nenhum funil da lista.
     useEffect(() => {
-        if (!coldPipelines.length || selectedColdPipelineId) return;
+        if (!coldPipelines.length) return;
+        const exists = coldPipelines.some((p: any) => String(p.id) === String(selectedColdPipelineId));
+        if (selectedColdPipelineId && exists) return;
         const def = coldPipelines.find((p: any) => p.is_default) ?? coldPipelines[0];
         if (def) setSelectedColdPipelineId(def.id);
     }, [coldPipelines, selectedColdPipelineId]);
