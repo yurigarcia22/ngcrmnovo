@@ -210,12 +210,54 @@ export async function setupInstance(
 }
 
 /**
+ * Reaplica o webhook de uma instancia (usado apos recriar para o codigo de
+ * pareamento). Respeita o `purpose` salvo no banco.
+ */
+async function applyWebhookForInstance(instanceName: string) {
+    const evolutionUrl = process.env.EVOLUTION_API_URL;
+    const evolutionToken = process.env.EVOLUTION_API_TOKEN;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!evolutionUrl || !evolutionToken || !supabaseUrl) return;
+
+    const admin = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const { data: inst } = await admin
+        .from("whatsapp_instances")
+        .select("purpose")
+        .eq("instance_name", instanceName)
+        .single();
+
+    const purpose = inst?.purpose ?? "crm";
+    const webhookUrl = (purpose === "crm")
+        ? `${supabaseUrl}/functions/v1/webhook-evolution`
+        : (process.env.N8N_WEBINAR_WEBHOOK_URL ?? `${supabaseUrl}/functions/v1/webhook-evolution`);
+
+    await fetch(`${evolutionUrl}/webhook/set/${instanceName}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: evolutionToken },
+        body: JSON.stringify({
+            webhook: {
+                enabled: true,
+                url: webhookUrl,
+                webhookByEvents: true,
+                events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE"],
+            },
+        }),
+    }).catch(() => {});
+}
+
+/**
  * Conecta (ou reconecta) uma instancia ja existente na Evolution.
  *   method 'qr'   -> retorna { qrCode } (base64) para escanear
  *   method 'code' -> retorna { pairingCode } (8 digitos) para digitar no celular
  *
- * O codigo de pareamento exige o numero completo (DDI+DDD+numero), pois o
- * WhatsApp gera o codigo vinculado aquele numero especifico.
+ * IMPORTANTE: nesta versao da Evolution (v2 / Baileys) o codigo de pareamento
+ * SO e gerado quando o `number` e passado na CRIACAO da instancia — o connect
+ * com ?number= e ignorado. Por isso, para o metodo 'code' recriamos a instancia
+ * (mesmo nome) com o numero e reaplicamos o webhook. Como o pairing code so faz
+ * sentido quando a instancia ainda nao esta conectada, isso e seguro.
  */
 export async function connectInstance(
     instanceName: string,
@@ -228,51 +270,113 @@ export async function connectInstance(
     error?: string;
 }> {
     try {
+        const tenantId = await getTenantId(); // valida sessao
         const evolutionUrl = process.env.EVOLUTION_API_URL;
         const evolutionToken = process.env.EVOLUTION_API_TOKEN;
         if (!evolutionUrl || !evolutionToken) {
             throw new Error("Configuração da Evolution API ausente (URL ou Token).");
         }
 
-        const method = opts?.method ?? "qr";
-        let url = `${evolutionUrl}/instance/connect/${instanceName}`;
+        // Garante que a instancia pertence ao tenant logado (recriar e destrutivo).
+        const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data: inst } = await admin
+            .from("whatsapp_instances")
+            .select("instance_name")
+            .eq("instance_name", instanceName)
+            .eq("tenant_id", tenantId)
+            .single();
+        if (!inst) throw new Error("Conexão não encontrada para este usuário.");
 
-        if (method === "code") {
-            const digits = (opts?.phoneNumber ?? "").replace(/\D/g, "");
-            // Precisa do numero completo: DDI(2) + DDD(2) + numero(8/9) = 12 ou 13.
-            if (digits.length < 12 || digits.length > 13) {
-                throw new Error(
-                    "Informe o número completo com DDI e DDD. Ex: 5531999999999"
-                );
+        const method = opts?.method ?? "qr";
+
+        // Se ja estiver conectada, nao mexe.
+        const stateRes = await fetch(`${evolutionUrl}/instance/connectionState/${instanceName}`, {
+            method: "GET",
+            headers: { apikey: evolutionToken },
+        });
+        if (stateRes.ok) {
+            const sd = await stateRes.json().catch(() => ({}));
+            if (sd?.instance?.state === "open") {
+                await admin.from("whatsapp_instances").update({ status: "connected" }).eq("instance_name", instanceName);
+                return { success: true, status: "connected" };
             }
-            url += `?number=${digits}`;
         }
 
-        const res = await fetch(url, {
+        // ===== METODO CODIGO: recria a instancia com o numero =====
+        if (method === "code") {
+            const digits = (opts?.phoneNumber ?? "").replace(/\D/g, "");
+            if (digits.length < 12 || digits.length > 13) {
+                throw new Error("Informe o número completo com DDI e DDD. Ex: 5531999999999");
+            }
+
+            // Remove a instancia atual (sem numero) na Evolution.
+            await fetch(`${evolutionUrl}/instance/logout/${instanceName}`, {
+                method: "DELETE", headers: { apikey: evolutionToken },
+            }).catch(() => {});
+            await fetch(`${evolutionUrl}/instance/delete/${instanceName}`, {
+                method: "DELETE", headers: { apikey: evolutionToken },
+            }).catch(() => {});
+            await new Promise((r) => setTimeout(r, 1500));
+
+            // Recria com o numero -> Evolution ja devolve o pairingCode.
+            const createRes = await fetch(`${evolutionUrl}/instance/create`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", apikey: evolutionToken },
+                body: JSON.stringify({
+                    instanceName,
+                    qrcode: true,
+                    integration: "WHATSAPP-BAILEYS",
+                    number: digits,
+                }),
+            });
+            if (!createRes.ok) {
+                const e = await createRes.json().catch(() => ({}));
+                throw new Error(e?.message || "Falha ao preparar a instância para o código.");
+            }
+            const cdata = await createRes.json();
+            let pairingCode = cdata?.qrcode?.pairingCode || cdata?.pairingCode || null;
+
+            // Reaplica o webhook (foi perdido ao recriar).
+            await applyWebhookForInstance(instanceName);
+
+            // Se nao veio no create, tenta uma vez via connect.
+            if (!pairingCode) {
+                await new Promise((r) => setTimeout(r, 1500));
+                const cr = await fetch(`${evolutionUrl}/instance/connect/${instanceName}`, {
+                    method: "GET", headers: { apikey: evolutionToken },
+                });
+                if (cr.ok) {
+                    const j = await cr.json().catch(() => ({}));
+                    pairingCode = j?.pairingCode || j?.qrcode?.pairingCode || null;
+                }
+            }
+
+            if (!pairingCode) {
+                throw new Error("A API não retornou o código. Tente novamente em alguns segundos.");
+            }
+
+            await admin.from("whatsapp_instances").update({ status: "waiting_qr" }).eq("instance_name", instanceName);
+            return { success: true, pairingCode, status: "waiting_code" };
+        }
+
+        // ===== METODO QR: connect simples =====
+        const res = await fetch(`${evolutionUrl}/instance/connect/${instanceName}`, {
             method: "GET",
             headers: { apikey: evolutionToken },
         });
 
         if (!res.ok) {
-            // Pode ja estar conectado — confere antes de falhar.
             const st = await refreshInstanceStatus(instanceName);
             if (st.status === "connected") return { success: true, status: "connected" };
             const err = await res.json().catch(() => ({}));
-            throw new Error(err?.message || "Falha ao gerar a conexão.");
+            throw new Error(err?.message || "Falha ao gerar o QR Code.");
         }
 
         const data = await res.json();
         const qrCode = data.base64 || data.qrcode?.base64 || null;
-        const pairingCode = data.pairingCode || data.qrcode?.pairingCode || null;
-
-        if (method === "code") {
-            if (!pairingCode) {
-                const st = await refreshInstanceStatus(instanceName);
-                if (st.status === "connected") return { success: true, status: "connected" };
-                throw new Error("A API não retornou o código. Tente novamente em alguns segundos.");
-            }
-            return { success: true, pairingCode, status: "waiting_code" };
-        }
 
         if (!qrCode) {
             const st = await refreshInstanceStatus(instanceName);
