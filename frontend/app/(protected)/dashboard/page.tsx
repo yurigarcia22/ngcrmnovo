@@ -179,13 +179,10 @@ async function DashboardContent({
     // atividade). Antes so aparecia com leads importados no periodo, entao sumia
     // quando o trabalho era so de ligacao (sem novos imports).
     const cm: any = data.coldMetrics;
-    const showColdCall = modules?.cold_call === true && !!cm && (
-        (cm.total ?? 0) > 0 ||
-        (cm.calls ?? 0) > 0 ||
-        (cm.connections ?? 0) > 0 ||
-        (cm.decisionMakers ?? 0) > 0 ||
-        (cm.meetings ?? 0) > 0
-    );
+    // Se o modulo Cold Call esta ligado, SEMPRE mostra a secao (mesmo zerada no
+    // periodo). Antes ela sumia quando nao havia atividade no periodo, dando a
+    // impressao de que "tinha desaparecido".
+    const showColdCall = modules?.cold_call === true && !!cm;
     const topSellersData = sellers
         .filter((s: any) => s.wonValue > 0)
         .slice(0, 5)
