@@ -25,6 +25,7 @@ export const MODULE_KEYS = [
     "webinar",
     "emails",
     "whatsapp_connect",
+    "veterinaria",
 ] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
@@ -88,6 +89,13 @@ export const MODULE_REGISTRY: Record<ModuleKey, ModuleMeta> = {
         description: "Gerenciamento de instancias do WhatsApp em settings.",
         routes: ["/settings/whatsapp"],
         defaultEnabled: true,
+    },
+    veterinaria: {
+        key: "veterinaria",
+        label: "Clinica Veterinaria",
+        description: "Vertical pet: cadastro de pets por tutor, carteira de vacinas e lembretes automaticos via WhatsApp.",
+        routes: ["/pets"],
+        defaultEnabled: false,
     },
 };
 
