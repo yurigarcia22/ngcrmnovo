@@ -50,7 +50,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             queryClient,
             persister,
             maxAge: 1000 * 60 * 60 * 24, // 24h
-            buster: "v1",
+            // Bump deste valor invalida TODO o cache persistido no proximo load.
+            // v2: limpa cache antigo que listava funis de cold_call no /leads
+            // (antes do filtro kind='deals').
+            buster: "v2",
         });
         return () => { unsubscribe(); };
     }, [queryClient]);
