@@ -69,11 +69,64 @@ export async function getInstances() {
     }
 }
 
+/**
+ * Lista os funis de venda (kind='deals') do tenant para o seletor de
+ * roteamento por numero. O funil padrao vem primeiro.
+ */
+export async function getSalesPipelines() {
+    try {
+        const tenantId = await getTenantId();
+        const adminClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data, error } = await adminClient
+            .from("pipelines")
+            .select("id, name, is_default")
+            .eq("tenant_id", tenantId)
+            .eq("kind", "deals")
+            .order("is_default", { ascending: false })
+            .order("id", { ascending: true });
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error("Erro ao buscar funis:", error);
+        return [];
+    }
+}
+
+/**
+ * Define qual funil recebe os leads de uma instancia (numero) ja existente.
+ */
+export async function setInstancePipeline(
+    instanceName: string,
+    pipelineId: number | null
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabaseAdmin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { error } = await supabaseAdmin
+            .from("whatsapp_instances")
+            .update({ pipeline_id: pipelineId })
+            .eq("instance_name", instanceName)
+            .eq("tenant_id", tenantId);
+        if (error) throw error;
+        revalidatePath("/settings/whatsapp");
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
 export async function setupInstance(
     customName: string,
     ownerProfileId?: string,
     method: "qr" | "code" = "qr",
-    phoneNumber?: string
+    phoneNumber?: string,
+    pipelineId?: number | null
 ) {
     try {
         console.log("--- INICIANDO CONFIGURAÇÃO DA INSTÂNCIA ---");
@@ -135,6 +188,7 @@ export async function setupInstance(
                 instance_name: instanceName,
                 custom_name: customName,
                 owner_profile_id: ownerProfileId || null,
+                pipeline_id: pipelineId ?? null,
                 status: 'waiting_qr'
             });
 

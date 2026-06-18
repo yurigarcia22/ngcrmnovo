@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { setupInstance, deleteInstance, refreshInstanceStatus, setInstancePurpose, connectInstance } from "./actions";
-import { Loader2, Smartphone, Plus, Trash2, RefreshCw, X, QrCode as QrIcon, Briefcase, Megaphone, Boxes, KeyRound, Copy, Check, ArrowLeft, Plug } from "lucide-react";
+import { setupInstance, deleteInstance, refreshInstanceStatus, setInstancePurpose, connectInstance, setInstancePipeline } from "./actions";
+import { Loader2, Smartphone, Plus, Trash2, RefreshCw, X, QrCode as QrIcon, Briefcase, Megaphone, Boxes, KeyRound, Copy, Check, ArrowLeft, Plug, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useRouter } from "next/navigation";
@@ -16,6 +16,7 @@ interface Instance {
     phone_number?: string;
     profile_pic_url?: string;
     purpose?: "crm" | "webinar" | "both";
+    pipeline_id?: number | null;
     owner?: {
         full_name: string;
         avatar_url: string;
@@ -28,9 +29,16 @@ interface TeamMember {
     avatar_url: string;
 }
 
+interface Pipeline {
+    id: number;
+    name: string;
+    is_default: boolean;
+}
+
 interface WhatsAppSettingsClientProps {
     initialInstances: Instance[];
     teamMembers: TeamMember[];
+    pipelines: Pipeline[];
 }
 
 interface Connection {
@@ -41,17 +49,21 @@ interface Connection {
 
 export default function WhatsAppSettingsClient({
     initialInstances,
-    teamMembers
+    teamMembers,
+    pipelines
 }: WhatsAppSettingsClientProps) {
     const [instances, setInstances] = useState<Instance[]>(initialInstances);
     const [loading, setLoading] = useState(false);
     const router = useRouter();
     const confirm = useConfirm();
 
+    const defaultPipelineId = pipelines.find((p) => p.is_default)?.id ?? pipelines[0]?.id ?? null;
+
     // Modal de Adicionar
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newConnectionName, setNewConnectionName] = useState("");
     const [selectedMemberId, setSelectedMemberId] = useState("");
+    const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(defaultPipelineId);
 
     // Modal de Conexao (QR + Codigo)
     const [connection, setConnection] = useState<Connection | null>(null);
@@ -121,7 +133,7 @@ export default function WhatsAppSettingsClient({
         setLoading(true);
         try {
             // Cria a instancia e ja gera o QR Code (metodo padrao).
-            const result = await setupInstance(newConnectionName, selectedMemberId || undefined);
+            const result = await setupInstance(newConnectionName, selectedMemberId || undefined, "qr", undefined, selectedPipelineId);
             if (result.success && (result.qrCode || result.pairingCode)) {
                 setConnection({
                     instanceName: result.instanceName || "",
@@ -211,6 +223,20 @@ export default function WhatsAppSettingsClient({
         setCopied(false);
     }
 
+    // Troca o funil que recebe os leads de uma instancia existente.
+    async function handleChangePipeline(instanceName: string, pipelineId: number | null) {
+        setInstances((prev) =>
+            prev.map((i) => (i.instance_name === instanceName ? { ...i, pipeline_id: pipelineId } : i))
+        );
+        const res = await setInstancePipeline(instanceName, pipelineId);
+        if (res.success) {
+            const name = pipelines.find((p) => p.id === pipelineId)?.name ?? "Funil padrão";
+            toast.success(`Leads deste número agora vão para: ${name}`);
+        } else {
+            toast.error(res.error ?? "Erro ao trocar o funil");
+        }
+    }
+
     async function handleDelete(instanceName: string) {
         const ok = await confirm({
             title: "Remover conexao?",
@@ -245,6 +271,7 @@ export default function WhatsAppSettingsClient({
                     onClick={() => {
                         setNewConnectionName("");
                         setSelectedMemberId("");
+                        setSelectedPipelineId(defaultPipelineId);
                         setIsAddModalOpen(true);
                     }}
                     className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
@@ -363,6 +390,32 @@ export default function WhatsAppSettingsClient({
                             </div>
                         </div>
 
+                        {/* Funil que recebe os leads deste numero */}
+                        {pipelines.length > 0 && (
+                            <div className="mb-3">
+                                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5 flex items-center gap-1">
+                                    <Filter size={11} className="text-indigo-500" />
+                                    Funil que recebe os leads
+                                </label>
+                                <select
+                                    value={instance.pipeline_id ?? ""}
+                                    onChange={(e) =>
+                                        handleChangePipeline(
+                                            instance.instance_name,
+                                            e.target.value ? Number(e.target.value) : null
+                                        )
+                                    }
+                                    className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-indigo-300 focus:outline-none"
+                                >
+                                    {pipelines.map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                            {p.name}{p.is_default ? " (padrão)" : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         {instance.status !== 'connected' && (
                             <div className="flex gap-2">
                                 <button
@@ -430,6 +483,29 @@ export default function WhatsAppSettingsClient({
                                     Obrigatório: Os leads deste WhatsApp serão atribuídos a este vendedor.
                                 </p>
                             </div>
+
+                            {pipelines.length > 0 && (
+                                <div className="mb-6">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                                        <Filter size={14} className="text-indigo-500" />
+                                        Funil que vai receber os leads
+                                    </label>
+                                    <select
+                                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-black focus:outline-none bg-white"
+                                        value={selectedPipelineId ?? ""}
+                                        onChange={e => setSelectedPipelineId(e.target.value ? Number(e.target.value) : null)}
+                                    >
+                                        {pipelines.map(p => (
+                                            <option key={p.id} value={p.id}>
+                                                {p.name}{p.is_default ? " (padrão)" : ""}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Toda conversa nova que chegar neste número entra neste funil.
+                                    </p>
+                                </div>
+                            )}
 
                             <button
                                 type="submit"

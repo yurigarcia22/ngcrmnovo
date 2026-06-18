@@ -19,17 +19,19 @@ serve(async (req) => {
     // Busca tenant_id e user_id dono desta instância
     let tenantId = null;
     let instanceOwnerProfileId = null;
+    let instancePipelineId = null;
 
     if (instanceName) {
       const { data: instanceData, error } = await supabase
         .from('whatsapp_instances')
-        .select('tenant_id, owner_profile_id')
+        .select('tenant_id, owner_profile_id, pipeline_id')
         .eq('instance_name', instanceName)
         .maybeSingle();
 
       if (instanceData) {
         tenantId = instanceData.tenant_id;
         instanceOwnerProfileId = instanceData.owner_profile_id;
+        instancePipelineId = instanceData.pipeline_id ?? null;
         // console.log(`-> Instância ${instanceName} encontrada. Tenant: ${tenantId}, Owner: ${instanceOwnerProfileId || 'None'}`);
       } else {
         console.error(`ERRO: Instância ${instanceName} não encontrada no banco.`);
@@ -456,14 +458,23 @@ serve(async (req) => {
 
     // SE CRIAR NOVO DEAL
     if (!dealId) {
-      // FIX CRITICO: busca a stage de entrada do pipeline DEFAULT do tenant.
-      // Antes esta query rodava sem filtro de tenant, podendo atribuir deal
-      // do tenant A a stage do tenant B (vazamento entre tenants).
-      // get_tenant_inbox_stage retorna bigint (stages.id e bigint, nao uuid).
+      // Roteamento de funil POR INSTANCIA (numero): usa o pipeline configurado
+      // na conexao. Sem pipeline_id, cai no funil DEFAULT do tenant. Sempre
+      // filtrado por tenant (sem vazamento entre tenants). Retorna bigint.
       const { data: inboxStageRpc } = await supabase
-        .rpc('get_tenant_inbox_stage', { p_tenant_id: tenantId });
+        .rpc('get_inbox_stage_for_instance', {
+          p_tenant_id: tenantId,
+          p_pipeline_id: instancePipelineId,
+        });
 
-      const inboxStageId = (inboxStageRpc as number | string | null);
+      // Fallback final: se o funil da instancia nao resolveu, usa o padrao.
+      let inboxStageId = (inboxStageRpc as number | string | null);
+      if (inboxStageId == null) {
+        const { data: defaultStageRpc } = await supabase
+          .rpc('get_tenant_inbox_stage', { p_tenant_id: tenantId });
+        inboxStageId = (defaultStageRpc as number | string | null);
+      }
+
       const stage = inboxStageId != null ? { id: inboxStageId } : null;
 
       if (!stage) {
