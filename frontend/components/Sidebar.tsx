@@ -17,7 +17,8 @@ import {
     Briefcase,
     Zap,
     Mail,
-    Megaphone
+    Megaphone,
+    PawPrint
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { getUnreadCount } from "@/app/actions";
@@ -204,6 +205,21 @@ export default function Sidebar({
                         title="Webinar"
                         href="/webinar"
                         isActive={pathname.startsWith("/webinar")}
+                        open={open}
+                    />
+                )}
+
+                {modules.veterinaria && open && (
+                    <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        Clínica
+                    </div>
+                )}
+                {modules.veterinaria && (
+                    <Option
+                        Icon={PawPrint}
+                        title="Pets"
+                        href="/pets"
+                        isActive={pathname.startsWith("/pets")}
                         open={open}
                     />
                 )}

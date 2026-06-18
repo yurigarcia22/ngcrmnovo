@@ -13,6 +13,7 @@ import {
 } from "@/app/actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import ContactPets from "@/components/pets/ContactPets";
 
 interface Props {
     deal: any;
@@ -389,6 +390,9 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                         />
                     </div>
                 </div>
+
+                {/* PETS (so aparece se o modulo veterinaria estiver ligado) */}
+                {contact?.id && <ContactPets contactId={contact.id} />}
 
                 {/* DEAL ATUAL */}
                 <div className="px-5 py-4 border-b border-gray-100">
