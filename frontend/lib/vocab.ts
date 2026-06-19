@@ -21,6 +21,10 @@ export interface Vocab {
     dealWord: string;
     /** Rotulo de faturamento/receita. */
     revenue: string;
+    /** Rotulo do campo de valor do card (ex: "Venda" vs "Valor"). */
+    valueLabel: string;
+    /** Rotulo da secao de itens (ex: "Produtos" vs "Serviços"). */
+    productsLabel: string;
 }
 
 const SALES: Vocab = {
@@ -31,6 +35,8 @@ const SALES: Vocab = {
     newLeadsHint: "Conversas novas chegam aqui. Arraste para promover a deal.",
     dealWord: "Negócio",
     revenue: "Receita ganha",
+    valueLabel: "Venda",
+    productsLabel: "Produtos",
 };
 
 const VET: Vocab = {
@@ -41,6 +47,8 @@ const VET: Vocab = {
     newLeadsHint: "Tutores novos chegam aqui. Arraste conforme o atendimento avança.",
     dealWord: "Atendimento",
     revenue: "Faturamento",
+    valueLabel: "Valor",
+    productsLabel: "Serviços",
 };
 
 export function getVocab(vetOn: boolean): Vocab {

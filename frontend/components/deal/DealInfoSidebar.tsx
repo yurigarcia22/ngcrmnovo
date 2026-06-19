@@ -6,10 +6,14 @@ import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemAc
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useVocab } from "@/components/providers/VocabProvider";
+import ContactPets from "@/components/pets/ContactPets";
 
 export default function DealInfoSidebar({ deal, teamMembers, pipelines, availableTags, products = [], dealItems = [], lossReasons = [] }: any) {
     const router = useRouter();
     const confirm = useConfirm();
+    const vocab = useVocab();
+    const isVet = vocab.mode === "vet";
     const [contact, setContact] = useState(deal.contacts || null);
     const [company, setCompany] = useState(deal.companies || null);
     const [dealValue, setDealValue] = useState(deal.value);
@@ -527,7 +531,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
                     {/* VALUE */}
                     <div className="grid grid-cols-[140px_1fr] items-center gap-2 min-h-[30px]">
-                        <span className="text-gray-400 text-xs font-bold uppercase">Venda</span>
+                        <span className="text-gray-400 text-xs font-bold uppercase">{vocab.valueLabel}</span>
                         {editingValue ? (
                             <div className="flex items-center gap-1 animate-in fade-in">
                                 <input
@@ -548,6 +552,13 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                             </div>
                         )}
                     </div>
+
+                    {/* PETS (clinica veterinaria) */}
+                    {isVet && contact?.id && (
+                        <div className="-mx-6 border-t border-b border-gray-100 bg-indigo-50/20">
+                            <ContactPets contactId={contact.id} />
+                        </div>
+                    )}
 
                     {/* TAGS */}
                     <div className="grid grid-cols-[140px_1fr] items-start gap-2">
@@ -624,7 +635,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                     {/* PRODUTOS (NOVO) */}
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className="text-gray-400 text-xs font-bold uppercase">Produtos</span>
+                            <span className="text-gray-400 text-xs font-bold uppercase">{vocab.productsLabel}</span>
                             <button onClick={() => setIsAddingProduct(!isAddingProduct)} className="text-[10px] text-blue-500 font-bold hover:underline">+ Adicionar</button>
                         </div>
 

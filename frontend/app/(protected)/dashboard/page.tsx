@@ -14,6 +14,7 @@ import { ConversionFunnel } from "./components/ConversionFunnel";
 import { TopSellers } from "./components/TopSellers";
 import { SellersPerformanceTable } from "./components/SellersPerformanceTable";
 import { ResponseQualityCard } from "./components/ResponseQualityCard";
+import VetDashboardSection from "./components/VetDashboardSection";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
     Trophy, Wallet, Target, Coins, Clock, CheckSquare,
@@ -194,6 +195,9 @@ async function DashboardContent({
 
     return (
         <div className="space-y-6">
+
+            {/* === RESUMO DA CLINICA (vet) — aparece no topo quando modulo ligado === */}
+            {modules?.veterinaria === true && <VetDashboardSection />}
 
             {/* === HERO ROW: KPIs principais === */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
