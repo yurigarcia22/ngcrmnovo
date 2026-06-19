@@ -19,9 +19,11 @@ export default async function ProtectedLayout({
     const sidebarState = cookieStore.get("sidebar_state");
     const initialOpen = sidebarState ? sidebarState.value === "true" : true;
 
+    const isVet = ctx.modules.veterinaria === true;
+
     return (
-        <VocabProvider vetOn={ctx.modules.veterinaria === true}>
-            <div className="flex h-screen" suppressHydrationWarning>
+        <VocabProvider vetOn={isVet}>
+            <div className={`flex h-screen ${isVet ? "theme-vet" : ""}`} suppressHydrationWarning>
                 <Sidebar initialOpen={initialOpen} modules={ctx.modules} />
                 <main className="flex-1 overflow-y-auto h-full">
                     {children}

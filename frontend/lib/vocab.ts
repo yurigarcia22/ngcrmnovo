@@ -25,6 +25,10 @@ export interface Vocab {
     valueLabel: string;
     /** Rotulo da secao de itens (ex: "Produtos" vs "Serviços"). */
     productsLabel: string;
+    /** Nome de marca exibido na sidebar. */
+    brandName: string;
+    /** Tag/subtitulo da marca na sidebar. */
+    brandTag: string;
 }
 
 const SALES: Vocab = {
@@ -37,6 +41,8 @@ const SALES: Vocab = {
     revenue: "Receita ganha",
     valueLabel: "Venda",
     productsLabel: "Produtos",
+    brandName: "CRM NG",
+    brandTag: "Pro Plan",
 };
 
 const VET: Vocab = {
@@ -49,6 +55,8 @@ const VET: Vocab = {
     revenue: "Faturamento",
     valueLabel: "Valor",
     productsLabel: "Serviços",
+    brandName: "NG Vet",
+    brandTag: "Saúde Animal",
 };
 
 export function getVocab(vetOn: boolean): Vocab {

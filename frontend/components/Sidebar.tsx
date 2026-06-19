@@ -134,12 +134,16 @@ export default function Sidebar({
                     {open && (
                         <div className="flex flex-col animate-in fade-in zoom-in duration-300">
                             <span className="text-sm font-extrabold text-slate-800 tracking-tight leading-none">
-                                CRM NG
+                                {vocab.brandName}
                             </span>
                             <div className="flex items-center gap-1 mt-1">
-                                <Zap className="w-3 h-3 text-emerald-500 fill-emerald-500" />
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">
-                                    Pro Plan
+                                {vocab.mode === "vet" ? (
+                                    <PawPrint className="w-3 h-3 text-teal-500" />
+                                ) : (
+                                    <Zap className="w-3 h-3 text-emerald-500 fill-emerald-500" />
+                                )}
+                                <span className={`text-[10px] font-bold uppercase tracking-wider ${vocab.mode === "vet" ? "text-teal-600" : "text-emerald-600"}`}>
+                                    {vocab.brandTag}
                                 </span>
                             </div>
                         </div>

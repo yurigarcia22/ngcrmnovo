@@ -170,6 +170,68 @@ body {
 }
 
 /* ========================================
+   TEMA CLINICA VETERINARIA (saude animal)
+   Quando o modulo veterinaria esta ligado, o layout protegido recebe a classe
+   .theme-vet. Aqui remapeamos a paleta de accent (indigo/blue do tema de vendas)
+   para um verde-agua clinico (teal), tingimos o fundo e damos cara de saude ao
+   app inteiro — sem reescrever tela por tela. Verde/ambar/vermelho semanticos
+   sao preservados (status clinicos).
+   ======================================== */
+.theme-vet {
+  /* Tokens de marca */
+  --primary: #0d9488;
+  --primary-hover: #0f766e;
+  --primary-soft: #ccfbf1;
+  --ring: #0d9488;
+  --background: #eef6f4;
+
+  /* Remap da escala indigo -> teal (accent principal do app) */
+  --color-indigo-50: #f0fdfa;
+  --color-indigo-100: #ccfbf1;
+  --color-indigo-200: #99f6e4;
+  --color-indigo-300: #5eead4;
+  --color-indigo-400: #2dd4bf;
+  --color-indigo-500: #14b8a6;
+  --color-indigo-600: #0d9488;
+  --color-indigo-700: #0f766e;
+  --color-indigo-800: #115e59;
+  --color-indigo-900: #134e4a;
+
+  /* Remap da escala blue -> teal (usada como accent secundario) */
+  --color-blue-50: #f0fdfa;
+  --color-blue-100: #ccfbf1;
+  --color-blue-200: #99f6e4;
+  --color-blue-300: #5eead4;
+  --color-blue-400: #2dd4bf;
+  --color-blue-500: #14b8a6;
+  --color-blue-600: #0d9488;
+  --color-blue-700: #0f766e;
+  --color-blue-800: #115e59;
+  --color-blue-900: #134e4a;
+
+  /* Fundo geral clinico (mint suave) */
+  background: linear-gradient(180deg, #f3faf8 0%, #eef6f4 100%);
+  min-height: 100vh;
+}
+
+/* Fundos hardcoded das telas -> mint clinico */
+.theme-vet .bg-\[\#f5f7f8\],
+.theme-vet .bg-\[\#f0f2f5\] {
+  background-color: #eef6f4 !important;
+}
+
+/* Header escuro da pagina de atendimento -> verde-petroleo de saude */
+.theme-vet .bg-\[\#2b3d51\] {
+  background-image: linear-gradient(135deg, #0f766e 0%, #115e59 100%) !important;
+}
+
+/* Sidebar com leve tom de saude */
+.theme-vet nav.sticky {
+  background-color: #f5faf9 !important;
+  border-right-color: #cfe9e3 !important;
+}
+
+/* ========================================
    UTILS
    ======================================== */
 .text-balance { text-wrap: balance; }
