@@ -85,13 +85,25 @@ export default function VetDashboard() {
                 <Stat icon={<CircleDollarSign size={16} />} value={m ? brl(m.faturamentoMes) : "·"} label="Faturamento do mês" tint="text-emerald-600" />
             </div>
 
-            {/* Atendimento WhatsApp hoje */}
+            {/* Atendimento WhatsApp */}
             {wa && (
-                <div className="mb-8 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-3.5">
+                <div className="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-3.5">
                     <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
-                        <MessageCircle size={15} className="text-emerald-600" /> WhatsApp hoje
+                        <MessageCircle size={15} className="text-emerald-600" /> Atendimento WhatsApp
                     </span>
-                    <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.recebidasHoje}</b> recebidas</span>
+
+                    {/* Aguardando resposta — o que mais importa */}
+                    {wa.semResposta > 0 ? (
+                        <span className="flex items-center gap-2 rounded-lg bg-amber-50 px-2.5 py-1 text-sm font-semibold text-amber-700">
+                            <span className="tabular-nums">{wa.semResposta}</span> {wa.semResposta === 1 ? "sem resposta" : "sem resposta"}
+                            <span className="font-normal text-amber-600/90">· espera até {wa.maiorEspera}</span>
+                        </span>
+                    ) : (
+                        <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-sm font-semibold text-emerald-700">tudo respondido ✓</span>
+                    )}
+
+                    <span className="h-4 w-px bg-slate-200" />
+                    <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.recebidasHoje}</b> recebidas hoje</span>
                     <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.enviadasHoje}</b> enviadas</span>
                     <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.conversasHoje}</b> {wa.conversasHoje === 1 ? "conversa" : "conversas"}</span>
                     <Link href="/chat" className="ml-auto text-[13px] font-semibold text-teal-700 hover:text-teal-800">abrir conversas</Link>

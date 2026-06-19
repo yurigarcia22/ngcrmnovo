@@ -330,6 +330,43 @@ export async function getVetHomeData() {
         const enviadasHoje = msgs.filter((m: any) => m.direction === "outbound").length;
         const conversasHoje = new Set(msgs.map((m: any) => m.contact_id).filter(Boolean)).size;
 
+        // Conversas sem resposta + maior tempo de espera (clientes aguardando).
+        // Mesma logica do dashboard: ultima msg por contato em deal aberto; se for
+        // inbound, esta sem resposta. Janela de 30 dias (ignora conversas mortas).
+        const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+        const { data: latestMessages } = await supabase
+            .from("messages")
+            .select("contact_id, direction, created_at, deals!inner(resolved_at, status)")
+            .eq("tenant_id", tenantId)
+            .gte("created_at", thirtyDaysAgoIso)
+            .order("contact_id", { ascending: true })
+            .order("created_at", { ascending: false });
+        const lastMsgMap = new Map<string, any>();
+        for (const msg of latestMessages ?? []) {
+            const deal: any = (msg as any).deals;
+            if (deal?.resolved_at) continue;
+            if (deal?.status === "won" || deal?.status === "lost") continue;
+            if (!lastMsgMap.has(msg.contact_id)) lastMsgMap.set(msg.contact_id, msg);
+        }
+        let semResposta = 0;
+        let maxWaitSeconds = 0;
+        const nowTime = Date.now();
+        for (const msg of lastMsgMap.values()) {
+            if (msg.direction === "inbound") {
+                semResposta++;
+                const wait = (nowTime - new Date(msg.created_at).getTime()) / 1000;
+                if (wait > maxWaitSeconds) maxWaitSeconds = wait;
+            }
+        }
+        let maiorEspera = "0m";
+        if (maxWaitSeconds > 0) {
+            const hours = Math.floor(maxWaitSeconds / 3600);
+            const minutes = Math.floor((maxWaitSeconds % 3600) / 60);
+            if (hours > 24) maiorEspera = `${Math.floor(hours / 24)}d ${hours % 24}h`;
+            else if (hours > 0) maiorEspera = `${hours}h ${minutes}m`;
+            else maiorEspera = `${minutes}m`;
+        }
+
         // Nome da clinica
         const { data: tenant } = await supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
 
@@ -344,7 +381,7 @@ export async function getVetHomeData() {
                 totalPets: allPets.length,
                 faturamentoMes,
             },
-            whatsapp: { recebidasHoje, enviadasHoje, conversasHoje },
+            whatsapp: { recebidasHoje, enviadasHoje, conversasHoje, semResposta, maiorEspera },
             todayAppointments: appts,
             vaccinesDue: dueVac ?? [],
             birthdays,
