@@ -318,6 +318,18 @@ export async function getVetHomeData() {
             .eq("status", "atendido");
         const faturamentoMes = (monthAppts ?? []).reduce((s: number, a: any) => s + Number(a.price || 0), 0);
 
+        // Atendimento WhatsApp hoje (mensagens recebidas/enviadas + conversas)
+        const { data: msgsToday } = await supabase
+            .from("messages")
+            .select("direction, contact_id")
+            .eq("tenant_id", tenantId)
+            .gte("created_at", `${today}T00:00:00`)
+            .lte("created_at", `${today}T23:59:59`);
+        const msgs = msgsToday ?? [];
+        const recebidasHoje = msgs.filter((m: any) => m.direction === "inbound").length;
+        const enviadasHoje = msgs.filter((m: any) => m.direction === "outbound").length;
+        const conversasHoje = new Set(msgs.map((m: any) => m.contact_id).filter(Boolean)).size;
+
         // Nome da clinica
         const { data: tenant } = await supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
 
@@ -332,6 +344,7 @@ export async function getVetHomeData() {
                 totalPets: allPets.length,
                 faturamentoMes,
             },
+            whatsapp: { recebidasHoje, enviadasHoje, conversasHoje },
             todayAppointments: appts,
             vaccinesDue: dueVac ?? [],
             birthdays,

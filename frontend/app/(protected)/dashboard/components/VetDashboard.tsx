@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
     CalendarPlus, Clock, PawPrint, Syringe, Cake, Stethoscope, Phone,
-    ArrowRight, CircleDollarSign, CalendarDays,
+    ArrowRight, CircleDollarSign, CalendarDays, MessageCircle,
 } from "lucide-react";
 import { getVetHomeData } from "@/app/(protected)/agenda/actions";
 
@@ -49,6 +49,7 @@ export default function VetDashboard() {
     }, []);
 
     const m = d?.metrics;
+    const wa = d?.whatsapp;
     const appts: any[] = d?.todayAppointments ?? [];
     const vacc: any[] = d?.vaccinesDue ?? [];
     const bdays: any[] = d?.birthdays ?? [];
@@ -83,6 +84,19 @@ export default function VetDashboard() {
                 <Stat icon={<PawPrint size={16} />} value={m ? m.totalPets : "·"} label="Pets" tint="text-sky-600" />
                 <Stat icon={<CircleDollarSign size={16} />} value={m ? brl(m.faturamentoMes) : "·"} label="Faturamento do mês" tint="text-emerald-600" />
             </div>
+
+            {/* Atendimento WhatsApp hoje */}
+            {wa && (
+                <div className="mb-8 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-3.5">
+                    <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
+                        <MessageCircle size={15} className="text-emerald-600" /> WhatsApp hoje
+                    </span>
+                    <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.recebidasHoje}</b> recebidas</span>
+                    <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.enviadasHoje}</b> enviadas</span>
+                    <span className="text-sm text-slate-600"><b className="font-bold text-slate-800 tabular-nums">{wa.conversasHoje}</b> {wa.conversasHoje === 1 ? "conversa" : "conversas"}</span>
+                    <Link href="/chat" className="ml-auto text-[13px] font-semibold text-teal-700 hover:text-teal-800">abrir conversas</Link>
+                </div>
+            )}
 
             <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
                 {/* Agenda de hoje — o foco real da home */}
