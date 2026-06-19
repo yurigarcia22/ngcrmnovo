@@ -18,7 +18,8 @@ import {
     Zap,
     Mail,
     Megaphone,
-    PawPrint
+    PawPrint,
+    CalendarDays
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { getUnreadCount } from "@/app/actions";
@@ -213,6 +214,15 @@ export default function Sidebar({
                     <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                         Clínica
                     </div>
+                )}
+                {modules.veterinaria && (
+                    <Option
+                        Icon={CalendarDays}
+                        title="Agenda"
+                        href="/agenda"
+                        isActive={pathname.startsWith("/agenda")}
+                        open={open}
+                    />
                 )}
                 {modules.veterinaria && (
                     <Option

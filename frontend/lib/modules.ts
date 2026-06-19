@@ -93,8 +93,8 @@ export const MODULE_REGISTRY: Record<ModuleKey, ModuleMeta> = {
     veterinaria: {
         key: "veterinaria",
         label: "Clinica Veterinaria",
-        description: "Vertical pet: cadastro de pets por tutor, carteira de vacinas e lembretes automaticos via WhatsApp.",
-        routes: ["/pets"],
+        description: "Vertical pet: agenda de atendimentos, cadastro de pets por tutor, carteira de vacinas e lembretes automaticos via WhatsApp.",
+        routes: ["/agenda", "/pets"],
         defaultEnabled: false,
     },
 };
