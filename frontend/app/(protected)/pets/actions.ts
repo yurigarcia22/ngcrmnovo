@@ -199,6 +199,41 @@ export async function deleteVaccine(vaccineId: string) {
     }
 }
 
+// Prontuario completo de um pet: dados + tutor + vacinas + historico de atendimentos.
+export async function getPetProfile(petId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const enabled = await isModuleEnabled(tenantId, "veterinaria");
+        if (!enabled) return { success: false, enabled: false, error: "Modulo desativado." };
+
+        const supabase = svc();
+        const { data: pet, error } = await supabase
+            .from("pets")
+            .select("*, contact:contacts(id, name, phone, email), vaccines:pet_vaccines(*)")
+            .eq("id", petId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+        if (error) throw error;
+        if (!pet) return { success: false, enabled: true, error: "Pet nao encontrado." };
+
+        const { data: appointments } = await supabase
+            .from("appointments")
+            .select("id, service_name, starts_at, status, notes, professional:profiles(full_name)")
+            .eq("pet_id", petId)
+            .eq("tenant_id", tenantId)
+            .order("starts_at", { ascending: false })
+            .limit(100);
+
+        const vaccines = (pet.vaccines ?? []).slice().sort((a: any, b: any) =>
+            String(b.next_due_at || b.applied_at || "").localeCompare(String(a.next_due_at || a.applied_at || ""))
+        );
+
+        return { success: true, enabled: true, pet: { ...pet, vaccines }, appointments: appointments ?? [] };
+    } catch (e: any) {
+        return { success: false, enabled: true, error: e.message };
+    }
+}
+
 // Lista geral de pets da clinica (pagina /pets), com tutor e proxima vacina.
 export async function getAllPets(search?: string) {
     try {

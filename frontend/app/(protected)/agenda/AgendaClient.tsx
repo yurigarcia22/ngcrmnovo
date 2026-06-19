@@ -11,6 +11,7 @@ import {
 } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import VetSummary from "./VetSummary";
 
 const STATUSES: { key: string; label: string; cls: string; dot: string }[] = [
     { key: "agendado", label: "Agendado", cls: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500" },
@@ -92,6 +93,9 @@ export default function AgendaClient() {
                     <Plus size={18} /> Novo atendimento
                 </button>
             </div>
+
+            {/* Resumo da clinica */}
+            <VetSummary />
 
             {/* Navegacao de data */}
             <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 mb-4">

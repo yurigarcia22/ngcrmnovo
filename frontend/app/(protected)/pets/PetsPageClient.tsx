@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { PawPrint, Search, Syringe, Phone, AlertTriangle } from "lucide-react";
 
 interface PetRow {
@@ -94,7 +95,7 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
                         const due = dueStatus(soonestDue(pet.vaccines));
                         const phone = pet.contact?.phone?.replace(/\D/g, "");
                         return (
-                            <div key={pet.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                            <Link key={pet.id} href={`/pets/${pet.id}`} className="block bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
                                 <div className="flex items-start gap-3">
                                     <div className="w-11 h-11 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
                                         <PawPrint size={20} className="text-indigo-500" />
@@ -120,6 +121,7 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
                                             href={`https://wa.me/${phone}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
                                             className="flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 shrink-0"
                                             title="Abrir no WhatsApp"
                                         >
@@ -134,7 +136,7 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
                                         {pet.vaccines!.length} {pet.vaccines!.length === 1 ? "vacina" : "vacinas"} no histórico
                                     </div>
                                 )}
-                            </div>
+                            </Link>
                         );
                     })}
                 </div>

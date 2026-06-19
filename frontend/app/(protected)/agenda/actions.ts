@@ -198,6 +198,69 @@ export async function getProfessionals() {
     }
 }
 
+// Resumo da clinica (painel vet): atendimentos de hoje, vacinas vencendo,
+// aniversariantes do mes, total de pets e faturamento do mes.
+export async function getVetDashboard() {
+    try {
+        const tenantId = await getTenantId();
+        const enabled = await isModuleEnabled(tenantId, "veterinaria");
+        if (!enabled) return { success: true, enabled: false, metrics: null };
+
+        const supabase = svc();
+        const now = new Date();
+        const off = now.getTimezoneOffset();
+        const today = new Date(now.getTime() - off * 60000).toISOString().slice(0, 10);
+        const horizon = new Date(now.getTime() - off * 60000);
+        horizon.setDate(horizon.getDate() + 30);
+        const horizonStr = horizon.toISOString().slice(0, 10);
+        const monthStart = `${today.slice(0, 7)}-01`;
+        const month = today.slice(5, 7);
+
+        // Atendimentos de hoje (exceto cancelados).
+        const { data: todayAppts } = await supabase
+            .from("appointments")
+            .select("id, status")
+            .eq("tenant_id", tenantId)
+            .gte("starts_at", `${today}T00:00:00`)
+            .lte("starts_at", `${today}T23:59:59`);
+        const atendimentosHoje = (todayAppts ?? []).filter((a) => a.status !== "cancelado").length;
+
+        // Vacinas vencendo (ate 30 dias / ja vencidas).
+        const { data: dueVac } = await supabase
+            .from("pet_vaccines")
+            .select("id")
+            .eq("tenant_id", tenantId)
+            .not("next_due_at", "is", null)
+            .lte("next_due_at", horizonStr);
+        const vacinasVencendo = (dueVac ?? []).length;
+
+        // Pets (total + aniversariantes do mes).
+        const { data: pets } = await supabase
+            .from("pets")
+            .select("birth_date")
+            .eq("tenant_id", tenantId);
+        const totalPets = (pets ?? []).length;
+        const aniversariantes = (pets ?? []).filter((p: any) => p.birth_date && String(p.birth_date).slice(5, 7) === month).length;
+
+        // Faturamento do mes (atendimentos com status 'atendido').
+        const { data: monthAppts } = await supabase
+            .from("appointments")
+            .select("price, status, starts_at")
+            .eq("tenant_id", tenantId)
+            .gte("starts_at", `${monthStart}T00:00:00`)
+            .eq("status", "atendido");
+        const faturamentoMes = (monthAppts ?? []).reduce((s: number, a: any) => s + Number(a.price || 0), 0);
+
+        return {
+            success: true,
+            enabled: true,
+            metrics: { atendimentosHoje, vacinasVencendo, aniversariantes, totalPets, faturamentoMes },
+        };
+    } catch (e: any) {
+        return { success: false, enabled: true, metrics: null, error: e.message };
+    }
+}
+
 // Busca tutores (contatos) + seus pets para o modal de novo atendimento.
 export async function searchTutorsWithPets(search: string) {
     try {
