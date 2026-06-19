@@ -80,6 +80,12 @@ export default async function DashboardPage(props: { searchParams: SearchParams 
         );
     }
 
+    // Clinica veterinaria tem dashboard PROPRIO (claro, voltado a saude): nao usa
+    // o shell escuro de vendas (navy + DashboardHeader + filtro de periodo).
+    if (modules?.veterinaria === true) {
+        return <VetDashboard />;
+    }
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-6 lg:p-8 font-sans">
             <div className="relative z-10 max-w-[1600px] mx-auto">
@@ -186,12 +192,6 @@ async function DashboardContent({
     // impressao de que "tinha desaparecido".
     const showColdCall = modules?.cold_call === true && !!cm;
     const vocab = getVocab(modules?.veterinaria === true);
-
-    // Clinica veterinaria tem dashboard proprio (claro, voltado a saude),
-    // no lugar do dashboard escuro de vendas.
-    if (modules?.veterinaria === true) {
-        return <VetDashboard />;
-    }
 
     const topSellersData = sellers
         .filter((s: any) => s.wonValue > 0)
