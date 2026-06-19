@@ -25,8 +25,10 @@ import InboxKanbanCard from "@/components/InboxKanbanCard";
 import { Inbox } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useVocab } from "@/components/providers/VocabProvider";
 
 export default function LeadsPage() {
+    const vocab = useVocab();
     const supabase = createClient();
     const confirm = useConfirm();
     const queryClient = useQueryClient();
@@ -507,7 +509,7 @@ export default function LeadsPage() {
             {/* HEADER SUPERIOR - Branding e Ação Principal */}
             <header className="bg-white border-b border-slate-200/80 px-6 py-4 flex items-center justify-between shrink-0 z-20">
                 <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-bold text-slate-800 tracking-tight">Pipeline de Vendas</h1>
+                    <h1 className="text-xl font-bold text-slate-800 tracking-tight">{vocab.pipeline}</h1>
 
                     {/* Pipeline Selector Redesigned */}
                     <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm hover:border-slate-300 hover:bg-slate-100 transition-colors">
@@ -667,7 +669,7 @@ export default function LeadsPage() {
                                                 </div>
                                                 {isInbox && (
                                                     <p className="text-[10px] text-indigo-600/70 mt-1 leading-tight">
-                                                        Conversas novas chegam aqui. Arraste para promover a deal.
+                                                        {vocab.newLeadsHint}
                                                     </p>
                                                 )}
                                             </div>

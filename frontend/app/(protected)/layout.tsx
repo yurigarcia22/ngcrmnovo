@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { cookies } from "next/headers";
 import { getTenantContext } from "@/lib/tenant-context";
+import { VocabProvider } from "@/components/providers/VocabProvider";
 
 export default async function ProtectedLayout({
     children,
@@ -19,11 +20,13 @@ export default async function ProtectedLayout({
     const initialOpen = sidebarState ? sidebarState.value === "true" : true;
 
     return (
-        <div className="flex h-screen" suppressHydrationWarning>
-            <Sidebar initialOpen={initialOpen} modules={ctx.modules} />
-            <main className="flex-1 overflow-y-auto h-full">
-                {children}
-            </main>
-        </div>
+        <VocabProvider vetOn={ctx.modules.veterinaria === true}>
+            <div className="flex h-screen" suppressHydrationWarning>
+                <Sidebar initialOpen={initialOpen} modules={ctx.modules} />
+                <main className="flex-1 overflow-y-auto h-full">
+                    {children}
+                </main>
+            </div>
+        </VocabProvider>
     );
 }

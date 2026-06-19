@@ -5,6 +5,7 @@ import { getTeamMembers } from "@/app/actions";
 import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
 import { getOnboardingState } from "@/app/(protected)/dashboard/onboarding";
 import { getTenantContext } from "@/lib/tenant-context";
+import { getVocab } from "@/lib/vocab";
 import { DashboardHeader, DashboardFilterBar } from "./components/header";
 import { MessagesCard } from "./components/cards";
 import { WonLeadsWidget } from "./components/WonLeadsWidget";
@@ -183,6 +184,7 @@ async function DashboardContent({
     // periodo). Antes ela sumia quando nao havia atividade no periodo, dando a
     // impressao de que "tinha desaparecido".
     const showColdCall = modules?.cold_call === true && !!cm;
+    const vocab = getVocab(modules?.veterinaria === true);
     const topSellersData = sellers
         .filter((s: any) => s.wonValue > 0)
         .slice(0, 5)
@@ -197,7 +199,7 @@ async function DashboardContent({
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <KpiCard
                         icon={<Trophy className="w-4 h-4" />}
-                        label="Receita ganha"
+                        label={vocab.revenue}
                         value={formatCurrencyCompact(data.wonValue)}
                         sub={`${data.wonDeals} ${data.wonDeals === 1 ? "deal" : "deals"}`}
                         changePct={data.wonValueChangePct}

@@ -25,6 +25,7 @@ import { logout } from "@/app/login/actions";
 import { getUnreadCount } from "@/app/actions";
 import { createClient } from "@/utils/supabase/client";
 import { cn } from "@/lib/utils";
+import { useVocab } from "@/components/providers/VocabProvider";
 
 import type { TenantModulesMap } from "@/lib/modules";
 
@@ -38,6 +39,7 @@ export default function Sidebar({
     const [open, setOpen] = useState(initialOpen);
     const [isMounted, setIsMounted] = useState(false);
     const [unread, setUnread] = useState(0);
+    const vocab = useVocab();
 
     // Carrega contagem de nao lidas + realtime + atualizacao do titulo
     useEffect(() => {
@@ -178,14 +180,14 @@ export default function Sidebar({
 
                 {(modules.leads || modules.cold_call || modules.webinar) && open && (
                     <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                        Comercial
+                        {vocab.commercialSection}
                     </div>
                 )}
 
                 {modules.leads && (
                     <Option
                         Icon={Users}
-                        title="Leads"
+                        title={vocab.leadsNav}
                         href="/leads"
                         isActive={pathname.startsWith("/leads")}
                         open={open}
