@@ -23,6 +23,13 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { LeadConversationDrawer } from "@/components/webinar/LeadConversationDrawer";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   listConfirmedLeads,
@@ -133,14 +140,21 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
     load();
   }, [campaign.id, filter]);
 
-  // Fecha menu ao clicar fora
+  // Fecha menu ao clicar fora ou apertar Esc
   useEffect(() => {
     if (!openMenuId) return;
     function onClick() {
       setOpenMenuId(null);
     }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpenMenuId(null);
+    }
     document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [openMenuId]);
 
   async function handlePushToCrm(leadId: string, mode: CrmMode) {
@@ -261,18 +275,18 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
         </div>
 
         {loading ? (
-          <div className="text-center py-12 text-sm text-slate-400">
+          <div className="text-center py-12 text-sm text-slate-500">
             Carregando...
           </div>
         ) : leads.length === 0 ? (
           <div className="text-center py-16">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-slate-100 mb-3">
-              <CheckCircle2 className="w-6 h-6 text-slate-400" />
+              <CheckCircle2 className="w-6 h-6 text-slate-500" />
             </div>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-600">
               Nenhum lead confirmado ainda nesta categoria.
             </p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               Confirmados aparecem aqui quando o agente IA coleta nome + email/telefone.
             </p>
           </div>
@@ -302,12 +316,12 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                     >
                       <td className="px-2 py-3 text-slate-700 font-medium">
                         {lead.company_name ?? (
-                          <span className="text-slate-400 italic">Sem nome</span>
+                          <span className="text-slate-500 italic">Sem nome</span>
                         )}
                       </td>
                       <td className="px-2 py-3 text-slate-700">
                         {lead.responsible_name ?? (
-                          <span className="text-slate-400 italic">-</span>
+                          <span className="text-slate-500 italic">-</span>
                         )}
                       </td>
                       <td className="px-2 py-3">
@@ -330,7 +344,7 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                             </div>
                           )}
                           {!lead.responsible_email && !lead.responsible_direct_phone && (
-                            <span className="text-xs text-slate-400 italic">-</span>
+                            <span className="text-xs text-slate-500 italic">-</span>
                           )}
                         </div>
                       </td>
@@ -378,6 +392,8 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                           <button
                             type="button"
                             disabled={pushingId === lead.id}
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === lead.id}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (openMenuId === lead.id) {
@@ -386,7 +402,7 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                                 openMenu(lead.id, e.currentTarget);
                               }
                             }}
-                            className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-2 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
                           >
                             <ArrowRightCircle className="w-3.5 h-3.5" />
                             {pushingId === lead.id ? "Enviando..." : "Enviar"}
@@ -399,8 +415,9 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                           <button
                             type="button"
                             onClick={() => setConversationLeadId(lead.id)}
-                            className="p-1.5 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            className="p-2.5 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                             title="Ver conversa completa"
+                            aria-label="Ver conversa completa"
                           >
                             <MessageCircle className="w-3.5 h-3.5" />
                           </button>
@@ -408,8 +425,9 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                             type="button"
                             disabled={deleting}
                             onClick={() => handleAskDelete(lead)}
-                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                            className="p-2.5 rounded-md text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
                             title="Excluir lead"
+                            aria-label="Excluir lead"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -424,22 +442,27 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
         )}
       </Card>
 
-      {confirmDelete && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
-                <AlertCircle className="w-5 h-5 text-rose-600" />
+      <Dialog
+        open={!!confirmDelete}
+        onOpenChange={(o) => { if (!o) setConfirmDelete(null); }}
+      >
+        {confirmDelete && (
+          <DialogContent className="bg-white max-w-md gap-4">
+            <DialogHeader>
+              <div className="flex items-start gap-3 text-left">
+                <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <DialogTitle className="text-base font-bold text-slate-900">
+                    Excluir confirmado?
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-slate-600 mt-1">
+                    <strong>{confirmDelete.name}</strong> e todo o histórico de mensagens vão ser removidos. Lembretes pendentes também. Ação permanente, sem desfazer.
+                  </DialogDescription>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Excluir confirmado?
-                </h2>
-                <p className="text-xs text-slate-600 mt-1">
-                  <strong>{confirmDelete.name}</strong> e todo o histórico de mensagens vão ser removidos. Lembretes pendentes também. Ação permanente, sem desfazer.
-                </p>
-              </div>
-            </div>
+            </DialogHeader>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button
@@ -457,27 +480,31 @@ export function ConfirmedTab({ campaign }: { campaign: WebinarCampaign }) {
                 {deleting ? "Excluindo..." : "Excluir"}
               </Button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* Dropdown menu via portal — escapa do overflow:auto da tabela */}
       {openMenuId && menuPos && typeof window !== "undefined" &&
         createPortal(
           <div
+            role="menu"
+            aria-label="Enviar lead para o CRM"
             className="fixed z-50 w-52 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
             style={{ top: menuPos.top, right: menuPos.right }}
             onClick={(e) => e.stopPropagation()}
           >
-            {(["lead", "meeting", "sale"] as CrmMode[]).map((m) => {
+            {(["lead", "meeting", "sale"] as CrmMode[]).map((m, i) => {
               const meta = CRM_MODE_META[m];
               const Icon = meta.Icon;
               return (
                 <button
                   key={m}
                   type="button"
+                  role="menuitem"
+                  autoFocus={i === 0}
                   onClick={() => handlePushToCrm(openMenuId, m)}
-                  className={`w-full text-left text-xs px-3 py-2 flex items-center gap-2 ${meta.cls}`}
+                  className={`w-full text-left text-xs px-3 py-2.5 flex items-center gap-2 ${meta.cls}`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {meta.label}

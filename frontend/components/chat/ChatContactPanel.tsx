@@ -96,6 +96,19 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
         setNotesDirty(false);
     }, [contact?.id]);
 
+    // Fecha os modais (agendar/adiar/atribuir) ao pressionar Esc.
+    useEffect(() => {
+        if (!showSchedule && !showSnooze && !showForward) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            if (showSchedule) setShowSchedule(false);
+            if (showSnooze) setShowSnooze(false);
+            if (showForward) setShowForward(false);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [showSchedule, showSnooze, showForward]);
+
     async function saveName() {
         if (!tempName.trim() || tempName === contact?.name) {
             setEditingName(false);
@@ -269,7 +282,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
             <div className="flex-1 overflow-y-auto custom-scrollbar">
 
                 {/* IDENTITY */}
-                <div className="px-5 py-6 flex flex-col items-center border-b border-gray-100 bg-gradient-to-b from-gray-50/60 to-white">
+                <div className="px-5 py-6 flex flex-col items-center border-b border-gray-100 bg-slate-50">
                     <div className="w-24 h-24 rounded-full overflow-hidden mb-3 ring-4 ring-white shadow-md bg-gray-100">
                         {contact?.photo_url && !photoFailed ? (
                             <img
@@ -326,7 +339,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                         ) : (
                             <button
                                 onClick={() => { setTempPhone(contact?.phone ?? ""); setEditingPhone(true); }}
-                                className="group flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                                className="group flex items-center gap-1 text-xs text-slate-600 hover:text-slate-800 transition-colors"
                             >
                                 <Phone size={11} />
                                 <span className="font-mono">{contact?.phone || "+ adicionar telefone"}</span>
@@ -353,7 +366,7 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                             </div>
                         ) : (
                             <button onClick={() => { setTempEmail(contact?.email ?? ""); setEditingEmail(true); }}
-                                className="w-full group flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+                                className="w-full group flex items-center justify-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 transition-colors">
                                 <Mail size={11} />
                                 <span>{contact?.email || "+ adicionar e-mail"}</span>
                                 <Pencil size={9} className="text-gray-400 opacity-0 group-hover:opacity-100" />
@@ -365,25 +378,25 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                 {/* STATS */}
                 <div className="px-5 py-4 border-b border-gray-100">
                     <SectionTitle label="Estatísticas" />
-                    <div className="grid grid-cols-2 gap-2">
-                        <StatCard
+                    <div className="divide-y divide-gray-100">
+                        <StatRow
                             icon={<MessageSquare size={14} className="text-blue-500" />}
                             label="Mensagens"
                             value={stats ? `${stats.total_messages}` : "—"}
                             sub={stats ? `${stats.inbound} recebidas` : ""}
                         />
-                        <StatCard
+                        <StatRow
                             icon={<Clock size={14} className="text-amber-500" />}
-                            label="Última resp."
+                            label="Última resposta"
                             value={stats ? formatRelativeTime(stats.last_inbound_at) : "—"}
                         />
-                        <StatCard
+                        <StatRow
                             icon={<Trophy size={14} className="text-emerald-500" />}
                             label="Total ganho"
                             value={stats && stats.total_won_value > 0 ? formatCurrency(stats.total_won_value) : "—"}
                             sub={stats?.won_deals ? `${stats.won_deals} ${stats.won_deals === 1 ? "deal" : "deals"}` : ""}
                         />
-                        <StatCard
+                        <StatRow
                             icon={<TrendingUp size={14} className="text-purple-500" />}
                             label="Negócios"
                             value={stats ? `${stats.total_deals}` : "—"}
@@ -397,21 +410,22 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                 {/* DEAL ATUAL */}
                 <div className="px-5 py-4 border-b border-gray-100">
                     <SectionTitle label="Negócio atual" />
-                    <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-lg p-3 space-y-2">
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 space-y-2">
                         <div className="flex items-start justify-between gap-2">
-                            <span className="text-sm font-semibold text-gray-900 truncate flex-1">
+                            <span className="text-sm font-semibold text-slate-900 truncate flex-1">
                                 {deal.title || "Sem título"}
                             </span>
                             <button
                                 onClick={() => router.push(`/deals/${deal.id}`)}
-                                className="text-indigo-600 hover:text-indigo-800 shrink-0"
+                                aria-label="Abrir oportunidade"
+                                className="text-indigo-700 hover:text-indigo-900 shrink-0"
                                 title="Abrir oportunidade"
                             >
                                 <ExternalLink size={14} />
                             </button>
                         </div>
-                        <div className="text-xs text-gray-600 flex items-center justify-between">
-                            <span>Valor: <strong className="text-gray-900">{formatCurrency(deal.value || 0)}</strong></span>
+                        <div className="text-xs text-slate-600 flex items-center justify-between">
+                            <span>Valor: <strong className="text-slate-900">{formatCurrency(deal.value || 0)}</strong></span>
                             <span>{deal.created_at ? new Date(deal.created_at).toLocaleDateString("pt-BR") : ""}</span>
                         </div>
                         <button
@@ -442,9 +456,9 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                                             {isWon && <Trophy size={12} className="text-emerald-500 shrink-0" />}
                                             {isLost && <Frown size={12} className="text-rose-500 shrink-0" />}
                                             {!isWon && !isLost && <Tag size={12} className="text-gray-400 shrink-0" />}
-                                            <span className="text-xs text-gray-700 truncate">{d.title || "Sem título"}</span>
+                                            <span className="text-xs text-slate-700 truncate">{d.title || "Sem título"}</span>
                                         </div>
-                                        <span className="text-[10px] text-gray-400 shrink-0 ml-2">
+                                        <span className="text-[10px] text-slate-500 shrink-0 ml-2">
                                             {new Date(d.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                                         </span>
                                     </button>
@@ -528,16 +542,26 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
 
             {/* SCHEDULE MODAL */}
             {showSchedule && (
-                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-2xl">
+                <div
+                    className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+                    onClick={() => setShowSchedule(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Agendar"
+                        className="bg-white rounded-xl w-full max-w-sm p-5 shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
                             <Calendar className="text-blue-500" size={18} /> Agendar
                         </h3>
 
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                        <label htmlFor="schedule-desc" className="block text-sm font-semibold text-slate-700 mb-1">
                             O que fazer?
                         </label>
                         <input
+                            id="schedule-desc"
                             type="text"
                             value={scheduleDesc}
                             onChange={(e) => setScheduleDesc(e.target.value)}
@@ -546,10 +570,11 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
                             className="w-full px-3 py-2 mb-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
                         />
 
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                        <label htmlFor="schedule-at" className="block text-sm font-semibold text-slate-700 mb-1">
                             Quando?
                         </label>
                         <input
+                            id="schedule-at"
                             type="datetime-local"
                             value={scheduleAt}
                             onChange={(e) => setScheduleAt(e.target.value)}
@@ -603,12 +628,21 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
 
             {/* SNOOZE MODAL */}
             {showSnooze && (
-                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-xs p-5 shadow-2xl">
+                <div
+                    className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+                    onClick={() => setShowSnooze(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Adiar conversa"
+                        className="bg-white rounded-xl w-full max-w-xs p-5 shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
                             <AlarmClock className="text-amber-500" size={18} /> Adiar conversa
                         </h3>
-                        <p className="text-xs text-gray-500 mb-4">
+                        <p className="text-xs text-slate-600 mb-4">
                             A conversa ficará oculta da lista até a hora escolhida.
                         </p>
                         <div className="space-y-1.5">
@@ -639,15 +673,25 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
 
             {/* FORWARD MODAL */}
             {showForward && (
-                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-xs p-5 shadow-2xl">
+                <div
+                    className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+                    onClick={() => setShowForward(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Atribuir conversa"
+                        className="bg-white rounded-xl w-full max-w-xs p-5 shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
                             <Forward className="text-blue-500" size={18} /> Atribuir conversa
                         </h3>
-                        <p className="text-xs text-gray-500 mb-3">
+                        <p className="text-xs text-slate-600 mb-3">
                             Escolha o vendedor que vai assumir.
                         </p>
                         <select
+                            aria-label="Vendedor responsável"
                             value={forwardOwnerId}
                             onChange={(e) => setForwardOwnerId(e.target.value)}
                             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-100"
@@ -682,23 +726,25 @@ export default function ChatContactPanel({ deal, onContactUpdated, onDelete, onC
 function SectionTitle({ label, icon }: { label: string; icon?: React.ReactNode }) {
     return (
         <div className="flex items-center gap-1.5 mb-2.5 px-0.5">
-            {icon && <span className="text-gray-400">{icon}</span>}
-            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{label}</span>
+            {icon && <span className="text-slate-500">{icon}</span>}
+            <span className="text-sm font-semibold text-slate-700">{label}</span>
         </div>
     );
 }
 
-function StatCard({ icon, label, value, sub }: {
+function StatRow({ icon, label, value, sub }: {
     icon: React.ReactNode; label: string; value: string; sub?: string;
 }) {
     return (
-        <div className="bg-gray-50 border border-gray-100 rounded-lg p-2">
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mb-1">
-                {icon}
-                {label}
+        <div className="flex items-center justify-between gap-3 py-2">
+            <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
+                <span className="shrink-0">{icon}</span>
+                <span className="truncate">{label}</span>
             </div>
-            <div className="text-sm font-bold text-gray-900 truncate">{value}</div>
-            {sub && <div className="text-[10px] text-gray-400 truncate">{sub}</div>}
+            <div className="text-right min-w-0">
+                <div className="text-sm font-bold text-slate-900 truncate">{value}</div>
+                {sub && <div className="text-[11px] text-slate-500 truncate">{sub}</div>}
+            </div>
         </div>
     );
 }

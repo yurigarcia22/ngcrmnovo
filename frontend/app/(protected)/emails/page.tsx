@@ -93,6 +93,13 @@ export default function EmailInboxPage() {
         synced: { label: 'Sincronizado', color: 'bg-cyan-100 text-cyan-700' },
     };
 
+    // Render email body inside a sandboxed iframe (no allow-scripts / no allow-same-origin)
+    // to neutralize XSS from untrusted HTML while preserving the rendered content.
+    const emailBodyDoc = (msg: any) => {
+        const inner = msg?.body_html || msg?.body_text || '<em style="color:#94a3b8">Sem conteúdo</em>';
+        return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>body{margin:0;padding:0;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.6;color:#334155;word-break:break-word}img{max-width:100%;height:auto}a{color:#4f46e5}</style></head><body>${inner}</body></html>`;
+    };
+
     // Combine and sort by created_at descending
     let displayMessages: any[] = [];
     if (viewTab === 'all') displayMessages = [...inboxMessages, ...sentMessages];
@@ -102,14 +109,14 @@ export default function EmailInboxPage() {
     displayMessages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return (
-        <div className="flex flex-col h-screen bg-[#F8F9FB]">
+        <div className="flex flex-col h-screen bg-slate-50">
             <EmailSubNav />
 
             <div className="flex-1 flex flex-col min-h-0 px-8 py-6 max-w-6xl mx-auto w-full">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6 shrink-0">
                     <div>
-                        <h1 className="text-2xl font-black text-slate-900">E-mails</h1>
+                        <h1 className="text-2xl font-bold text-slate-800">E-mails</h1>
                         <p className="text-sm text-slate-500 mt-1">Todos os e-mails enviados e recebidos.</p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -121,7 +128,7 @@ export default function EmailInboxPage() {
                             {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                             {syncing ? 'Sincronizando...' : 'Sincronizar'}
                         </button>
-                        <button onClick={() => fetchData()} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition-colors">
+                        <button onClick={() => fetchData()} aria-label="Atualizar lista" className="flex items-center justify-center h-9 w-9 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors">
                             <RefreshCw className="w-4 h-4" />
                         </button>
                         <button
@@ -147,10 +154,11 @@ export default function EmailInboxPage() {
                         ))}
                     </div>
                     <div className="relative flex-1 max-w-sm">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                         <input
                             type="text"
-                            className="w-full h-10 rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            aria-label="Buscar e-mails"
+                            className="w-full h-10 rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder="Buscar por assunto ou remetente..."
                             value={search}
                             onChange={e => setSearch(e.target.value)}
@@ -158,7 +166,8 @@ export default function EmailInboxPage() {
                     </div>
                     {accounts.length > 1 && (
                         <select
-                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                            aria-label="Filtrar por conta"
+                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
                             value={filterAccount}
                             onChange={e => setFilterAccount(e.target.value)}
                         >
@@ -169,9 +178,9 @@ export default function EmailInboxPage() {
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 flex min-h-0 gap-4">
+                <div className="flex-1 flex flex-col md:flex-row min-h-0 gap-4">
                     {/* Message List */}
-                    <div className={`${selectedMessage ? 'w-2/5' : 'w-full'} flex flex-col min-h-0 bg-white rounded-xl border border-slate-200 overflow-hidden transition-all`}>
+                    <div className={`${selectedMessage ? 'md:w-2/5 hidden md:flex' : 'w-full flex'} flex-col min-h-0 bg-white rounded-xl border border-slate-200 overflow-hidden transition-all`}>
                         <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
                             {loading ? (
                                 <div className="flex items-center justify-center py-20">
@@ -179,8 +188,8 @@ export default function EmailInboxPage() {
                                 </div>
                             ) : displayMessages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-center">
-                                    <Mail className="w-12 h-12 text-slate-200 mb-3" />
-                                    <p className="text-sm text-slate-400">Nenhum e-mail encontrado.</p>
+                                    <Mail className="w-12 h-12 text-slate-300 mb-3" />
+                                    <p className="text-sm text-slate-600">Nenhum e-mail encontrado.</p>
                                     <div className="flex items-center gap-3 mt-4">
                                         <button onClick={handleSync} className="text-sm text-blue-600 font-semibold hover:text-blue-800">
                                             Sincronizar caixa de entrada →
@@ -191,40 +200,45 @@ export default function EmailInboxPage() {
                                 displayMessages.map(msg => (
                                     <div
                                         key={msg.id}
-                                        onClick={() => setSelectedMessage(msg)}
-                                        className={`group w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer flex items-start gap-3 ${selectedMessage?.id === msg.id ? 'bg-blue-50 border-l-2 border-l-blue-600' : ''}`}
+                                        className={`group relative flex items-start gap-3 transition-colors ${selectedMessage?.id === msg.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
                                     >
-                                        <div className="flex-1 min-w-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedMessage(msg)}
+                                            aria-current={selectedMessage?.id === msg.id ? 'true' : undefined}
+                                            className="flex-1 min-w-0 text-left px-4 py-3 pr-10"
+                                        >
                                             <div className="flex items-center justify-between mb-1">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     {msg.direction === 'outbound' ? (
-                                                        <ArrowUpRight className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                                        <ArrowUpRight className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                                                     ) : (
-                                                        <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                                        <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                                     )}
-                                                    <span className="text-sm font-semibold text-slate-800 truncate">
+                                                    <span className={`text-sm truncate ${selectedMessage?.id === msg.id ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>
                                                         {msg.direction === 'outbound'
                                                             ? (Array.isArray(msg.to_emails) ? msg.to_emails.join(', ') : msg.to_emails)
                                                             : (msg.from_name || msg.from_email)
                                                         }
                                                     </span>
                                                 </div>
-                                                <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold ${statusConfig[msg.status]?.color || 'bg-slate-100 text-slate-500'}`}>
+                                                <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold ${statusConfig[msg.status]?.color || 'bg-slate-100 text-slate-600'}`}>
                                                     {statusConfig[msg.status]?.label || msg.status}
                                                 </span>
                                             </div>
                                             <p className="text-sm text-slate-700 font-medium truncate">{msg.subject || '(Sem assunto)'}</p>
-                                            <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                                            <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500">
                                                 <Clock className="w-3 h-3" />
                                                 {new Date(msg.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                                 {msg.email_accounts && (
-                                                    <span className="ml-auto text-[10px] text-slate-400">via {msg.email_accounts.name}</span>
+                                                    <span className="ml-auto text-[10px] text-slate-500">via {msg.email_accounts.name}</span>
                                                 )}
                                             </div>
-                                        </div>
+                                        </button>
                                         <button
                                             onClick={(e) => handleDelete(e, msg.id)}
-                                            className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100 shrink-0 mt-1"
+                                            aria-label="Excluir e-mail"
+                                            className="absolute right-2 top-2 p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
                                             title="Excluir e-mail"
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
@@ -237,31 +251,37 @@ export default function EmailInboxPage() {
 
                     {/* Detail Panel */}
                     {selectedMessage && (
-                        <div className="w-3/5 bg-white rounded-xl border border-slate-200 flex flex-col min-h-0 overflow-hidden animate-in slide-in-from-right-4 duration-200">
+                        <div className="w-full md:w-3/5 bg-white rounded-xl border border-slate-200 flex flex-col min-h-0 overflow-hidden animate-in slide-in-from-right-4 duration-200 ease-out">
                             <div className="px-6 py-4 border-b border-slate-100 shrink-0">
                                 <div className="flex items-center justify-between mb-2">
-                                    <h2 className="text-lg font-bold text-slate-900">{selectedMessage.subject || '(Sem assunto)'}</h2>
+                                    <h2 className="text-lg font-bold text-slate-800">{selectedMessage.subject || '(Sem assunto)'}</h2>
                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={(e) => handleDelete(e, selectedMessage.id)}
-                                            className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                            aria-label="Excluir e-mail"
+                                            className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-red-500 hover:bg-red-50 transition-colors"
                                             title="Excluir"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
-                                        <button onClick={() => setSelectedMessage(null)} className="text-xs text-slate-400 hover:text-slate-600 font-semibold">
+                                        <button onClick={() => setSelectedMessage(null)} className="text-xs text-slate-600 hover:text-slate-800 font-semibold px-2 py-1">
                                             Fechar ×
                                         </button>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-4 text-xs text-slate-500">
-                                    <span><strong>De:</strong> {selectedMessage.from_name || selectedMessage.from_email}</span>
-                                    <span><strong>Para:</strong> {Array.isArray(selectedMessage.to_emails) ? selectedMessage.to_emails.join(', ') : selectedMessage.to_emails}</span>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                                    <span><strong className="text-slate-700">De:</strong> {selectedMessage.from_name || selectedMessage.from_email}</span>
+                                    <span><strong className="text-slate-700">Para:</strong> {Array.isArray(selectedMessage.to_emails) ? selectedMessage.to_emails.join(', ') : selectedMessage.to_emails}</span>
                                     <span>{new Date(selectedMessage.created_at).toLocaleString('pt-BR')}</span>
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-y-auto px-6 py-4">
-                                <div className="prose prose-sm max-w-none text-slate-700" dangerouslySetInnerHTML={{ __html: selectedMessage.body_html || selectedMessage.body_text || '<em class="text-slate-400">Sem conteúdo</em>' }} />
+                            <div className="flex-1 overflow-y-auto">
+                                <iframe
+                                    title="Conteúdo do e-mail"
+                                    sandbox=""
+                                    srcDoc={emailBodyDoc(selectedMessage)}
+                                    className="w-full h-full border-0"
+                                />
                             </div>
                         </div>
                     )}

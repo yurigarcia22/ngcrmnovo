@@ -21,6 +21,13 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { LeadConversationDrawer } from "@/components/webinar/LeadConversationDrawer";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   addLeadManually,
@@ -179,6 +186,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
     }
     setScrapeStatus("running");
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     async function loop() {
       while (!cancelled) {
         const r = await pollCampaignScraping(campaign.id);
@@ -208,12 +216,15 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
           return;
         }
         setScrapeStatus(r.status ?? "running");
-        await new Promise((res) => setTimeout(res, 8000));
+        await new Promise<void>((res) => {
+          timeoutId = setTimeout(res, 8000);
+        });
       }
     }
     loop();
     return () => {
       cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [campaign.id, campaign.scraping_job_id, campaign.scraping_finished_at, campaign.scraping_error, router]);
 
@@ -402,10 +413,10 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
 
         {/* Linha de filtros: instância, dia, faixa de hora */}
         <div className="flex items-end gap-2 mb-4 flex-wrap pb-3 border-b border-slate-100">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-slate-700">
               Instância (1º disparo)
-            </label>
+            </span>
             <select
               value={filterInstance}
               onChange={(e) => setFilterInstance(e.target.value)}
@@ -418,22 +429,22 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-slate-700">
               Dia do disparo
-            </label>
+            </span>
             <input
               type="date"
               value={filterDay}
               onChange={(e) => setFilterDay(e.target.value)}
               className="h-8 px-2 text-xs rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
             />
-          </div>
+          </label>
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            <span className="text-xs font-semibold text-slate-700">
               Hora (BRT)
-            </label>
+            </span>
             <div className="flex items-center gap-1">
               <select
                 value={filterHourFrom}
@@ -476,9 +487,9 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
         </div>
 
         {loading ? (
-          <div className="text-center py-8 text-slate-400 text-sm">Carregando...</div>
+          <div className="text-center py-8 text-slate-500 text-sm">Carregando...</div>
         ) : filteredLeads.length === 0 ? (
-          <div className="text-center py-12 text-slate-400 text-sm">
+          <div className="text-center py-12 text-slate-500 text-sm">
             {leads.length === 0
               ? "Nenhum lead ainda. Adiciona manualmente acima."
               : "Nenhum lead bate com o filtro."}
@@ -491,8 +502,9 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                   <th className="pb-2 pr-2 w-8">
                     <button
                       onClick={toggleSelectAll}
-                      className="text-slate-400 hover:text-slate-700"
+                      className="text-slate-500 hover:text-slate-800 p-2.5 -m-2.5"
                       title={allFilteredSelected ? "Desmarcar todos" : "Selecionar todos visíveis"}
+                      aria-label={allFilteredSelected ? "Desmarcar todos" : "Selecionar todos visíveis"}
                     >
                       {allFilteredSelected ? (
                         <CheckSquare className="w-4 h-4" />
@@ -522,7 +534,8 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                       <td className="py-3 pr-2">
                         <button
                           onClick={() => toggleOne(lead.id)}
-                          className="text-slate-400 hover:text-slate-700"
+                          className="text-slate-500 hover:text-slate-800 p-2.5 -m-2.5"
+                          aria-label={isSelected ? "Desmarcar lead" : "Selecionar lead"}
                         >
                           {isSelected ? (
                             <CheckSquare className="w-4 h-4 text-indigo-600" />
@@ -534,7 +547,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                       <td className="py-3 text-slate-700">
                         {lead.company_name ?? <span className="text-slate-400">Sem nome</span>}
                         {(lead as any).address && (
-                          <div className="text-[11px] text-slate-400 mt-0.5 max-w-md truncate">
+                          <div className="text-[11px] text-slate-500 mt-0.5 max-w-md truncate">
                             {(lead as any).address}
                           </div>
                         )}
@@ -567,7 +580,7 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                             )}
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-300 italic">
+                          <span className="text-[11px] text-slate-400 italic">
                             não disparado
                           </span>
                         )}
@@ -594,8 +607,9 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => setConversationLeadId(lead.id)}
-                            className="p-1.5 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            className="p-2.5 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                             title="Ver conversa completa"
+                            aria-label="Ver conversa completa"
                           >
                             <MessageCircle className="w-3.5 h-3.5" />
                           </button>
@@ -613,8 +627,9 @@ export function LeadsTab({ campaign }: { campaign: WebinarCampaign }) {
                           <button
                             disabled={pending}
                             onClick={() => handleDelete(lead.id)}
-                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                            className="p-2.5 rounded-md text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
                             title="Excluir lead"
+                            aria-label="Excluir lead"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -692,22 +707,24 @@ function ConfirmDeleteModal({
   const count = confirmDelete.count ?? 1;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
-            <AlertCircle className="w-5 h-5 text-rose-600" />
+    <Dialog open onOpenChange={(o) => { if (!o) onCancel(); }}>
+      <DialogContent className="bg-white max-w-md gap-4">
+        <DialogHeader>
+          <div className="flex items-start gap-3 text-left">
+            <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-5 h-5 text-rose-600" />
+            </div>
+            <div>
+              <DialogTitle className="text-base font-bold text-slate-900">
+                Excluir {isMulti ? `${count} leads` : "este lead"}?
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-600 mt-1">
+                Essa ação é permanente. Mensagens enviadas pra esse{isMulti ? "s lead(s)" : " lead"}{" "}
+                também serão removidas. Não tem como desfazer.
+              </DialogDescription>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-bold text-slate-900">
-              Excluir {isMulti ? `${count} leads` : "este lead"}?
-            </h2>
-            <p className="text-xs text-slate-600 mt-1">
-              Essa ação é permanente. Mensagens enviadas pra esse{isMulti ? "s lead(s)" : " lead"}{" "}
-              também serão removidas. Não tem como desfazer.
-            </p>
-          </div>
-        </div>
+        </DialogHeader>
 
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" disabled={pending} onClick={onCancel}>
@@ -721,8 +738,8 @@ function ConfirmDeleteModal({
             {pending ? "Excluindo..." : "Excluir"}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -772,14 +789,13 @@ function ImportLeadsModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">Importar lista de leads</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="bg-white max-w-2xl gap-4">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-slate-900">
+            Importar lista de leads
+          </DialogTitle>
+        </DialogHeader>
 
         <div className="text-xs text-slate-600 space-y-1">
           <p>Cola a lista abaixo. <strong>Uma linha por lead</strong>. Formatos aceitos:</p>
@@ -805,7 +821,7 @@ function ImportLeadsModal({
             className="w-full text-xs font-mono border border-slate-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 resize-none"
             placeholder={"5511999999999, Clínica Pet Salvador\n5511888888888, Hospital Veterinário X, Rua A 100\n# linhas com # são ignoradas"}
           />
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-500">
             {text.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith("#")).length} linhas válidas
           </p>
         </div>
@@ -870,8 +886,8 @@ function ImportLeadsModal({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -894,16 +910,13 @@ function ScrapeModal({
       : cidades.join(", ");
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="bg-white max-w-md gap-4">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-slate-900">
             Buscar leads no Google Maps
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+          </DialogTitle>
+        </DialogHeader>
 
         <div className="text-xs text-slate-600 space-y-2">
           <div>
@@ -918,10 +931,10 @@ function ScrapeModal({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-700">
+        <label className="block space-y-1.5">
+          <span className="block text-sm font-semibold text-slate-700">
             Máximo de leads por cidade
-          </label>
+          </span>
           <Input
             type="number"
             min={10}
@@ -929,12 +942,12 @@ function ScrapeModal({
             value={maxPerCity}
             onChange={(e) => setMaxPerCity(Number(e.target.value) || 100)}
           />
-          <p className="text-[11px] text-slate-400">
+          <span className="block text-[11px] text-slate-500">
             Ex: 100 leads × {cidades.length || 1} cidade(s) ={" "}
             {(maxPerCity * (cidades.length || 1)).toLocaleString("pt-BR")} leads
             no total. Tempo estimado: ~1-5 min por cidade.
-          </p>
-        </div>
+          </span>
+        </label>
 
         <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-[11px] text-amber-800">
           O scraper roda no Easypanel e pode ser bloqueado pelo Google se
@@ -957,8 +970,8 @@ function ScrapeModal({
             {starting ? "Iniciando..." : "Iniciar scraping"}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -996,47 +1009,46 @@ function AddLeadModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">Adicionar lead</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="bg-white max-w-md gap-4">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-slate-900">
+            Adicionar lead
+          </DialogTitle>
+        </DialogHeader>
 
         <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700">Telefone *</label>
+          <label className="block space-y-1.5">
+            <span className="block text-sm font-semibold text-slate-700">Telefone *</span>
             <Input
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
               placeholder="5537999577862"
             />
-            <p className="text-[11px] text-slate-400">
+            <span className="block text-[11px] text-slate-500">
               Formato internacional sem + (ex: 5511999999999)
-            </p>
-          </div>
+            </span>
+          </label>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700">
+          <label className="block space-y-1.5">
+            <span className="block text-sm font-semibold text-slate-700">
               Nome da empresa
-            </label>
+            </span>
             <Input
               value={form.company_name}
               onChange={(e) => setForm({ ...form, company_name: e.target.value })}
               placeholder="Petshop Cão Feliz"
             />
-          </div>
+          </label>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700">Site</label>
+          <label className="block space-y-1.5">
+            <span className="block text-sm font-semibold text-slate-700">Site</span>
             <Input
               value={form.website}
               onChange={(e) => setForm({ ...form, website: e.target.value })}
               placeholder="https://..."
             />
-          </div>
+          </label>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -1051,8 +1063,8 @@ function AddLeadModal({
             {saving ? "Salvando..." : "Adicionar"}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

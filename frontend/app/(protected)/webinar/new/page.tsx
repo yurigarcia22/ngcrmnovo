@@ -181,7 +181,7 @@ export default function NewCampaignPage() {
               hint="Apenas instâncias cadastradas no CRM aparecem aqui. Crie em Configurações → WhatsApp e marque como disponível para Webinar."
             >
               {instancesLoading ? (
-                <div className="text-sm text-slate-400">Carregando instâncias...</div>
+                <div className="text-sm text-slate-500">Carregando instâncias...</div>
               ) : instances.length === 0 ? (
                 <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -281,10 +281,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-slate-700">{label}</label>
+    <label className="block space-y-1.5">
+      <span className="block text-sm font-semibold text-slate-700">{label}</span>
       {children}
-      {hint && <p className="text-[11px] text-slate-400">{hint}</p>}
-    </div>
+      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+    </label>
   );
 }

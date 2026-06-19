@@ -48,7 +48,7 @@ export default function NotificationSettingsPage() {
 
     if (loading) {
         return (
-            <div className="max-w-3xl mx-auto">
+            <div className="mx-auto max-w-3xl px-6 py-8 sm:px-8">
                 <div className="h-10 w-60 skeleton mb-6" />
                 <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-6">
                     {Array.from({ length: 5 }).map((_, i) => (
@@ -66,7 +66,7 @@ export default function NotificationSettingsPage() {
     }
 
     return (
-        <div className="max-w-3xl mx-auto">
+        <div className="mx-auto max-w-3xl px-6 py-8 sm:px-8">
             <PageHeader
                 title="Notificacoes"
                 description="Configure como e quando voce quer ser avisado pelo CRM."

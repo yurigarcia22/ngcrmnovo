@@ -33,10 +33,11 @@ export function CampaignTabs({ campaign }: { campaign: WebinarCampaign }) {
               <button
                 key={tab.key}
                 onClick={() => setActive(tab.key)}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   isActive
                     ? "border-indigo-600 text-indigo-700"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
+                    : "border-transparent text-slate-600 hover:text-slate-900"
                 }`}
               >
                 <Icon className="w-4 h-4" />

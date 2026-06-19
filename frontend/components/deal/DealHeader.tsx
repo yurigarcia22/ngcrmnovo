@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ChevronRight, Check, Pencil, Trash2, Save, X, Trophy, Frown, RotateCcw, Clock } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { updateDeal, logSystemActivity, deleteDeal, markAsWon, markAsLost, recoverDeal } from "@/app/actions";
 import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
 import { useRouter } from "next/navigation";
@@ -38,6 +38,21 @@ export default function DealHeader({ deal, pipelines }: any) {
     const [lossReasons, setLossReasons] = useState<any[]>([]);
     const [selectedLossReasonId, setSelectedLossReasonId] = useState<string>("");
     const [lossDetails, setLossDetails] = useState("");
+    const lostSelectRef = useRef<HTMLSelectElement>(null);
+
+    // a11y: fechar no Esc e focar o primeiro campo ao abrir o modal de perda
+    useEffect(() => {
+        if (!showLostModal) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setShowLostModal(false);
+        };
+        document.addEventListener("keydown", onKey);
+        const t = setTimeout(() => lostSelectRef.current?.focus(), 0);
+        return () => {
+            document.removeEventListener("keydown", onKey);
+            clearTimeout(t);
+        };
+    }, [showLostModal]);
 
     const isWon = deal.status === "won";
     const isLost = deal.status === "lost";
@@ -48,7 +63,7 @@ export default function DealHeader({ deal, pipelines }: any) {
         ? "bg-gradient-to-r from-emerald-600 to-emerald-700"
         : isLost
             ? "bg-gradient-to-r from-rose-700 to-rose-800"
-            : "bg-[#2b3d51]";
+            : "bg-slate-800";
 
     async function handleStageChange(pipelineId: string, stageId: number, stageName: string) {
         if (stageId === deal.stage_id) { setIsStageOpen(false); return; }
@@ -165,7 +180,7 @@ export default function DealHeader({ deal, pipelines }: any) {
         <>
             <header className={`h-14 ${headerBg} text-white flex items-center justify-between px-4 shrink-0 shadow-md z-20 transition-colors`}>
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <Link href={backHref} className="p-1.5 hover:bg-white/10 rounded-full transition-colors shrink-0">
+                    <Link href={backHref} aria-label="Voltar" className="p-2 hover:bg-white/10 rounded-full transition-colors shrink-0">
                         <ArrowLeft size={20} />
                     </Link>
                     <div className="flex-1 min-w-0">
@@ -175,13 +190,14 @@ export default function DealHeader({ deal, pipelines }: any) {
                                     <input
                                         value={title}
                                         onChange={(e) => setTitle(e.target.value)}
-                                        className="text-sm font-bold text-gray-900 px-2 py-1 rounded w-64 focus:outline-none"
+                                        aria-label="Título do negócio"
+                                        className="text-sm font-bold text-slate-900 px-2 py-1 rounded w-64 focus:outline-none"
                                         autoFocus
                                     />
-                                    <button onClick={handleSaveTitle} disabled={loading} className="p-1 hover:bg-green-500/20 rounded text-green-400">
+                                    <button onClick={handleSaveTitle} disabled={loading} aria-label="Salvar título" className="p-2 hover:bg-green-500/20 rounded text-green-400">
                                         <Save size={16} />
                                     </button>
-                                    <button onClick={() => { setIsEditing(false); setTitle(deal.title); }} disabled={loading} className="p-1 hover:bg-red-500/20 rounded text-red-400">
+                                    <button onClick={() => { setIsEditing(false); setTitle(deal.title); }} disabled={loading} aria-label="Cancelar edição" className="p-2 hover:bg-red-500/20 rounded text-red-400">
                                         <X size={16} />
                                     </button>
                                 </>
@@ -218,7 +234,7 @@ export default function DealHeader({ deal, pipelines }: any) {
                                     <div className="absolute top-full left-0 mt-2 bg-white text-gray-800 rounded-md shadow-xl border border-gray-200 w-64 z-50 overflow-hidden">
                                         {pipelines.map((pipe: any) => (
                                             <div key={pipe.id} className="border-b last:border-0 border-gray-100">
-                                                <div className="bg-gray-50 px-3 py-1 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                                <div className="bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
                                                     {pipe.name}
                                                 </div>
                                                 {pipe.stages.map((stage: any) => (
@@ -287,6 +303,7 @@ export default function DealHeader({ deal, pipelines }: any) {
                         onClick={() => setIsEditing(true)}
                         className="p-2 hover:bg-white/10 rounded-md opacity-80 hover:opacity-100 text-white"
                         title="Editar Título"
+                        aria-label="Editar título"
                     >
                         <Pencil size={18} />
                     </button>
@@ -294,6 +311,7 @@ export default function DealHeader({ deal, pipelines }: any) {
                         onClick={handleDelete}
                         className="p-2 hover:bg-white/10 rounded-md opacity-80 hover:opacity-100 text-red-300 hover:text-red-400"
                         title="Excluir Lead"
+                        aria-label="Excluir negócio"
                     >
                         <Trash2 size={18} />
                     </button>
@@ -302,25 +320,33 @@ export default function DealHeader({ deal, pipelines }: any) {
 
             {/* Modal: Motivo de Perda */}
             {showLostModal && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Marcar como perdido"
+                    className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                    onClick={() => setShowLostModal(false)}
+                >
+                    <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                 <Frown className="text-rose-500" size={20} /> Marcar como perdido
                             </h2>
-                            <button onClick={() => setShowLostModal(false)} className="text-gray-400 hover:text-gray-600">
+                            <button onClick={() => setShowLostModal(false)} aria-label="Fechar" className="p-2 -mr-2 text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-100 transition-colors">
                                 <X size={20} />
                             </button>
                         </div>
 
                         <div className="mb-4">
-                            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                            <label htmlFor="lost-reason-select" className="block text-xs font-semibold text-slate-600 mb-1.5">
                                 Motivo da perda
                             </label>
                             <select
+                                id="lost-reason-select"
+                                ref={lostSelectRef}
                                 value={selectedLossReasonId}
                                 onChange={(e) => setSelectedLossReasonId(e.target.value)}
-                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
                             >
                                 <option value="">— Selecione —</option>
                                 {lossReasons.map((r) => (
@@ -330,22 +356,23 @@ export default function DealHeader({ deal, pipelines }: any) {
                         </div>
 
                         <div className="mb-5">
-                            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                            <label htmlFor="lost-details" className="block text-xs font-semibold text-slate-600 mb-1.5">
                                 Detalhes (opcional)
                             </label>
                             <textarea
+                                id="lost-details"
                                 value={lossDetails}
                                 onChange={(e) => setLossDetails(e.target.value)}
                                 rows={3}
                                 placeholder="O que aconteceu?"
-                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 resize-none"
+                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 resize-none placeholder:text-slate-500"
                             />
                         </div>
 
                         <div className="flex justify-end gap-2">
                             <button
                                 onClick={() => setShowLostModal(false)}
-                                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg"
+                                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
                             >
                                 Cancelar
                             </button>

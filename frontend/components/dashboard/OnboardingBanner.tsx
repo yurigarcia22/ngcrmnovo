@@ -90,7 +90,7 @@ export default function OnboardingBanner({ steps }: Props) {
         <div className="bg-white rounded-2xl border border-indigo-100 shadow-md p-6 mb-8">
             <div className="flex items-start justify-between mb-5">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
                         <Sparkles className="w-5 h-5" />
                     </div>
                     <div>
@@ -104,7 +104,7 @@ export default function OnboardingBanner({ steps }: Props) {
                 </div>
                 <button
                     onClick={() => setDismissed(true)}
-                    className="text-slate-300 hover:text-slate-500 transition-colors"
+                    className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                     aria-label="Fechar"
                 >
                     <X className="w-4 h-4" />
@@ -114,7 +114,7 @@ export default function OnboardingBanner({ steps }: Props) {
             {/* Barra de progresso */}
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mb-5">
                 <div
-                    className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-500"
+                    className="h-full bg-indigo-600 transition-all duration-500 ease-out"
                     style={{ width: `${progress}%` }}
                 />
             </div>

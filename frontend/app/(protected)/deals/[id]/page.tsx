@@ -76,7 +76,7 @@ export default async function DealPage({ params }: { params: { id: string } }) {
     // const fields = fieldsRes.success ? fieldsRes.data : [];
 
     return (
-        <div className="flex flex-col h-screen bg-[#f5f7f8] overflow-hidden">
+        <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
 
             {/* GLOBAL HEADER */}
             <DealHeader deal={deal} pipelines={pipelines} />
@@ -98,7 +98,7 @@ export default async function DealPage({ params }: { params: { id: string } }) {
                 </div>
 
                 {/* RIGHT CONTENT (TIMELINE) - span 8 (66%) */}
-                <div className="col-span-12 md:col-span-8 lg:col-span-9 h-full overflow-hidden bg-[#f0f2f5]">
+                <div className="col-span-12 md:col-span-8 lg:col-span-9 h-full overflow-hidden bg-slate-100">
                     <DealTimeline
                         dealId={deal.id}
                         initialNotes={notes}

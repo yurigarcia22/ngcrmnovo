@@ -18,23 +18,29 @@ export default function VetSummary() {
 
     if (!m) return null;
 
-    const cards = [
-        { icon: CalendarCheck, label: "Atendimentos hoje", value: m.atendimentosHoje, cls: "text-indigo-600 bg-indigo-50", href: "/agenda" },
-        { icon: Syringe, label: "Vacinas vencendo", value: m.vacinasVencendo, cls: "text-amber-600 bg-amber-50", href: "/pets" },
-        { icon: Cake, label: "Aniversariantes do mês", value: m.aniversariantes, cls: "text-pink-600 bg-pink-50", href: "/pets" },
-        { icon: PawPrint, label: "Pets cadastrados", value: m.totalPets, cls: "text-teal-600 bg-teal-50", href: "/pets" },
-        { icon: DollarSign, label: "Faturamento do mês", value: brl(m.faturamentoMes), cls: "text-emerald-600 bg-emerald-50", href: "/agenda" },
+    const stats = [
+        { icon: CalendarCheck, label: "Atendimentos hoje", value: m.atendimentosHoje, tint: "text-teal-600", href: "/agenda" },
+        { icon: Syringe, label: "Vacinas vencendo", value: m.vacinasVencendo, tint: "text-amber-600", href: "/pets" },
+        { icon: Cake, label: "Aniversariantes do mês", value: m.aniversariantes, tint: "text-pink-600", href: "/pets" },
+        { icon: PawPrint, label: "Pets cadastrados", value: m.totalPets, tint: "text-sky-600", href: "/pets" },
+        { icon: DollarSign, label: "Faturamento do mês", value: brl(m.faturamentoMes), tint: "text-emerald-600", href: "/agenda" },
     ];
 
     return (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-            {cards.map((c) => (
-                <Link key={c.label} href={c.href} className="bg-white border border-gray-200 rounded-xl p-3 hover:shadow-sm transition-shadow">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${c.cls}`}>
-                        <c.icon size={16} />
+        <div className="mb-5 grid grid-cols-2 divide-slate-200 rounded-2xl border border-slate-200 bg-white sm:grid-cols-5 sm:divide-x">
+            {stats.map((s) => (
+                <Link
+                    key={s.label}
+                    href={s.href}
+                    className="flex items-center gap-3 px-4 py-4 border-t border-slate-200 first:border-t-0 sm:border-t-0 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
+                >
+                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 ${s.tint}`}>
+                        <s.icon size={16} />
+                    </span>
+                    <div className="min-w-0">
+                        <div className="text-lg font-extrabold leading-none text-slate-800">{s.value}</div>
+                        <div className="mt-1 text-[12px] text-slate-500 truncate">{s.label}</div>
                     </div>
-                    <div className="text-lg font-bold text-gray-800 leading-tight">{c.value}</div>
-                    <div className="text-[11px] text-gray-500">{c.label}</div>
                 </Link>
             ))}
         </div>

@@ -14,7 +14,7 @@ export default async function QuickRepliesPage() {
         .order("category", { ascending: true });
 
     return (
-        <div className="max-w-6xl mx-auto">
+        <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8">
             <PageHeader
                 title="Respostas Rapidas"
                 description="Crie mensagens pre-definidas para agilizar o atendimento no WhatsApp."

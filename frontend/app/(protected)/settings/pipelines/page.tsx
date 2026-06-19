@@ -28,6 +28,10 @@ export default function PipelinesPage() {
     const [isCreatingPipeline, setIsCreatingPipeline] = useState(false);
     const [activeKind, setActiveKind] = useState<"deals" | "cold_call">("deals");
 
+    // Inline "nova etapa" form
+    const [isAddingStage, setIsAddingStage] = useState(false);
+    const [newStageName, setNewStageName] = useState("");
+
     useEffect(() => {
         loadPipelines();
         setSelectedPipelineId(null); // Reset selecao ao trocar tab
@@ -104,13 +108,16 @@ export default function PipelinesPage() {
     }
 
     // --- Stage Handlers ---
-    async function handleAddStage() {
+    async function handleAddStage(e?: React.FormEvent) {
+        e?.preventDefault();
         if (!selectedPipelineId) return;
-        const name = prompt("Nome da nova etapa:");
+        const name = newStageName.trim();
         if (!name) return;
 
         const res = await createStage(selectedPipelineId, name);
         if (res.success) {
+            setNewStageName("");
+            setIsAddingStage(false);
             loadStages(selectedPipelineId);
             toast.success("Etapa adicionada!");
         } else {
@@ -247,15 +254,24 @@ export default function PipelinesPage() {
                     )}
 
                     {loading ? (
-                        <div className="text-muted-foreground text-sm text-center py-8">Carregando funis...</div>
+                        <div className="text-slate-500 text-sm text-center py-8">Carregando funis...</div>
                     ) : (
                         <div className="space-y-2">
                             {pipelines.map(pipe => (
                                 <div
                                     key={pipe.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={selectedPipelineId === pipe.id}
                                     onClick={() => setSelectedPipelineId(pipe.id)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
+                                            setSelectedPipelineId(pipe.id);
+                                        }
+                                    }}
                                     className={cn(
-                                        "group flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:shadow-md",
+                                        "group flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
                                         selectedPipelineId === pipe.id
                                             ? "bg-blue-50 border-blue-200 ring-1 ring-blue-300 shadow-sm"
                                             : "bg-white border-slate-100 hover:border-blue-100"
@@ -274,9 +290,9 @@ export default function PipelinesPage() {
                                                 {pipe.name}
                                             </span>
                                             {pipe.is_default && (
-                                                <span className="text-[10px] font-bold text-amber-600 flex items-center gap-1 mt-0.5">
+                                                <span className="text-xs font-semibold text-amber-700 flex items-center gap-1 mt-0.5">
                                                     <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                                                    PADRÃO
+                                                    Padrão
                                                 </span>
                                             )}
                                         </div>
@@ -298,7 +314,8 @@ export default function PipelinesPage() {
                                                 variant="ghost"
                                                 size="icon"
                                                 title="Tornar padrão"
-                                                className="h-8 w-8 text-slate-400 hover:text-amber-500 hover:bg-amber-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                aria-label={`Tornar ${pipe.name} o funil padrão`}
+                                                className="h-9 w-9 text-slate-500 hover:text-amber-600 hover:bg-amber-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                                             >
                                                 <Star className="w-4 h-4" />
                                             </Button>
@@ -308,7 +325,8 @@ export default function PipelinesPage() {
                                                 onClick={(e) => handleDeletePipeline(pipe.id, e)}
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                aria-label={`Excluir ${pipe.name}`}
+                                                className="h-9 w-9 text-slate-500 hover:text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -323,13 +341,13 @@ export default function PipelinesPage() {
 
             {/* Main: Stages Editor */}
             <Card className="flex-1 flex flex-col h-full border-none shadow-md overflow-hidden bg-white">
-                <div className="p-6 border-b bg-gradient-to-r from-slate-50 to-white flex justify-between items-center">
+                <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                     <div>
                         <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                             {selectedPipelineId ? (
                                 <>
                                     Etapas do Funil
-                                    <span className="text-slate-400 text-sm font-normal ml-2 flex items-center gap-1">
+                                    <span className="text-slate-500 text-sm font-normal ml-2 flex items-center gap-1">
                                         <ArrowRight className="w-3 h-3" /> Configuração
                                     </span>
                                 </>
@@ -345,7 +363,7 @@ export default function PipelinesPage() {
                     </div>
 
                     {selectedPipelineId && (
-                        <Button onClick={handleAddStage} className="gap-2 shadow-sm">
+                        <Button onClick={() => setIsAddingStage(true)} className="gap-2 shadow-sm">
                             <Plus className="w-4 h-4" />
                             Nova Etapa
                         </Button>
@@ -354,19 +372,19 @@ export default function PipelinesPage() {
 
                 <div className="flex-1 p-8 overflow-y-auto bg-slate-50/30">
                     {!selectedPipelineId ? (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
-                            <LayoutTemplate className="w-16 h-16 opacity-20" />
+                        <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-4">
+                            <LayoutTemplate className="w-16 h-16 text-slate-300" />
                             <p>Selecione um funil à esquerda para editar suas etapas.</p>
                         </div>
                     ) : stagesLoading ? (
-                        <div className="text-center py-20 text-slate-400 flex flex-col items-center gap-3">
+                        <div className="text-center py-20 text-slate-500 flex flex-col items-center gap-3">
                             <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                             Carregando etapas...
                         </div>
-                    ) : stages.length === 0 ? (
-                        <div className="text-center py-20 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl m-10">
+                    ) : stages.length === 0 && !isAddingStage ? (
+                        <div className="text-center py-20 text-slate-500 border-2 border-dashed border-slate-200 rounded-xl m-10">
                             <p>Este funil ainda não tem etapas.</p>
-                            <Button onClick={handleAddStage} variant="link" className="mt-2 text-blue-600">
+                            <Button onClick={() => setIsAddingStage(true)} variant="link" className="mt-2 text-blue-600">
                                 Adicionar a primeira etapa
                             </Button>
                         </div>
@@ -379,6 +397,40 @@ export default function PipelinesPage() {
                                         {...provided.droppableProps}
                                         ref={provided.innerRef}
                                     >
+                                        {isAddingStage && (
+                                            <form
+                                                onSubmit={handleAddStage}
+                                                className="flex items-center gap-2 bg-white p-4 rounded-xl border border-blue-200 shadow-sm"
+                                            >
+                                                <Input
+                                                    autoFocus
+                                                    className="flex-1"
+                                                    placeholder="Nome da nova etapa..."
+                                                    aria-label="Nome da nova etapa"
+                                                    value={newStageName}
+                                                    onChange={(e) => setNewStageName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Escape") {
+                                                            setIsAddingStage(false);
+                                                            setNewStageName("");
+                                                        }
+                                                    }}
+                                                />
+                                                <Button type="submit" size="icon" variant="success" className="shrink-0" aria-label="Adicionar etapa">
+                                                    <Check className="w-4 h-4" />
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    onClick={() => { setIsAddingStage(false); setNewStageName(""); }}
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="shrink-0"
+                                                    aria-label="Cancelar"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </Button>
+                                            </form>
+                                        )}
                                         {stages.map((stage, index) => (
                                             <Draggable key={String(stage.id)} draggableId={String(stage.id)} index={index}>
                                                 {(provided, snapshot) => (
@@ -451,11 +503,8 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
 
     return (
         <div className={cn(
-            "group bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 transition-all duration-200",
-            isDragging ? "shadow-lg border-blue-400 rotate-1 scale-102 z-50" : "hover:border-blue-300 hover:shadow-md",
-            stage.is_inbox && "border-l-4 border-l-indigo-500",
-            stage.is_won && "border-l-4 border-l-emerald-500",
-            stage.is_lost && "border-l-4 border-l-rose-500"
+            "group bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 transition-all duration-200 ease-out",
+            isDragging ? "shadow-lg border-blue-400 z-50" : "hover:border-blue-300 hover:shadow-md"
         )}>
             <div
                 {...dragHandleProps}
@@ -537,7 +586,7 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
             {/* Actions */}
             <div className="flex items-center gap-2">
                 {isEditing ? (
-                    <Button onClick={save} size="icon" variant="success" className="h-9 w-9">
+                    <Button onClick={save} size="icon" variant="success" className="h-9 w-9" aria-label="Salvar etapa">
                         <Check className="w-4 h-4" />
                     </Button>
                 ) : (
@@ -545,7 +594,8 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
                         onClick={() => setIsEditing(true)}
                         size="icon"
                         variant="ghost"
-                        className="h-9 w-9 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                        aria-label={`Editar etapa ${stage.name}`}
+                        className="h-9 w-9 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
                     >
                         <Edit2 className="w-4 h-4" />
                     </Button>
@@ -555,7 +605,8 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
                     onClick={() => onDelete(stage.id)}
                     size="icon"
                     variant="ghost"
-                    className="h-9 w-9 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                    aria-label={`Remover etapa ${stage.name}`}
+                    className="h-9 w-9 text-slate-500 hover:text-rose-600 hover:bg-rose-50"
                 >
                     <Trash2 className="w-4 h-4" />
                 </Button>
@@ -582,10 +633,10 @@ function FlagPill({
             onClick={onClick}
             title={`Marcar como ${label}`}
             className={cn(
-                "inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all",
+                "inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md border transition-all",
                 active
                     ? activeClass
-                    : "bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600"
+                    : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 hover:text-slate-700"
             )}
         >
             {icon}

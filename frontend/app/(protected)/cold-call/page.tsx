@@ -422,8 +422,8 @@ export default function ColdCallPage() {
             {activeTab === 'cold-call' && (
                 <Card className="border-none shadow-none bg-transparent animate-in fade-in zoom-in-95 duration-200">
                     <CardContent className="p-0">
-                        <div className="flex gap-4 items-center mb-6">
-                            <div className="relative w-64 flex gap-2">
+                        <div className="flex flex-wrap gap-4 items-center mb-6">
+                            <div className="relative flex gap-2 flex-1 min-w-[240px]">
                                 <Input
                                     placeholder="Buscar..."
                                     value={filters.search}
@@ -441,7 +441,7 @@ export default function ColdCallPage() {
                                     {isSelectionMode ? "Cancelar" : "Selecionar"}
                                 </Button>
                             </div>
-                            <div className="w-56">
+                            <div className="min-w-[200px] flex-1">
                                 <NichoSelector
                                     value={filters.nicho === 'all' ? '' : filters.nicho}
                                     onChange={(val) => setFilters({ ...filters, nicho: val || 'all' })}
@@ -449,13 +449,14 @@ export default function ColdCallPage() {
                                 />
                             </div>
                             {/* SELETOR DE FUNIL DE COLD CALL */}
-                            <div className="w-64 flex items-center gap-1">
+                            <div className="min-w-[240px] flex-1 flex items-center gap-1">
                                 <GitPullRequest className="w-4 h-4 text-indigo-500 shrink-0" />
                                 <select
                                     className="flex-1 h-10 rounded-md border border-indigo-200 bg-indigo-50/50 px-3 py-2 text-sm font-semibold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                     value={selectedColdPipelineId ?? ""}
                                     onChange={(e) => setSelectedColdPipelineId(Number(e.target.value))}
                                     title="Funil de prospecção"
+                                    aria-label="Funil de prospecção"
                                 >
                                     {coldPipelines.length === 0 && (
                                         <option value="">Sem funis...</option>
@@ -468,14 +469,16 @@ export default function ColdCallPage() {
                                 </select>
                                 <Link
                                     href="/settings/pipelines"
-                                    className="p-1 text-slate-400 hover:text-indigo-600"
+                                    className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-colors shrink-0"
                                     title="Gerenciar funis"
+                                    aria-label="Gerenciar funis"
                                 >
                                     <Settings className="w-4 h-4" />
                                 </Link>
                             </div>
-                            <div className="w-56">
+                            <div className="min-w-[200px] flex-1">
                                 <select
+                                    aria-label="Filtrar por responsável"
                                     className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
                                     value={filters.responsavelId}
                                     onChange={(e) => setFilters({ ...filters, responsavelId: e.target.value })}

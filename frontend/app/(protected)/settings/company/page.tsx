@@ -42,7 +42,7 @@ export default function CompanySettingsPage() {
     };
 
     return (
-        <div className="max-w-4xl mx-auto">
+        <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8">
             <PageHeader
                 title="Empresa"
                 description="Configure os dados da sua organizacao. O nome sera exibido em todo o sistema."

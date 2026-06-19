@@ -96,13 +96,13 @@ export default function EmailTemplatesPage() {
     };
 
     return (
-        <div className="flex flex-col min-h-screen bg-[#F8F9FB]">
+        <div className="flex flex-col min-h-screen bg-slate-50">
             <EmailSubNav />
 
             <div className="flex-1 px-8 py-6 max-w-6xl mx-auto w-full">
                 <div className="flex items-center justify-between mb-6">
                     <div>
-                        <h1 className="text-2xl font-black text-slate-900">Templates de E-mail</h1>
+                        <h1 className="text-2xl font-bold text-slate-800">Templates de E-mail</h1>
                         <p className="text-sm text-slate-500 mt-1">Crie e gerencie templates reutilizáveis com variáveis dinâmicas.</p>
                     </div>
                     <button
@@ -116,17 +116,19 @@ export default function EmailTemplatesPage() {
                 {/* Filters */}
                 <div className="flex items-center gap-3 mb-6">
                     <div className="relative flex-1 max-w-sm">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                         <input
                             type="text"
-                            className="w-full h-10 rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            aria-label="Buscar templates"
+                            className="w-full h-10 rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder="Buscar templates..."
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                         />
                     </div>
                     <select
-                        className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        aria-label="Filtrar por categoria"
+                        className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         value={filterCategory}
                         onChange={e => setFilterCategory(e.target.value)}
                     >
@@ -141,9 +143,9 @@ export default function EmailTemplatesPage() {
                     </div>
                 ) : templates.length === 0 ? (
                     <div className="text-center py-20">
-                        <FileText className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                        <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                         <h3 className="text-lg font-bold text-slate-700">Nenhum template encontrado</h3>
-                        <p className="text-sm text-slate-400 mt-2">Crie templates para agilizar o envio de e-mails.</p>
+                        <p className="text-sm text-slate-600 mt-2">Crie templates para agilizar o envio de e-mails.</p>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -160,16 +162,16 @@ export default function EmailTemplatesPage() {
                                     </div>
 
                                     <div className="mb-3">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Assunto</span>
+                                        <span className="text-xs font-semibold text-slate-700 block mb-0.5">Assunto</span>
                                         <p className="text-sm text-slate-600 truncate">{template.subject}</p>
                                     </div>
 
-                                    {/* Preview snippet */}
-                                    <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 line-clamp-3 border border-slate-100 mb-3">
+                                    {/* Preview snippet — flattened (no nested card) */}
+                                    <div className="border-t border-slate-100 pt-3 text-xs text-slate-600 line-clamp-3 mb-3">
                                         {renderTemplate(template.body_html?.replace(/<[^>]*>/g, '') || '', previewContext).substring(0, 150)}...
                                     </div>
 
-                                    <div className="flex items-center text-[10px] text-slate-400 gap-3">
+                                    <div className="flex items-center text-[11px] text-slate-500 gap-3">
                                         <span>{template.variables_json?.length || 0} variáveis</span>
                                         <span>•</span>
                                         <span>{new Date(template.created_at).toLocaleDateString('pt-BR')}</span>
@@ -183,11 +185,11 @@ export default function EmailTemplatesPage() {
                                     <button onClick={() => handleDuplicate(template.id)} className="flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                                         <Copy className="w-3 h-3" /> Duplicar
                                     </button>
-                                    <button onClick={() => handleArchive(template.id)} className="flex items-center justify-center px-3 py-2.5 text-xs text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors">
-                                        <Archive className="w-3 h-3" />
+                                    <button onClick={() => handleArchive(template.id)} aria-label="Arquivar template" title="Arquivar" className="flex items-center justify-center px-3.5 py-2.5 text-xs text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors">
+                                        <Archive className="w-3.5 h-3.5" />
                                     </button>
-                                    <button onClick={() => handleDelete(template.id)} className="flex items-center justify-center px-3 py-2.5 text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                                        <Trash2 className="w-3 h-3" />
+                                    <button onClick={() => handleDelete(template.id)} aria-label="Remover template" title="Remover" className="flex items-center justify-center px-3.5 py-2.5 text-xs text-slate-500 hover:text-red-500 hover:bg-red-50 transition-colors">
+                                        <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                 </div>
                             </div>

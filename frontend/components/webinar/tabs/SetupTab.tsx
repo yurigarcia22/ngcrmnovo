@@ -336,31 +336,31 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
             </div>
 
             {valStats ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-                <div className="bg-white rounded-md p-2.5 border border-slate-100">
-                  <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Total</div>
+              <div className="flex items-stretch flex-wrap divide-x divide-emerald-100 rounded-md bg-white border border-emerald-100 mb-3">
+                <div className="flex-1 min-w-[110px] p-3">
+                  <div className="text-xs font-medium text-slate-500">Total</div>
                   <div className="text-lg font-bold text-slate-800">{valStats.total}</div>
                 </div>
-                <div className="bg-white rounded-md p-2.5 border border-slate-100">
-                  <div className="text-[10px] uppercase font-bold tracking-wider text-emerald-600">Com WhatsApp</div>
+                <div className="flex-1 min-w-[110px] p-3">
+                  <div className="text-xs font-medium text-emerald-700">Com WhatsApp</div>
                   <div className="text-lg font-bold text-emerald-600">{valStats.com_whatsapp}</div>
-                  <div className="text-[10px] text-slate-400">
+                  <div className="text-[11px] text-slate-500">
                     {valStats.total > 0
                       ? `${Math.round((valStats.com_whatsapp / valStats.total) * 100)}%`
                       : "-"}
                   </div>
                 </div>
-                <div className="bg-white rounded-md p-2.5 border border-slate-100">
-                  <div className="text-[10px] uppercase font-bold tracking-wider text-rose-600">Sem WhatsApp</div>
+                <div className="flex-1 min-w-[110px] p-3">
+                  <div className="text-xs font-medium text-rose-700">Sem WhatsApp</div>
                   <div className="text-lg font-bold text-rose-600">{valStats.sem_whatsapp}</div>
                 </div>
-                <div className="bg-white rounded-md p-2.5 border border-slate-100">
-                  <div className="text-[10px] uppercase font-bold tracking-wider text-amber-600">Aguardando</div>
+                <div className="flex-1 min-w-[110px] p-3">
+                  <div className="text-xs font-medium text-amber-700">Aguardando</div>
                   <div className="text-lg font-bold text-amber-600">{valStats.nao_validados}</div>
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-slate-400 italic mb-3">Carregando stats...</div>
+              <div className="text-xs text-slate-500 italic mb-3">Carregando stats...</div>
             )}
 
             <div className="flex items-center gap-2">
@@ -394,7 +394,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
             label="Cadência automática de lembretes"
             hint="Quando ATIVADA, ao confirmar um lead o sistema agenda D-1 (véspera), T-1h, T-10min e nutrição. Quando DESATIVADA (recomendado), o time gerencia os lembretes manualmente. Agente IA continua confirmando e respondendo perguntas normalmente."
           >
-            <label className="flex items-center gap-3 cursor-pointer">
+            <span className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={form.cadence_enabled}
@@ -414,7 +414,7 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
                   </span>
                 )}
               </span>
-            </label>
+            </span>
           </Field>
 
           <Field
@@ -456,11 +456,11 @@ export function SetupTab({ campaign }: { campaign: WebinarCampaign }) {
             </div>
 
             {loadingInstances ? (
-              <div className="text-center py-6 text-sm text-slate-400">
+              <div className="text-center py-6 text-sm text-slate-500">
                 Carregando instâncias do Evolution...
               </div>
             ) : instances.length === 0 ? (
-              <div className="text-center py-6 text-sm text-slate-400">
+              <div className="text-center py-6 text-sm text-slate-500">
                 Nenhuma instância encontrada no Evolution.
               </div>
             ) : (
@@ -620,10 +620,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-slate-700">{label}</label>
+    <label className="block space-y-1.5">
+      <span className="block text-sm font-semibold text-slate-700">{label}</span>
       {children}
-      {hint && <p className="text-[11px] text-slate-400">{hint}</p>}
-    </div>
+      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+    </label>
   );
 }

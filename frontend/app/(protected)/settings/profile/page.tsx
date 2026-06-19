@@ -24,7 +24,7 @@ export default async function ProfilePage() {
     }
 
     return (
-        <div className="max-w-4xl mx-auto">
+        <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8">
             <PageHeader
                 title="Meu Perfil"
                 description="Gerencie suas informacoes pessoais e credenciais de acesso."
@@ -36,14 +36,14 @@ export default async function ProfilePage() {
             />
 
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-8 border-b border-gray-100 flex items-center gap-6">
+                <div className="p-8 border-b border-slate-100 flex items-center gap-6">
                     <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center text-3xl font-bold text-blue-600 border-4 border-white shadow-lg">
                         {profile?.full_name?.[0]?.toUpperCase() || <User size={40} />}
                     </div>
                     <div>
-                        <h2 className="text-xl font-bold text-gray-900">{profile?.full_name || "Usuário"}</h2>
-                        <p className="text-gray-500">{user?.email}</p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <h2 className="text-xl font-bold text-slate-900">{profile?.full_name || "Usuário"}</h2>
+                        <p className="text-slate-500">{user?.email}</p>
+                        <p className="text-xs text-slate-500 mt-1">
                             Membro desde {new Date(user?.created_at || "").toLocaleDateString()}
                         </p>
                     </div>
@@ -53,42 +53,45 @@ export default async function ProfilePage() {
                     <form action={handleSave} className="space-y-6 max-w-2xl">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
+                                <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-2">Nome Completo</label>
                                 <div className="relative">
-                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                     <input
+                                        id="fullName"
                                         name="fullName"
                                         type="text"
                                         defaultValue={profile?.full_name || ""}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                        className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                                         placeholder="Seu nome completo"
                                     />
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Telefone</label>
+                                <label htmlFor="profile-phone" className="block text-sm font-medium text-slate-700 mb-2">Telefone</label>
                                 <div className="relative">
-                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                     <input
+                                        id="profile-phone"
                                         type="text"
                                         disabled
                                         defaultValue="+55"
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
+                                        className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-600 cursor-not-allowed"
                                     />
                                 </div>
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                            <label htmlFor="profile-email" className="block text-sm font-medium text-slate-700 mb-2">Email</label>
                             <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                 <input
+                                    id="profile-email"
                                     type="email"
                                     disabled
                                     defaultValue={user?.email || ""}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
+                                    className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-600 cursor-not-allowed"
                                 />
                             </div>
                         </div>

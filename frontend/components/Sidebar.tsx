@@ -116,7 +116,7 @@ export default function Sidebar({
         <nav
             suppressHydrationWarning={true}
             className={cn(
-                "sticky top-0 h-screen shrink-0 border-r border-slate-200/80 bg-[#FAFAFB] flex flex-col z-50",
+                "sticky top-0 h-screen shrink-0 border-r border-slate-200/80 bg-slate-50 flex flex-col z-50",
                 isMounted ? "transition-all duration-400 cubic-bezier(0.16, 1, 0.3, 1)" : "",
                 open ? "w-64" : "w-[80px]"
             )}
@@ -157,6 +157,7 @@ export default function Sidebar({
                         !open && "absolute -right-4 top-8 z-50" // Floating button when closed
                     )}
                     title={open ? "Recolher menu" : "Expandir menu"}
+                    aria-label={open ? "Recolher menu" : "Expandir menu"}
                 >
                     {open ? <PanelLeftClose size={14} strokeWidth={2.5} /> : <PanelLeftOpen size={14} strokeWidth={2.5} />}
                 </button>
@@ -183,7 +184,7 @@ export default function Sidebar({
                 />
 
                 {(modules.leads || modules.cold_call || modules.webinar) && open && (
-                    <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <div className="mt-6 mb-2 ml-2 text-sm font-semibold text-slate-700">
                         {vocab.commercialSection}
                     </div>
                 )}
@@ -217,7 +218,7 @@ export default function Sidebar({
                 )}
 
                 {modules.veterinaria && open && (
-                    <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <div className="mt-6 mb-2 ml-2 text-sm font-semibold text-slate-700">
                         Clínica
                     </div>
                 )}
@@ -241,7 +242,7 @@ export default function Sidebar({
                 )}
 
                 {(modules.chat || modules.emails) && open && (
-                    <div className="mt-6 mb-2 ml-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <div className="mt-6 mb-2 ml-2 text-sm font-semibold text-slate-700">
                         Comunicação
                     </div>
                 )}
@@ -268,7 +269,7 @@ export default function Sidebar({
             </div>
 
             {/* Footer / Settings Area */}
-            <div className="p-4 mt-auto border-t border-slate-200/80 bg-[#FAFAFB]">
+            <div className="p-4 mt-auto border-t border-slate-200/80 bg-slate-50">
                 <div className="space-y-1.5">
                     <Option
                         Icon={Settings}
@@ -310,6 +311,7 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
     return (
         <Link
             href={href}
+            aria-current={isActive ? "page" : undefined}
             className={cn(
                 "group relative flex items-center rounded-xl transition-all duration-300 ease-out",
                 open ? "px-3 py-2.5" : "justify-center h-12 w-12 mx-auto",
@@ -326,14 +328,17 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
                 <Icon
                     className={cn(
                         "h-5 w-5 transition-transform duration-300",
-                        isActive ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-700 group-hover:scale-105"
+                        isActive ? "text-indigo-600" : "text-slate-500 group-hover:text-slate-700 group-hover:scale-105"
                     )}
                     strokeWidth={isActive ? 2.5 : 2}
                 />
 
                 {/* Micro notification dot for closed state */}
                 {!open && notifs && (
-                    <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-blue-500 border-2 border-[#FAFAFB]" />
+                    <span
+                        className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-indigo-500 border-2 border-slate-50"
+                        aria-label={`${notifs} mensagens não lidas`}
+                    />
                 )}
             </div>
 
@@ -349,10 +354,13 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
             )}
 
             {open && notifs && (
-                <span className={cn(
-                    "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-extrabold",
-                    isActive ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"
-                )}>
+                <span
+                    aria-label={`${notifs} mensagens não lidas`}
+                    className={cn(
+                        "ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-extrabold",
+                        isActive ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600"
+                    )}
+                >
                     {notifs}
                 </span>
             )}
@@ -362,7 +370,7 @@ const Option = ({ Icon, title, href, isActive, open, notifs }: {
 
 const Logo = () => {
     return (
-        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white border border-slate-200/60 shadow-sm flex items-center justify-center p-1.5 transition-transform hover:rotate-3">
+        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white border border-slate-200/60 shadow-sm flex items-center justify-center p-1.5">
             <div className="relative w-full h-full">
                 <Image
                     src="/logo-sidebar.png"

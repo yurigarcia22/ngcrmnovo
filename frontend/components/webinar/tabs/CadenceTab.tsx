@@ -126,7 +126,7 @@ export function CadenceTab({ campaign }: { campaign: WebinarCampaign }) {
 
         <div className="space-y-2">
           <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <div className="text-sm font-semibold text-slate-700 mb-1">
               Saudação inicial (variações sorteadas por turno)
             </div>
             <div className="text-xs text-slate-700 font-mono space-y-1">
@@ -137,7 +137,7 @@ export function CadenceTab({ campaign }: { campaign: WebinarCampaign }) {
           </div>
 
           <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <div className="text-sm font-semibold text-slate-700 mb-1">
               Após resposta — agente conduz
             </div>
             <ul className="text-xs text-slate-600 space-y-1 ml-1">
@@ -177,7 +177,7 @@ export function CadenceTab({ campaign }: { campaign: WebinarCampaign }) {
                   <span className="font-bold text-sm">Perfil {p.label}</span>
                   <span className="text-xs opacity-70">({p.when})</span>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                <span className="text-xs font-semibold opacity-80">
                   {p.steps.length} toques
                 </span>
               </div>
@@ -214,7 +214,7 @@ export function CadenceTab({ campaign }: { campaign: WebinarCampaign }) {
         </div>
 
         <div className="mt-6 pt-4 border-t border-slate-100">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Pra editar templates, ajusta no arquivo{" "}
             <code className="text-[11px] bg-slate-100 px-1 py-0.5 rounded">
               frontend/lib/webinar/cadences.ts

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button, Input } from '@/components/ui/simple-ui';
-import { X, FileSpreadsheet, User, Mail, Phone, Layers, UserCheck } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { FileSpreadsheet, User, Mail, Phone, Layers, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { qk } from '@/lib/query-keys';
@@ -75,8 +76,6 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
             if (inbox) setStageId(String(inbox.id));
         }
     }, [pipelines, stageId]);
-
-    if (!isOpen) return null;
 
     function resetForm() {
         setNome('');
@@ -158,15 +157,10 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
-
-            <div className="relative z-50 w-full max-w-md rounded-xl bg-white p-6 shadow-xl transition-all">
-                <div className="flex items-center justify-between border-b pb-4 mb-4">
-                    <h2 className="text-xl font-bold text-slate-900">Adicionar Lead</h2>
-                    <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full">
-                        <X className="h-4 w-4" />
-                    </Button>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-w-md bg-white p-6 rounded-xl">
+                <div className="border-b pb-4 mb-4">
+                    <DialogTitle className="text-xl font-bold text-slate-900">Adicionar Lead</DialogTitle>
                 </div>
 
                 <div className="flex space-x-2 mb-4 border-b">
@@ -196,7 +190,7 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                                 onChange={(e) => setNome(e.target.value)}
                                 placeholder="Nome do lead"
                                 required
-                                className="text-slate-900 placeholder:text-slate-400"
+                                className="text-slate-900 placeholder:text-slate-500"
                             />
                         </div>
 
@@ -209,7 +203,7 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 placeholder="lead@exemplo.com"
-                                className="text-slate-900 placeholder:text-slate-400"
+                                className="text-slate-900 placeholder:text-slate-500"
                             />
                         </div>
 
@@ -222,7 +216,7 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                                 onChange={(e) => setTelefone(e.target.value)}
                                 placeholder="(31) 99999-9999"
                                 required
-                                className="text-slate-900 placeholder:text-slate-400"
+                                className="text-slate-900 placeholder:text-slate-500"
                             />
                         </div>
 
@@ -301,7 +295,7 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                         </Button>
                     </form>
                 )}
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }

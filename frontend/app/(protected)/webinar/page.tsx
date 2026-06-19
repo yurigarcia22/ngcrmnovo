@@ -16,8 +16,9 @@ const STATUS_COLORS: Record<WebinarStatus, string> = {
   enriching: "bg-blue-100 text-blue-700",
   ready: "bg-emerald-100 text-emerald-700",
   active: "bg-indigo-100 text-indigo-700",
-  finished: "bg-slate-100 text-slate-500",
-  archived: "bg-slate-50 text-slate-400",
+  paused: "bg-amber-100 text-amber-700",
+  finished: "bg-slate-100 text-slate-600",
+  archived: "bg-slate-100 text-slate-500",
 };
 
 function formatDate(iso: string | null): string {
@@ -51,7 +52,7 @@ function CampaignCard({ campaign }: { campaign: WebinarCampaign }) {
             )}
           </div>
           <span
-            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${
+            className={`text-[11px] font-semibold px-2 py-1 rounded-md ${
               STATUS_COLORS[campaign.status]
             }`}
           >
@@ -59,33 +60,33 @@ function CampaignCard({ campaign }: { campaign: WebinarCampaign }) {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-500 mb-4">
-          <Calendar className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-2 text-xs text-slate-600 mb-4">
+          <Calendar className="w-3.5 h-3.5 text-slate-400" />
           <span>{formatDate(campaign.event_date)}</span>
           {campaign.target_nicho && (
             <>
               <span className="text-slate-300">•</span>
-              <Target className="w-3.5 h-3.5" />
+              <Target className="w-3.5 h-3.5 text-slate-400" />
               <span className="truncate">{campaign.target_nicho}</span>
             </>
           )}
         </div>
 
-        <div className="grid grid-cols-4 gap-2 pt-3 border-t border-slate-100">
-          <div>
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Leads</div>
+        <div className="flex items-stretch divide-x divide-slate-100 pt-3 border-t border-slate-100">
+          <div className="flex-1 pr-2">
+            <div className="text-[11px] font-medium text-slate-500">Leads</div>
             <div className="text-sm font-bold text-slate-700">{campaign.total_leads}</div>
           </div>
-          <div>
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Convidados</div>
+          <div className="flex-1 px-2">
+            <div className="text-[11px] font-medium text-slate-500">Convidados</div>
             <div className="text-sm font-bold text-slate-700">{campaign.total_invited}</div>
           </div>
-          <div>
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Confirmados</div>
+          <div className="flex-1 px-2">
+            <div className="text-[11px] font-medium text-slate-500">Confirmados</div>
             <div className="text-sm font-bold text-slate-700">{campaign.total_confirmed}</div>
           </div>
-          <div>
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Conv %</div>
+          <div className="flex-1 pl-2">
+            <div className="text-[11px] font-medium text-slate-500">Conv %</div>
             <div className="text-sm font-bold text-emerald-600">{conversion}%</div>
           </div>
         </div>
@@ -159,7 +160,7 @@ export default function WebinarPage() {
 
       <Suspense
         fallback={
-          <div className="text-center py-16 text-slate-400 text-sm">
+          <div className="text-center py-16 text-slate-500 text-sm">
             Carregando campanhas...
           </div>
         }

@@ -278,6 +278,18 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
         scrollToBottomIfNear();
     }, [messages]);
 
+    // Fecha as confirmacoes de divergencia de numero com Esc (acessibilidade).
+    useEffect(() => {
+        if (!pendingConfirm && !pendingMediaConfirm) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            if (pendingConfirm) { setNewMessage(pendingConfirm.text); setPendingConfirm(null); }
+            if (pendingMediaConfirm) setPendingMediaConfirm(null);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [pendingConfirm, pendingMediaConfirm]);
+
     // Auto-resize do textarea conforme o usuario digita (ate o max-h do CSS).
     useEffect(() => {
         const el = inputRef.current;
@@ -559,10 +571,10 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                         <span className="text-sm font-bold text-gray-800">{deal.contacts?.name || "Cliente"}</span>
                         <span className="text-xs text-gray-500">{deal.contacts?.phone}</span>
                         {numberInfo?.current && (
-                            <span className={`text-[11px] mt-0.5 inline-flex items-center gap-1 ${numberInfo.diverges ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                            <span className={`text-[11px] mt-0.5 inline-flex items-center gap-1 ${numberInfo.diverges ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>
                                 Falando via {numberInfo.current.label}
                                 {numberInfo.first && numberInfo.first.instance_name !== numberInfo.current.instance_name && (
-                                    <span className="text-gray-400">· 1º contato: {numberInfo.first.label}</span>
+                                    <span className="text-slate-500">· 1º contato: {numberInfo.first.label}</span>
                                 )}
                             </span>
                         )}
@@ -598,7 +610,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                 <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-1.5 custom-scrollbar">
                     {messages.length === 0 && (
                         <div className="flex justify-center mt-10">
-                            <div className="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm text-xs text-gray-500 uppercase tracking-wide">
+                            <div className="bg-white px-4 py-2 rounded-lg shadow-sm text-xs font-medium text-slate-600">
                                 Início da conversa
                             </div>
                         </div>
@@ -689,7 +701,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                                             <span className="text-sm font-medium text-gray-800 truncate">
                                                                 {msg.content || "Documento"}
                                                             </span>
-                                                            <span className="text-[10px] text-gray-400 uppercase font-bold">{docLabel(msg.content)}</span>
+                                                            <span className="text-[10px] text-slate-500 uppercase font-bold">{docLabel(msg.content)}</span>
                                                         </div>
                                                         <Download size={16} className="text-gray-400 ml-auto shrink-0" />
                                                     </a>
@@ -751,7 +763,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                                                     <RotateCw size={11} /> tentar de novo
                                                 </button>
                                             )}
-                                            <span className={`text-[10px] ${isOutbound ? 'text-gray-500' : 'text-gray-400'}`}>
+                                            <span className="text-[10px] text-slate-500">
                                                 {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                             {isOutbound && (
@@ -924,7 +936,7 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
                         </div>
                     )}
 
-                    <div className="text-[10px] text-gray-400 text-center font-medium">
+                    <div className="text-[10px] text-slate-500 text-center font-medium">
                         Enter envia · Shift+Enter quebra linha
                     </div>
                 </div>
@@ -944,8 +956,17 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
 
             {/* Confirmacao: numero que vai responder diverge do que falava com o lead */}
             {pendingConfirm && (
-                <div className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 space-y-3">
+                <div
+                    className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+                    onClick={() => { setNewMessage(pendingConfirm.text); setPendingConfirm(null); }}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Responder por outro número?"
+                        className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 space-y-3"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <h3 className="font-bold text-gray-900 text-base">Responder por outro número?</h3>
                         <p className="text-sm text-gray-600 leading-relaxed">
                             Este lead estava conversando com <b className="text-gray-900">{pendingConfirm.current?.label}</b>.
@@ -972,8 +993,17 @@ export default function ChatWindow({ deal, theme }: ChatWindowProps) {
 
             {/* Confirmacao de divergencia de numero ao enviar ANEXO/AUDIO */}
             {pendingMediaConfirm && (
-                <div className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 space-y-3">
+                <div
+                    className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+                    onClick={() => setPendingMediaConfirm(null)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Enviar arquivo por outro número?"
+                        className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 space-y-3"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <h3 className="font-bold text-gray-900 text-base">Enviar arquivo por outro número?</h3>
                         <p className="text-sm text-gray-600 leading-relaxed">
                             Este lead estava conversando com <b className="text-gray-900">{pendingMediaConfirm.current?.label}</b>.

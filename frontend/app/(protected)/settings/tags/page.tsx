@@ -11,7 +11,7 @@ export default async function TagsSettingsPage() {
         .order("name", { ascending: true });
 
     return (
-        <div className="max-w-6xl mx-auto">
+        <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8">
             <PageHeader
                 title="Etiquetas"
                 description="Gerencie as etiquetas usadas para organizar seus leads e negocios."

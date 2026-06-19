@@ -84,14 +84,14 @@ export default function EmailAccountsPage() {
     };
 
     return (
-        <div className="flex flex-col min-h-screen bg-[#F8F9FB]">
+        <div className="flex flex-col min-h-screen bg-slate-50">
             {/* Top Nav */}
             <EmailSubNav />
 
             <div className="flex-1 px-8 py-6 max-w-6xl mx-auto w-full">
                 <div className="flex items-center justify-between mb-8">
                     <div>
-                        <h1 className="text-2xl font-black text-slate-900">Contas de E-mail</h1>
+                        <h1 className="text-2xl font-bold text-slate-800">Contas de E-mail</h1>
                         <p className="text-sm text-slate-500 mt-1">Gerencie suas contas SMTP para envio de e-mails pelo CRM.</p>
                     </div>
                     <button
@@ -108,9 +108,9 @@ export default function EmailAccountsPage() {
                     </div>
                 ) : accounts.length === 0 ? (
                     <div className="text-center py-20">
-                        <Mail className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                        <Mail className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                         <h3 className="text-lg font-bold text-slate-700">Nenhuma conta configurada</h3>
-                        <p className="text-sm text-slate-400 mt-2 mb-6">Adicione uma conta SMTP para começar a enviar e-mails pelo CRM.</p>
+                        <p className="text-sm text-slate-600 mt-2 mb-6">Adicione uma conta SMTP para começar a enviar e-mails pelo CRM.</p>
                         <button
                             onClick={() => setShowForm(true)}
                             className="px-6 py-2.5 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
@@ -168,9 +168,10 @@ export function EmailSubNav() {
                         <Link
                             key={tab.href}
                             href={tab.href}
+                            aria-current={isActive ? 'page' : undefined}
                             className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${isActive
                                 ? 'border-blue-600 text-blue-600'
-                                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                                : 'border-transparent text-slate-600 hover:text-slate-800 hover:border-slate-300'
                                 }`}
                         >
                             <Icon className="w-4 h-4" />

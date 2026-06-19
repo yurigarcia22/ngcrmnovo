@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { PawPrint, Search, Syringe, Phone, AlertTriangle } from "lucide-react";
+import { PawPrint, Search, Syringe, Phone, AlertTriangle, Cat, Dog } from "lucide-react";
 
 interface PetRow {
     id: string;
@@ -25,9 +25,21 @@ function dueStatus(nextDue: string | null): { label: string; cls: string; overdu
     const due = new Date(nextDue);
     if (isNaN(due.getTime())) return null;
     const days = Math.ceil((due.getTime() - Date.now()) / 86400000);
-    if (days < 0) return { label: "Vacina vencida", cls: "bg-red-100 text-red-700", overdue: true, soon: false };
+    if (days < 0) return { label: "Vacina vencida", cls: "bg-rose-100 text-rose-700", overdue: true, soon: false };
     if (days <= 30) return { label: `Vence em ${days}d`, cls: "bg-amber-100 text-amber-700", overdue: false, soon: true };
     return { label: "Em dia", cls: "bg-emerald-100 text-emerald-700", overdue: false, soon: false };
+}
+
+// Identidade visual por espécie: cão / gato têm ícone próprio, outros caem no PawPrint.
+function speciesVisual(species?: string) {
+    const s = (species ?? "").toLowerCase();
+    if (s.includes("cão") || s.includes("cao") || s.includes("cachorro") || s.includes("dog")) {
+        return { Icon: Dog, ring: "bg-teal-50 text-teal-600" };
+    }
+    if (s.includes("gato") || s.includes("felino") || s.includes("cat")) {
+        return { Icon: Cat, ring: "bg-sky-50 text-sky-600" };
+    }
+    return { Icon: PawPrint, ring: "bg-indigo-50 text-indigo-500" };
 }
 
 export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] }) {
@@ -57,24 +69,26 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
         <div className="p-8 max-w-7xl mx-auto">
             <div className="flex items-center gap-2 mb-1">
                 <PawPrint className="text-indigo-600" />
-                <h1 className="text-2xl font-bold text-gray-800">Pets</h1>
+                <h1 className="text-2xl font-bold text-slate-800">Pets</h1>
             </div>
-            <p className="text-gray-500 mb-6">Todos os pets cadastrados na clínica e o status da vacinação.</p>
+            <p className="text-slate-500 mb-6">Todos os pets cadastrados na clínica e o status da vacinação.</p>
 
             <div className="flex flex-wrap items-center gap-3 mb-6">
                 <div className="relative flex-1 min-w-[240px]">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                     <input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Buscar por pet, tutor ou raça..."
-                        className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                        aria-label="Buscar pets"
+                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                     />
                 </div>
                 <button
                     onClick={() => setOnlyDue((v) => !v)}
+                    aria-pressed={onlyDue}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                        onlyDue ? "bg-amber-50 border-amber-300 text-amber-700" : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                        onlyDue ? "bg-amber-50 border-amber-300 text-amber-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                     }`}
                 >
                     <AlertTriangle size={15} />
@@ -83,9 +97,9 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
             </div>
 
             {filtered.length === 0 ? (
-                <div className="text-center py-20 bg-gray-50 rounded-xl border-dashed border-2 border-gray-200">
-                    <PawPrint className="mx-auto text-gray-300 mb-3" size={36} />
-                    <p className="text-gray-500">
+                <div className="text-center py-20 bg-slate-50 rounded-xl border-dashed border-2 border-slate-200">
+                    <PawPrint className="mx-auto text-slate-300 mb-3" size={36} />
+                    <p className="text-slate-500">
                         {initialPets.length === 0 ? "Nenhum pet cadastrado ainda. Cadastre pelos painéis dos tutores no Chat." : "Nenhum pet encontrado com esse filtro."}
                     </p>
                 </div>
@@ -94,28 +108,28 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
                     {filtered.map((pet) => {
                         const due = dueStatus(soonestDue(pet.vaccines));
                         const phone = pet.contact?.phone?.replace(/\D/g, "");
+                        const { Icon, ring } = speciesVisual(pet.species);
                         return (
-                            <Link key={pet.id} href={`/pets/${pet.id}`} className="block bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
+                            <Link key={pet.id} href={`/pets/${pet.id}`} className="block bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
                                 <div className="flex items-start gap-3">
-                                    <div className="w-11 h-11 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
-                                        <PawPrint size={20} className="text-indigo-500" />
+                                    <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${ring}`}>
+                                        <Icon size={20} />
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2">
-                                            <h3 className="font-semibold text-gray-900 truncate">{pet.name}</h3>
+                                            <h3 className="font-semibold text-slate-900 truncate">{pet.name}</h3>
                                             {due && <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${due.cls}`}>{due.label}</span>}
                                         </div>
-                                        <p className="text-xs text-gray-500 truncate">
+                                        <p className="text-xs text-slate-500 truncate">
                                             {[pet.species, pet.breed].filter(Boolean).join(" · ") || "Sem detalhes"}
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-                                    <div className="min-w-0">
-                                        <p className="text-[10px] uppercase tracking-wider text-gray-400">Tutor</p>
-                                        <p className="text-sm font-medium text-gray-700 truncate">{pet.contact?.name || "—"}</p>
-                                    </div>
+                                <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                                    <p className="text-sm font-medium text-slate-700 truncate min-w-0">
+                                        {pet.contact?.name || "Sem tutor"}
+                                    </p>
                                     {phone && (
                                         <a
                                             href={`https://wa.me/${phone}`}
@@ -131,7 +145,7 @@ export default function PetsPageClient({ initialPets }: { initialPets: PetRow[] 
                                 </div>
 
                                 {(pet.vaccines?.length ?? 0) > 0 && (
-                                    <div className="mt-2 flex items-center gap-1 text-[11px] text-gray-500">
+                                    <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
                                         <Syringe size={12} className="text-indigo-400" />
                                         {pet.vaccines!.length} {pet.vaccines!.length === 1 ? "vacina" : "vacinas"} no histórico
                                     </div>

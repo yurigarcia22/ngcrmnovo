@@ -404,7 +404,6 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             });
             if (!res.ok) throw new Error("Falha ao salvar");
             const updated = await res.json();
-            (lead as any).custom_fields = updated.custom_fields;
             (onLeadUpdate ?? onActionComplete)(updated as ColdLead);
             toast.success("Decisor salvo!");
         } catch (e) {
@@ -426,10 +425,10 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
         try {
             const res = await fetch(`/api/cold-leads/${lead.id}`, { method: 'DELETE' });
             if (!res.ok) throw new Error("Falha ao excluir");
-            onActionComplete({ ...lead, status: 'numero_inexistente' }); // Hacky way to remove locally 
-            onClose();
-            window.location.reload();
             toast.success("Lead excluído");
+            onActionComplete({ ...lead, status: 'numero_inexistente' }); // remove localmente da lista
+            onClose();
+            router.refresh(); // sincroniza com o servidor sem recarregar a página inteira
         } catch (e) {
             toast.error("Erro ao excluir");
         } finally {
@@ -538,8 +537,8 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                     {lead.nicho}
                                 </Badge>
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 block"></span>
+                            <div className="flex items-center gap-2 text-xs text-slate-600">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 block"></span>
                                 Em prospecção ativa
                             </div>
                         </div>
@@ -548,13 +547,17 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             {hasNext && (
                                 <button
                                     onClick={onNext}
-                                    className="flex items-center text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors"
+                                    className="flex items-center h-9 px-2 text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors"
                                 >
                                     Próximo <span className="ml-1 text-xs">›</span>
                                 </button>
                             )}
-                            <div className="w-px h-4 bg-gray-300 mx-2"></div>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-900 transition-colors">
+                            <div className="w-px h-4 bg-slate-300 mx-2"></div>
+                            <button
+                                onClick={onClose}
+                                aria-label="Fechar"
+                                className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                            >
                                 <X size={20} />
                             </button>
                         </div>
@@ -567,8 +570,9 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
                             {/* Responsible */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Responsável</label>
+                                <label className="text-xs font-semibold text-slate-700">Responsável</label>
                                 <select
+                                    aria-label="Responsável pelo lead"
                                     className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200 cursor-pointer text-slate-800"
                                     value={lead.responsavel_id || ""}
                                     onChange={async (e) => {
@@ -598,7 +602,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
                             {/* Phone Box */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Telefone</label>
+                                <label className="text-xs font-semibold text-slate-700">Telefone</label>
                                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative group flex flex-col gap-3">
                                     {isEditing ? (
                                         <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900 w-full" />
@@ -621,8 +625,9 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                     }
                                                     window.location.href = `sip:${sipPhone}`;
                                                 }}
-                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors"
+                                                className="h-9 w-9 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors"
                                                 title="Ligar com MicroSIP"
+                                                aria-label="Ligar com MicroSIP"
                                             >
                                                 <Phone className="h-4 w-4" />
                                             </button>
@@ -631,16 +636,18 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); openCrmChat(lead.telefone, lead.nome); }}
                                                 disabled={openingChat}
-                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-green-50 text-green-600 hover:bg-green-600 hover:text-white transition-colors disabled:opacity-50"
+                                                className="h-9 w-9 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors disabled:opacity-50"
                                                 title="Abrir conversa no WhatsApp do CRM"
+                                                aria-label="Abrir conversa no WhatsApp do CRM"
                                             >
                                                 <MessageCircle className="h-4 w-4" />
                                             </button>
                                         )}
                                         <button
                                             onClick={() => { navigator.clipboard.writeText(lead.telefone); toast.success("Copiado!"); }}
-                                            className="w-8 h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+                                            className="h-9 w-9 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors"
                                             title="Copiar número"
+                                            aria-label="Copiar número"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
                                         </button>
@@ -650,7 +657,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
                             {/* Email Box */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">E-mail</label>
+                                <label className="text-xs font-semibold text-slate-700">E-mail</label>
                                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-4 relative flex items-center justify-between min-h-[64px]">
                                     {isEditing ? (
                                         <Input type="email" placeholder="Sem e-mail" value={editForm.email || ''} onChange={e => setEditForm({...editForm, email: e.target.value})} className="bg-white text-slate-900 w-full mr-10" />
@@ -683,11 +690,10 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                                 });
                                                                 if (!res.ok) throw new Error("Falha ao salvar");
                                                                 const updated = await res.json();
-                                                                
-                                                                // Mutate local lead prop for instant UI update before parent re-renders
-                                                                lead.email = updated.email; 
-                                                                setLocalEmail(updated.email); // explicitly update local state to trigger render
-                                                                
+
+                                                                // Atualiza só o estado local — sem mutar a prop (lead.email = ...)
+                                                                setLocalEmail(updated.email);
+
                                                                 if (onLeadUpdate) {
                                                                     onLeadUpdate(updated);
                                                                 } else {
@@ -717,8 +723,9 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                     e.stopPropagation();
                                                     router.push(`/emails?compose=true&to=${encodeURIComponent(localEmail)}`);
                                                 }}
-                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors"
+                                                className="h-9 w-9 flex items-center justify-center rounded-md bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors"
                                                 title="Enviar E-mail"
+                                                aria-label="Enviar e-mail"
                                             >
                                                 <Mail className="h-4 w-4" />
                                             </button>
@@ -726,8 +733,9 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                         {localEmail && !isEditing && (
                                             <button
                                               onClick={() => { navigator.clipboard.writeText(localEmail); toast.success("Copiado!"); }}
-                                              className="w-8 h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+                                              className="h-9 w-9 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors"
                                               title="Copiar e-mail"
+                                              aria-label="Copiar e-mail"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
                                             </button>
@@ -738,7 +746,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
                             {/* Decisor (nome + telefone direto pra WhatsApp) */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Decisor</label>
+                                <label className="text-xs font-semibold text-slate-700">Decisor</label>
                                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 space-y-2">
                                     <Input
                                         value={decisorNome}
@@ -777,27 +785,29 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
                             {/* Links */}
                             <div className="space-y-3">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Links</label>
+                                <label className="text-xs font-semibold text-slate-700">Links</label>
                                 <div className="space-y-2">
-                                    <div
-                                        className="flex items-center gap-3 p-2.5 rounded-md hover:bg-blue-50 text-slate-600 hover:text-blue-600 cursor-pointer transition-colors border border-transparent hover:border-blue-100 group"
+                                    <button
+                                        type="button"
+                                        className="w-full flex items-center gap-3 p-2.5 rounded-md hover:bg-blue-50 text-slate-700 hover:text-blue-600 cursor-pointer transition-colors border border-transparent hover:border-blue-100 group text-left"
                                         onClick={() => lead.google_meu_negocio_url && openLink(lead.google_meu_negocio_url)}
                                     >
                                         <div className="w-8 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
                                             <MapPin size={16} />
                                         </div>
                                         <span className="text-sm font-medium">Google Meu Negócio</span>
-                                    </div>
+                                    </button>
 
-                                    <div
-                                        className="flex items-center gap-3 p-2.5 rounded-md hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 cursor-pointer transition-colors border border-transparent hover:border-emerald-100 group"
+                                    <button
+                                        type="button"
+                                        className="w-full flex items-center gap-3 p-2.5 rounded-md hover:bg-emerald-50 text-slate-700 hover:text-emerald-600 cursor-pointer transition-colors border border-transparent hover:border-emerald-100 group text-left"
                                         onClick={() => lead.site_url && openLink(lead.site_url)}
                                     >
                                         <div className="w-8 h-8 rounded bg-emerald-100 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
                                             <Globe size={16} />
                                         </div>
                                         <span className="text-sm font-medium">Site Web</span>
-                                    </div>
+                                    </button>
 
                                     {isEditing && (
                                         <div className="pt-2 flex flex-col gap-2">
@@ -811,7 +821,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             {/* Custom Fields Display */}
                             {lead.custom_fields && Object.keys(lead.custom_fields).length > 0 && (
                                 <div className="space-y-3">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Informações Adicionais</label>
+                                    <label className="text-xs font-semibold text-slate-700">Informações Adicionais</label>
                                     <div className="grid grid-cols-1 gap-2">
                                         {Object.entries(lead.custom_fields).map(([key, value]) => (
                                             <div key={key} className="bg-slate-50 p-2 rounded text-xs border border-slate-100">
@@ -827,11 +837,11 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
                             <div className="mt-auto grid grid-cols-2 gap-4 pt-6 border-t border-slate-100">
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Tentativas</label>
+                                    <label className="text-xs font-semibold text-slate-700 block mb-1">Tentativas</label>
                                     <span className="text-2xl font-bold text-slate-700">{lead.tentativas || 0}</span>
                                 </div>
                                 <div className="text-right">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Último Resultado</label>
+                                    <label className="text-xs font-semibold text-slate-700 block mb-1">Último Resultado</label>
                                     <span className="inline-block px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded font-medium">
                                         {lead.ultimo_resultado?.replace('_', ' ') || '-'}
                                     </span>
@@ -910,7 +920,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                 <div className="bg-white p-6 border-b border-slate-100 shadow-sm shrink-0">
                                             <label className="text-sm font-bold text-slate-800 mb-3 flex justify-between items-center">
                                                 Ação Rápida
-                                                <span className="text-[10px] font-normal text-slate-400">
+                                                <span className="text-[11px] font-normal text-slate-500">
                                                     Cadência: {lead.tentativas || 0}
                                                 </span>
                                             </label>
@@ -954,7 +964,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                         })}
                                                     </div>
                                                 ) : (
-                                                    <div className="text-xs text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-md p-3">
+                                                    <div className="text-xs text-slate-600 bg-slate-50 border border-dashed border-slate-200 rounded-md p-3">
                                                         Nenhuma etapa marcada como ação rápida. Configure em{" "}
                                                         <a href="/settings/pipelines?kind=cold_call" className="text-indigo-600 hover:underline">Configurações &gt; Funis</a>.
                                                     </div>
@@ -988,11 +998,11 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                     <div className="bg-white p-4 rounded-lg border border-blue-100 shadow-sm animate-in fade-in space-y-4">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Data</label>
+                                                <label className="text-xs font-semibold text-slate-700">Data</label>
                                                 <Input type="date" value={fupData} onChange={e => setFupData(e.target.value)} className="h-9 text-xs" />
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Período</label>
+                                                <label className="text-xs font-semibold text-slate-700">Período</label>
                                                 <select className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs" value={fupPeriodo} onChange={e => setFupPeriodo(e.target.value)}>
                                                     <option value="manha">Manhã (08h - 12h)</option>
                                                     <option value="tarde">Tarde (13h - 18h)</option>
@@ -1001,7 +1011,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                 </select>
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Ação</label>
+                                                <label className="text-xs font-semibold text-slate-700">Ação</label>
                                                 <select className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs" value={fupTipoAcao} onChange={e => setFupTipoAcao(e.target.value)}>
                                                     <option value="ligacao">Ligar Novamente</option>
                                                     <option value="whatsapp">Enviar WhatsApp</option>
@@ -1011,7 +1021,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                 </select>
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Prioridade</label>
+                                                <label className="text-xs font-semibold text-slate-700">Prioridade</label>
                                                 <select className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs" value={fupPrioridade} onChange={e => setFupPrioridade(e.target.value)}>
                                                     <option value="baixa">Baixa</option>
                                                     <option value="media">Média</option>
@@ -1036,7 +1046,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                     <span className="font-bold text-slate-800">
                                                         📅 {new Date(fup.data_agendada + 'T00:00:00').toLocaleDateString('pt-BR')} — {fup.periodo === 'manha' ? '☀️ Manhã' : fup.periodo === 'tarde' ? '🌅 Tarde' : fup.periodo}
                                                     </span>
-                                                    <span className="text-slate-500 capitalize">{fup.tipo_acao.replace('_', ' ')} • <span className={fup.prioridade === 'urgente' || fup.prioridade === 'alta' ? 'text-red-600 font-bold' : ''}>{fup.prioridade}</span></span>
+                                                    <span className="text-slate-600 capitalize">{fup.tipo_acao.replace('_', ' ')} • <span className={fup.prioridade === 'urgente' || fup.prioridade === 'alta' ? 'text-rose-700 font-bold' : ''}>{fup.prioridade}</span></span>
                                                 </div>
                                                 <button
                                                     onClick={async () => {
@@ -1070,7 +1080,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             {/* 3. NOTES (Bottom - Chat Style) */}
                             <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
                                 <div className="p-4 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
-                                    <div className="text-center text-xs text-slate-400 py-2">Início do histórico</div>
+                                    <div className="text-center text-xs text-slate-500 py-2">Início do histórico</div>
                                     {notesHistory.map((note) => {
                                         // Evento de interacao (ligacao_feita etc) -> chip centralizado bonito.
                                         const evt = editingNoteId !== note.id ? parseInteraction(note.content) : null;
@@ -1106,12 +1116,12 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                                     <div className="bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-slate-100 text-sm text-slate-700 pr-8 relative">
                                                         {note.content}
                                                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white/80 rounded px-1">
-                                                            <button onClick={() => startEditing(note)} className="text-slate-400 hover:text-blue-500 p-1">
+                                                            <button onClick={() => startEditing(note)} aria-label="Editar nota" className="text-slate-500 hover:text-blue-500 p-1">
                                                                 <Pencil size={12} />
                                                             </button>
                                                         </div>
                                                     </div>
-                                                    <span className="text-[10px] text-slate-400 pl-1">
+                                                    <span className="text-[10px] text-slate-500 pl-1">
                                                         {note.profiles?.full_name || "Usuário"} • {new Date(note.created_at).toLocaleString('pt-BR')}
                                                     </span>
                                                 </>
@@ -1133,14 +1143,15 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                         />
                                         <button
                                             onClick={handleSendNote}
-                                            className="absolute right-3 bottom-3 text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+                                            aria-label="Enviar observação"
+                                            className="absolute right-2 bottom-2 flex items-center justify-center h-9 w-9 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-full transition-colors disabled:opacity-40"
                                             disabled={!currentNote.trim()}
                                         >
                                             <Send size={16} />
                                         </button>
                                     </div>
                                     <div className="flex justify-between items-center mt-2">
-                                        <p className="text-[10px] text-slate-400">Pressione Enter para enviar</p>
+                                        <p className="text-[10px] text-slate-500">Pressione Enter para enviar</p>
                                     </div>
                                 </div>
                             </div>
@@ -1170,7 +1181,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                     <div className="p-6 space-y-6">
                         <div className="space-y-4">
                             <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Funil de Vendas</label>
+                                <label className="text-xs font-semibold text-slate-700">Funil de Vendas</label>
                                 <div className="relative">
                                     <div className="absolute left-3 top-2.5 text-slate-400"><GitPullRequest size={16} /></div>
                                     <select
@@ -1184,7 +1195,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             </div>
 
                             <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Etapa do Funil</label>
+                                <label className="text-xs font-semibold text-slate-700">Etapa do Funil</label>
                                 <div className="relative">
                                     <div className="absolute left-3 top-2.5 text-slate-400"><Target size={16} /></div>
                                     <select
@@ -1198,7 +1209,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                             </div>
 
                             <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Data da Reunião</label>
+                                <label className="text-xs font-semibold text-slate-700">Data da Reunião</label>
                                 <div className="relative">
                                     <div className="absolute left-3 top-2.5 text-slate-400"><Clock size={16} /></div>
                                     <Input

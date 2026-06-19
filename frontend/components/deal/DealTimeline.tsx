@@ -203,14 +203,14 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
     });
 
     return (
-        <div className="flex flex-col h-full bg-[#fcfcfc] relative">
+        <div className="flex flex-col h-full bg-slate-50 relative">
 
             {/* PINNED MESSAGES BAR — Mostra so se houver mensagens fixadas */}
             {inputType === 'message' && pinnedMessages.length > 0 && (
                 <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 shrink-0">
                     <div className="flex items-center gap-1.5 mb-1.5">
                         <Pin size={12} className="text-amber-700 fill-amber-700" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                        <span className="text-xs font-semibold text-amber-800">
                             {pinnedMessages.length} mensage{pinnedMessages.length > 1 ? "ns" : "m"} fixada{pinnedMessages.length > 1 ? "s" : ""}
                         </span>
                     </div>
@@ -221,8 +221,9 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                                 <span className="flex-1 truncate">{p.content}</span>
                                 <button
                                     onClick={() => handleTogglePin(p)}
-                                    className="opacity-0 group-hover:opacity-100 text-amber-600 hover:text-amber-800 shrink-0"
+                                    className="opacity-0 group-hover:opacity-100 text-amber-700 hover:text-amber-900 shrink-0"
                                     title="Desfixar"
+                                    aria-label="Desfixar mensagem"
                                 >
                                     <PinOff size={11} />
                                 </button>
@@ -236,7 +237,7 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar flex flex-col-reverse">
 
                 {visibleItems.length === 0 && (
-                    <div className="text-center text-gray-300 text-sm py-10">
+                    <div className="text-center text-slate-500 text-sm py-10">
                         {inputType === 'note' ? "Nenhuma nota ou histórico." : "Nenhuma mensagem."}
                     </div>
                 )}
@@ -248,10 +249,10 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
 
                         {/* SYSTEM EVENT */}
                         {item.type === 'system' && (
-                            <div className="flex items-center gap-2 text-gray-400 text-[10px] uppercase font-bold tracking-wide">
+                            <div className="flex items-center gap-2 text-slate-500 text-[11px] font-medium">
                                 <Activity size={10} />
                                 <span>{item.content}</span>
-                                <span className="opacity-50">• {new Date(item.created_at).toLocaleString('pt-BR')}</span>
+                                <span className="text-slate-400">• {new Date(item.created_at).toLocaleString('pt-BR')}</span>
                             </div>
                         )}
 
@@ -259,14 +260,14 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                         {item.type === 'note' && (
                             <div className="max-w-[85%] flex flex-col items-end">
                                 <div className="flex items-center gap-2 mb-1 px-1">
-                                    <span className="text-[10px] text-gray-400 font-medium">
+                                    <span className="text-[10px] text-slate-500 font-medium">
                                         {new Date(item.created_at).toLocaleString('pt-BR')} {item.isTemp && "..."}
                                     </span>
-                                    <div className="flex items-center gap-1 text-[10px] font-bold text-gray-500">
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-600">
                                         <FileText size={10} /> Nota Interna
                                     </div>
                                 </div>
-                                <div className="bg-[#fff9c4] text-gray-800 p-3 rounded-t-xl rounded-bl-xl shadow-sm border border-[#f0eeb0] text-sm whitespace-pre-wrap">
+                                <div className="bg-amber-100 text-slate-800 p-3 rounded-t-xl rounded-bl-xl shadow-sm border border-amber-200 text-sm whitespace-pre-wrap">
                                     {item.content}
                                 </div>
                             </div>
@@ -277,27 +278,28 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                             <div className={`group max-w-[85%] flex flex-col ${item.direction === 'outbound' ? 'items-end' : 'items-start'}`}>
                                 <div className="flex items-center gap-2 mb-1 px-1">
                                     {item.direction !== 'outbound' && (
-                                        <div className="flex items-center gap-1 text-[10px] font-bold text-blue-500">
+                                        <div className="flex items-center gap-1 text-[10px] font-bold text-blue-600">
                                             <MessageSquare size={10} /> Client
                                         </div>
                                     )}
-                                    <span className="text-[10px] text-gray-400 font-medium">
+                                    <span className="text-[10px] text-slate-500 font-medium">
                                         {new Date(item.created_at).toLocaleString('pt-BR')}
                                     </span>
                                     {item.direction === 'outbound' && (
-                                        <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400">
+                                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
                                             Você
                                         </div>
                                     )}
                                 </div>
-                                <div className={`relative ${item.direction === 'outbound' ? 'bg-[#dcf8c6] border-green-200' : 'bg-white border-gray-200'} text-gray-800 p-3 rounded-xl shadow-sm border text-sm whitespace-pre-wrap ${item.direction === 'outbound' ? 'rounded-br-none' : 'rounded-bl-none'} ${item.pinned ? 'ring-2 ring-amber-300' : ''}`}>
+                                <div className={`relative ${item.direction === 'outbound' ? 'bg-emerald-100 border-emerald-200' : 'bg-white border-slate-200'} text-slate-800 p-3 rounded-xl shadow-sm border text-sm whitespace-pre-wrap ${item.direction === 'outbound' ? 'rounded-br-none' : 'rounded-bl-none'} ${item.pinned ? 'ring-2 ring-amber-300' : ''}`}>
                                     {item.content}
                                     {/* Botao pin (hover) */}
                                     {!item.isTemp && (
                                         <button
                                             onClick={() => handleTogglePin(item)}
-                                            className={`absolute ${item.direction === 'outbound' ? '-left-7' : '-right-7'} top-1 transition-opacity ${item.pinned ? 'opacity-100 text-amber-600' : 'opacity-0 group-hover:opacity-70 text-gray-400 hover:text-amber-600'}`}
+                                            className={`absolute ${item.direction === 'outbound' ? '-left-7' : '-right-7'} top-1 transition-opacity ${item.pinned ? 'opacity-100 text-amber-600' : 'opacity-0 group-hover:opacity-70 text-slate-500 hover:text-amber-600'}`}
                                             title={item.pinned ? "Desfixar mensagem" : "Fixar mensagem"}
+                                            aria-label={item.pinned ? "Desfixar mensagem" : "Fixar mensagem"}
                                         >
                                             <Pin size={14} className={item.pinned ? 'fill-amber-500 text-amber-500' : ''} />
                                         </button>
@@ -315,13 +317,13 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                 <div className="flex gap-4 mb-2 px-1">
                     <button
                         onClick={() => setInputType('note')}
-                        className={`text-xs font-bold pb-1 transition-colors ${inputType === 'note' ? 'text-black border-b-2 border-yellow-400' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`text-xs font-bold pb-1 transition-colors ${inputType === 'note' ? 'text-slate-900 border-b-2 border-amber-400' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         Nota Interna
                     </button>
                     <button
                         onClick={() => setInputType('message')}
-                        className={`text-xs font-bold pb-1 transition-colors ${inputType === 'message' ? 'text-blue-600 border-b-2 border-blue-400' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`text-xs font-bold pb-1 transition-colors ${inputType === 'message' ? 'text-blue-600 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         Bate-papo (WhatsApp)
                     </button>
@@ -331,14 +333,16 @@ export default function DealTimeline({ dealId, initialNotes = [], initialMessage
                     <textarea
                         value={newContent}
                         onChange={e => setNewContent(e.target.value)}
+                        aria-label={inputType === 'note' ? "Nova nota interna" : "Nova mensagem para o cliente"}
                         placeholder={inputType === 'note' ? "Escreva uma observação interna..." : "Escreva uma mensagem para o cliente..."}
-                        className={`w-full border rounded-lg p-3 pr-12 text-sm focus:outline-none focus:ring-2 min-h-[80px] resize-none ${inputType === 'note' ? 'bg-yellow-50/30 border-yellow-200 focus:border-yellow-400 focus:ring-yellow-100' : 'bg-white border-gray-200 focus:border-blue-400 focus:ring-blue-100'
+                        className={`w-full border rounded-lg p-3 pr-12 text-sm focus:outline-none focus:ring-2 min-h-[80px] resize-none placeholder:text-slate-500 ${inputType === 'note' ? 'bg-amber-50/40 border-amber-200 focus:border-amber-400 focus:ring-amber-100' : 'bg-white border-slate-200 focus:border-blue-400 focus:ring-blue-100'
                             }`}
                     />
                     <button
                         onClick={handleSend}
                         disabled={saving || !newContent.trim()}
-                        className={`absolute bottom-3 right-3 p-2 text-white rounded-full transition-colors shadow-sm disabled:opacity-50 ${inputType === 'note' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-blue-600 hover:bg-blue-700'
+                        aria-label={inputType === 'note' ? "Salvar nota" : "Enviar mensagem"}
+                        className={`absolute bottom-3 right-3 p-2.5 text-white rounded-full transition-colors shadow-sm disabled:opacity-50 ${inputType === 'note' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'
                             }`}
                     >
                         {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

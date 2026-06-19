@@ -75,34 +75,52 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Stat label="Total de leads" value={campaign.total_leads} />
-          <Stat label="Convidados" value={campaign.total_invited} />
-          <Stat label="Confirmados" value={campaign.total_confirmed} />
-          <Stat label="Presentes" value={campaign.total_attended} />
-          <Stat label="Convertidos" value={campaign.total_converted} accent="emerald" />
-          <Stat
-            label="Taxa de presença"
-            value={
-              campaign.total_confirmed > 0
-                ? `${Math.round((campaign.total_attended / campaign.total_confirmed) * 100)}%`
-                : "-"
-            }
-          />
-          <Stat
-            label="Taxa de conversão"
-            value={
-              campaign.total_invited > 0
-                ? `${Math.round((campaign.total_converted / campaign.total_invited) * 100)}%`
-                : "-"
-            }
-            accent="emerald"
-          />
-          <Stat
-            label="Custo / convertido"
-            value="R$ -"
-            hint="Calcula quando integrar com gastos da campanha"
-          />
+        <div className="flex flex-col md:flex-row gap-6">
+          <div className="md:border-r md:border-slate-100 md:pr-6">
+            <div className="text-sm font-semibold text-slate-700">Convertidos</div>
+            <div className="text-4xl font-bold text-emerald-600 leading-tight mt-1">
+              {campaign.total_converted}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {campaign.total_invited > 0
+                ? `${Math.round((campaign.total_converted / campaign.total_invited) * 100)}% dos convidados`
+                : "Sem convidados ainda"}
+            </div>
+          </div>
+
+          <div className="flex-1 flex items-stretch flex-wrap divide-x divide-slate-100">
+            <div className="flex-1 min-w-[110px] px-4 first:pl-0">
+              <div className="text-xs font-medium text-slate-500">Total de leads</div>
+              <div className="text-xl font-bold text-slate-800">{campaign.total_leads}</div>
+            </div>
+            <div className="flex-1 min-w-[110px] px-4">
+              <div className="text-xs font-medium text-slate-500">Convidados</div>
+              <div className="text-xl font-bold text-slate-800">{campaign.total_invited}</div>
+            </div>
+            <div className="flex-1 min-w-[110px] px-4">
+              <div className="text-xs font-medium text-slate-500">Confirmados</div>
+              <div className="text-xl font-bold text-slate-800">{campaign.total_confirmed}</div>
+            </div>
+            <div className="flex-1 min-w-[110px] px-4">
+              <div className="text-xs font-medium text-slate-500">Presentes</div>
+              <div className="text-xl font-bold text-slate-800">{campaign.total_attended}</div>
+            </div>
+            <div className="flex-1 min-w-[110px] px-4">
+              <div className="text-xs font-medium text-slate-500">Taxa de presença</div>
+              <div className="text-xl font-bold text-slate-800">
+                {campaign.total_confirmed > 0
+                  ? `${Math.round((campaign.total_attended / campaign.total_confirmed) * 100)}%`
+                  : "-"}
+              </div>
+            </div>
+            <div className="flex-1 min-w-[110px] px-4">
+              <div className="text-xs font-medium text-slate-500">Custo / convertido</div>
+              <div className="text-xl font-bold text-slate-800">R$ -</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Quando integrar gastos da campanha
+              </div>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -125,7 +143,8 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
           <button
             type="button"
             onClick={loadStats}
-            className="text-xs text-slate-500 hover:text-slate-900 flex items-center gap-1"
+            aria-label="Atualizar estatísticas por instância"
+            className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 p-2.5 -m-2.5 rounded-md hover:bg-slate-50"
           >
             <RefreshCw
               className={`w-3 h-3 ${loadingStats ? "animate-spin" : ""}`}
@@ -135,11 +154,11 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
         </div>
 
         {loadingStats ? (
-          <div className="text-center py-8 text-sm text-slate-400">
+          <div className="text-center py-8 text-sm text-slate-500">
             Carregando estatísticas...
           </div>
         ) : instanceStats.length === 0 ? (
-          <div className="text-center py-8 text-sm text-slate-400">
+          <div className="text-center py-8 text-sm text-slate-500">
             Nenhum disparo registrado ainda. Quando a campanha rodar, as
             estatísticas por chip aparecem aqui.
           </div>
@@ -169,7 +188,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
             <div className="overflow-x-auto -mx-6 px-6">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                  <tr className="text-[11px] font-semibold text-slate-600 border-b border-slate-200">
                     <th className="text-left font-semibold py-2 pr-3">
                       Instância
                     </th>
@@ -275,7 +294,7 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
               </table>
             </div>
 
-            <p className="text-[11px] text-slate-400 italic mt-4">
+            <p className="text-[11px] text-slate-500 italic mt-4">
               Confirmados/presentes contam por <code>last_instance_used</code> do
               lead. Se um lead conversou por mais de um chip, conta no último que
               falou com ele.
@@ -296,27 +315,22 @@ export function FunnelTab({ campaign }: { campaign: WebinarCampaign }) {
       </Card>
 
       <Card className="p-6">
-        <h2 className="text-sm font-bold text-slate-800 mb-4">Visualização do funil</h2>
-        <div className="space-y-2">
-          {FUNNEL_STAGES.map((stage) => (
-            <div key={stage.key} className="flex items-center gap-3">
-              <div className="w-32 text-xs font-medium text-slate-600">{stage.label}</div>
-              <div className="flex-1 h-8 bg-slate-50 rounded-md relative overflow-hidden">
-                <div
-                  className={`h-full ${stage.color} transition-all`}
-                  style={{ width: "0%" }}
-                />
-              </div>
-              <div className="w-12 text-xs font-bold text-slate-700 text-right">0</div>
-            </div>
+        <h2 className="text-sm font-bold text-slate-800 mb-1">Visualização do funil</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Etapas que o lead percorre. As barras com volume real chegam com o funil
+          interativo (kanban + tempo real) na Fase 5.
+        </p>
+        <ol className="divide-y divide-slate-100 border-y border-slate-100">
+          {FUNNEL_STAGES.map((stage, i) => (
+            <li key={stage.key} className="flex items-center gap-3 py-2.5">
+              <span className="w-5 text-xs font-semibold text-slate-400 tabular-nums">
+                {i + 1}
+              </span>
+              <span className="flex-1 text-sm text-slate-700">{stage.label}</span>
+              <span className="text-xs font-medium text-slate-400">—</span>
+            </li>
           ))}
-        </div>
-
-        <div className="mt-6 pt-4 border-t border-slate-100">
-          <p className="text-xs text-slate-400 italic">
-            Funil interativo com kanban e atualização em tempo real disponível na Fase 5.
-          </p>
-        </div>
+        </ol>
       </Card>
     </div>
   );
@@ -341,11 +355,11 @@ function Stat({
         : "text-slate-800";
   return (
     <div className="border border-slate-100 rounded-lg p-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">
+      <div className="text-xs font-medium text-slate-500 mb-1">
         {label}
       </div>
       <div className={`text-xl font-bold ${accentClass}`}>{value}</div>
-      {hint && <div className="text-[10px] text-slate-400 mt-1">{hint}</div>}
+      {hint && <div className="text-[11px] text-slate-500 mt-1">{hint}</div>}
     </div>
   );
 }

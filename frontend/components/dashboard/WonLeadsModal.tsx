@@ -110,12 +110,12 @@ export function WonLeadsModal({ isOpen, onClose, period, userId, startDate, endD
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-3xl bg-[#0f172a] text-slate-200 border-white/10 max-h-[80vh] flex flex-col">
+            <DialogContent className="max-w-3xl bg-white text-slate-700 border-slate-200 max-h-[80vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+                    <DialogTitle className="text-xl font-bold text-slate-800 flex items-center gap-2">
                         Relatório de Vendas (Ganhos)
                     </DialogTitle>
-                    <p className="text-sm text-slate-400">
+                    <p className="text-sm text-slate-500">
                         {deals.length} negócios fechados no período selecionado.
                     </p>
                 </DialogHeader>
@@ -127,9 +127,9 @@ export function WonLeadsModal({ isOpen, onClose, period, userId, startDate, endD
                         <div className="text-center py-10 text-slate-500">Nenhuma venda encontrada no período.</div>
                     ) : (
                         deals.map((deal) => (
-                            <div key={deal.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors gap-4">
+                            <div key={deal.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors gap-4">
                                 <div className="flex-1">
-                                    <h4 className="font-bold text-white text-base">{deal.title}</h4>
+                                    <h4 className="font-bold text-slate-800 text-base">{deal.title}</h4>
                                     <div className="text-xs text-slate-500 mt-1 flex gap-4">
                                         <span>Fechamento: {formatDate(deal.closed_at)}</span>
                                         {/* You can add more info here if needed */}
@@ -142,21 +142,21 @@ export function WonLeadsModal({ isOpen, onClose, period, userId, startDate, endD
                                                 type="number"
                                                 value={editValue}
                                                 onChange={e => setEditValue(e.target.value)}
-                                                className="w-32 bg-slate-800 border-slate-600 text-white h-8 text-sm"
+                                                className="w-32 bg-white border-slate-300 text-slate-800 h-8 text-sm"
                                             />
-                                            <Button size="sm" variant="ghost" className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/20 h-8 w-8 p-0" onClick={() => handleSaveEdit(deal.id)}><Check size={16} /></Button>
-                                            <Button size="sm" variant="ghost" className="text-slate-400 hover:text-slate-200 hover:bg-slate-700 h-8 w-8 p-0" onClick={cancelEdit}><X size={16} /></Button>
+                                            <Button size="sm" variant="ghost" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-8 w-8 p-0" onClick={() => handleSaveEdit(deal.id)}><Check size={16} /></Button>
+                                            <Button size="sm" variant="ghost" className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 h-8 w-8 p-0" onClick={cancelEdit}><X size={16} /></Button>
                                         </div>
                                     ) : (
                                         <div className="flex items-center gap-4">
-                                            <div className="text-lg font-bold text-emerald-400">
+                                            <div className="text-lg font-bold text-emerald-600">
                                                 {formatCurrency(deal.value)}
                                             </div>
                                             <div className="flex gap-1">
-                                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-400 hover:text-blue-400 hover:bg-blue-400/20" onClick={() => handleEditStart(deal)}>
+                                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50" onClick={() => handleEditStart(deal)}>
                                                     <Pencil size={14} />
                                                 </Button>
-                                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-400 hover:text-red-400 hover:bg-red-400/20" onClick={() => handleDelete(deal.id)}>
+                                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-500 hover:text-rose-600 hover:bg-rose-50" onClick={() => handleDelete(deal.id)}>
                                                     <Trash2 size={14} />
                                                 </Button>
                                             </div>
@@ -168,8 +168,8 @@ export function WonLeadsModal({ isOpen, onClose, period, userId, startDate, endD
                     )}
                 </div>
 
-                <div className="mt-4 pt-4 border-t border-white/10 flex justify-end">
-                    <Button onClick={onClose} variant="outline" className="text-slate-300 border-slate-700 hover:bg-slate-800">
+                <div className="mt-4 pt-4 border-t border-slate-200 flex justify-end">
+                    <Button onClick={onClose} variant="outline" className="text-slate-700 border-slate-300 hover:bg-slate-100">
                         Fechar
                     </Button>
                 </div>

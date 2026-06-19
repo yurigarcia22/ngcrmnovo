@@ -115,6 +115,27 @@ export default function WhatsAppSettingsClient({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [connection?.instanceName]);
 
+    // Esc fecha o modal de nova conexao
+    useEffect(() => {
+        if (!isAddModalOpen) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setIsAddModalOpen(false);
+        };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [isAddModalOpen]);
+
+    // Esc fecha o modal de conexao (QR / codigo)
+    useEffect(() => {
+        if (!connection) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") closeConnection();
+        };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [connection]);
+
     // Helper para formatar telefone
     const formatPhone = (phone: string | undefined) => {
         if (!phone) return "";
@@ -258,14 +279,16 @@ export default function WhatsAppSettingsClient({
     }
 
     return (
-        <div className="p-8 max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                        <Smartphone className="text-green-600" />
-                        Conexões WhatsApp
-                    </h1>
-                    <p className="text-gray-500">Gerencie múltiplos números de WhatsApp para sua equipe.</p>
+        <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8">
+            <div className="flex flex-col gap-4 pb-6 mb-6 border-b border-slate-200 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                        <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-900 tracking-tight leading-tight">Conexões WhatsApp</h1>
+                        <p className="mt-1 text-sm text-slate-500">Gerencie múltiplos números de WhatsApp para sua equipe.</p>
+                    </div>
                 </div>
                 <button
                     onClick={() => {
@@ -274,7 +297,7 @@ export default function WhatsAppSettingsClient({
                         setSelectedPipelineId(defaultPipelineId);
                         setIsAddModalOpen(true);
                     }}
-                    className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                    className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shrink-0"
                 >
                     <Plus size={18} />
                     Nova Conexão
@@ -283,12 +306,12 @@ export default function WhatsAppSettingsClient({
 
             {/* Empty State */}
             {instances.length === 0 && (
-                <div className="text-center py-20 bg-gray-50 rounded-xl border-dashed border-2 border-gray-200">
+                <div className="text-center py-20 bg-slate-50 rounded-xl border-dashed border-2 border-slate-200">
                     <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                        <Smartphone className="text-gray-400" size={32} />
+                        <Smartphone className="text-slate-400" size={32} />
                     </div>
-                    <h3 className="text-lg font-medium text-gray-700">Nenhuma conexão ativa</h3>
-                    <p className="text-gray-500 mb-6">Adicione um número de WhatsApp para começar.</p>
+                    <h3 className="text-lg font-medium text-slate-700">Nenhuma conexão ativa</h3>
+                    <p className="text-slate-500 mb-6">Adicione um número de WhatsApp para começar.</p>
                     <button
                         onClick={() => setIsAddModalOpen(true)}
                         className="text-blue-600 font-medium hover:underline"
@@ -301,17 +324,17 @@ export default function WhatsAppSettingsClient({
             {/* Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {instances.map((instance) => (
-                    <div key={instance.id} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow relative">
+                    <div key={instance.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow relative">
                         <div className="flex justify-between items-start mb-4">
                             <div className="overflow-hidden">
-                                <h3 className="font-semibold text-gray-800 truncate pr-2" title={instance.custom_name || instance.instance_name}>
+                                <h3 className="font-semibold text-slate-800 truncate pr-2" title={instance.custom_name || instance.instance_name}>
                                     {instance.custom_name || instance.instance_name}
                                 </h3>
                                 <div className="flex items-center gap-1 mt-1">
-                                    <span className={`w-2 h-2 rounded-full ${instance.status === 'connected' ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                                    <span className="text-xs text-gray-500 capitalize">{instance.status === 'connected' ? 'Conectado' : 'Aguardando / Desconectado'}</span>
+                                    <span className={`w-2 h-2 rounded-full ${instance.status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                    <span className="text-xs text-slate-500 capitalize">{instance.status === 'connected' ? 'Conectado' : 'Aguardando / Desconectado'}</span>
                                     {instance.phone_number && (
-                                        <span className="text-xs font-mono text-gray-600 ml-1">
+                                        <span className="text-xs font-mono text-slate-600 ml-1">
                                             {formatPhone(instance.phone_number)}
                                         </span>
                                     )}
@@ -319,28 +342,29 @@ export default function WhatsAppSettingsClient({
                             </div>
                             <button
                                 onClick={() => handleDelete(instance.instance_name)}
-                                className="text-gray-400 hover:text-red-500 p-1"
+                                className="text-slate-500 hover:text-rose-600 p-2.5 -mr-1 -mt-1"
+                                aria-label={`Remover conexão ${instance.custom_name || instance.instance_name}`}
                                 title="Remover conexão"
                             >
                                 <Trash2 size={16} />
                             </button>
                         </div>
 
-                        <div className="bg-gray-50 rounded-lg p-3 mb-4 flex items-center gap-3">
-                            <div className="w-10 h-10 min-w-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-gray-300">
+                        <div className="bg-slate-50 rounded-lg p-3 mb-4 flex items-center gap-3">
+                            <div className="w-10 h-10 min-w-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border border-slate-300">
                                 {instance.profile_pic_url ? (
                                     <img src={instance.profile_pic_url} alt="WhatsApp Avatar" className="w-full h-full object-cover" />
                                 ) : (
                                     instance.owner?.avatar_url ? (
                                         <img src={instance.owner.avatar_url} alt={instance.owner.full_name} className="w-full h-full object-cover" />
                                     ) : (
-                                        <Smartphone size={18} className="text-gray-500" />
+                                        <Smartphone size={18} className="text-slate-500" />
                                     )
                                 )}
                             </div>
                             <div className="overflow-hidden">
-                                <p className="text-xs text-gray-400 uppercase tracking-wider">Responsável</p>
-                                <p className="text-sm font-medium text-gray-700 truncate">
+                                <p className="text-xs font-semibold text-slate-500">Responsável</p>
+                                <p className="text-sm font-medium text-slate-700 truncate">
                                     {instance.owner?.full_name || "Geral da Empresa"}
                                 </p>
                             </div>
@@ -348,9 +372,9 @@ export default function WhatsAppSettingsClient({
 
                         {/* Purpose selector — define onde esta instancia atua */}
                         <div className="mb-3">
-                            <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                            <p className="text-sm font-semibold text-slate-700 mb-1.5">
                                 Uso desta conexão
-                            </label>
+                            </p>
                             <div className="grid grid-cols-3 gap-1">
                                 {([
                                     { key: "crm" as const, label: "CRM", icon: Briefcase },
@@ -361,6 +385,7 @@ export default function WhatsAppSettingsClient({
                                     return (
                                         <button
                                             key={key}
+                                            aria-pressed={active}
                                             onClick={async () => {
                                                 const res = await setInstancePurpose(instance.instance_name, key);
                                                 if (res.success) {
@@ -376,10 +401,10 @@ export default function WhatsAppSettingsClient({
                                                     toast.error(res.error ?? "Erro");
                                                 }
                                             }}
-                                            className={`flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-semibold rounded-md border transition-colors ${
+                                            className={`flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-semibold rounded-md border transition-colors ${
                                                 active
                                                     ? "bg-indigo-50 text-indigo-700 border-indigo-300"
-                                                    : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
+                                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                                             }`}
                                         >
                                             <Icon className="w-3 h-3" />
@@ -393,11 +418,12 @@ export default function WhatsAppSettingsClient({
                         {/* Funil que recebe os leads deste numero */}
                         {pipelines.length > 0 && (
                             <div className="mb-3">
-                                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5 flex items-center gap-1">
-                                    <Filter size={11} className="text-indigo-500" />
+                                <label htmlFor={`pipeline-${instance.id}`} className="text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
+                                    <Filter size={13} className="text-indigo-500" />
                                     Funil que recebe os leads
                                 </label>
                                 <select
+                                    id={`pipeline-${instance.id}`}
                                     value={instance.pipeline_id ?? ""}
                                     onChange={(e) =>
                                         handleChangePipeline(
@@ -405,7 +431,7 @@ export default function WhatsAppSettingsClient({
                                             e.target.value ? Number(e.target.value) : null
                                         )
                                     }
-                                    className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-indigo-300 focus:outline-none"
+                                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-xs bg-white text-slate-700 focus:ring-2 focus:ring-indigo-300 focus:outline-none"
                                 >
                                     {pipelines.map((p) => (
                                         <option key={p.id} value={p.id}>
@@ -420,14 +446,15 @@ export default function WhatsAppSettingsClient({
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => handleReconnect(instance)}
-                                    className="flex-1 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                                    className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
                                 >
                                     <Plug size={14} />
                                     Conectar
                                 </button>
                                 <button
                                     onClick={() => window.location.reload()}
-                                    className="py-2 px-3 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center justify-center gap-2"
+                                    className="py-2.5 px-3 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 flex items-center justify-center gap-2"
+                                    aria-label="Atualizar status"
                                     title="Atualizar status"
                                 >
                                     <RefreshCw size={14} />
@@ -440,33 +467,44 @@ export default function WhatsAppSettingsClient({
 
             {/* Modal Nova Conexão */}
             {isAddModalOpen && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                <div
+                    className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                    onClick={() => setIsAddModalOpen(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Nova conexão de WhatsApp"
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 ease-out"
+                    >
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-gray-800">Nova Conexão</h2>
-                            <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                            <h2 className="text-xl font-bold text-slate-800">Nova Conexão</h2>
+                            <button onClick={() => setIsAddModalOpen(false)} aria-label="Fechar" className="text-slate-500 hover:text-slate-700 p-2.5 -mr-2">
                                 <X size={24} />
                             </button>
                         </div>
 
                         <form onSubmit={handleSubmitNew}>
                             <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Conexão</label>
+                                <label htmlFor="conn-name" className="block text-sm font-medium text-slate-700 mb-1">Nome da Conexão</label>
                                 <input
+                                    id="conn-name"
                                     required
                                     type="text"
                                     placeholder="Ex: Comercial Principal"
-                                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-black focus:outline-none"
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2 text-slate-800 placeholder:text-slate-500 focus:ring-2 focus:ring-slate-900 focus:outline-none"
                                     value={newConnectionName}
                                     onChange={e => setNewConnectionName(e.target.value)}
                                 />
                             </div>
 
                             <div className="mb-6">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Responsável pelo Atendimento</label>
+                                <label htmlFor="conn-member" className="block text-sm font-medium text-slate-700 mb-1">Responsável pelo Atendimento</label>
                                 <select
+                                    id="conn-member"
                                     required
-                                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-black focus:outline-none bg-white"
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2 text-slate-800 focus:ring-2 focus:ring-slate-900 focus:outline-none bg-white"
                                     value={selectedMemberId}
                                     onChange={e => setSelectedMemberId(e.target.value)}
                                 >
@@ -479,19 +517,20 @@ export default function WhatsAppSettingsClient({
                                         <option value="" disabled>Nenhum membro encontrado</option>
                                     )}
                                 </select>
-                                <p className="text-xs text-gray-500 mt-1">
+                                <p className="text-xs text-slate-500 mt-1">
                                     Obrigatório: Os leads deste WhatsApp serão atribuídos a este vendedor.
                                 </p>
                             </div>
 
                             {pipelines.length > 0 && (
                                 <div className="mb-6">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                                    <label htmlFor="conn-pipeline" className="text-sm font-medium text-slate-700 mb-1 flex items-center gap-1.5">
                                         <Filter size={14} className="text-indigo-500" />
                                         Funil que vai receber os leads
                                     </label>
                                     <select
-                                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-black focus:outline-none bg-white"
+                                        id="conn-pipeline"
+                                        className="w-full border border-slate-300 rounded-lg px-4 py-2 text-slate-800 focus:ring-2 focus:ring-slate-900 focus:outline-none bg-white"
                                         value={selectedPipelineId ?? ""}
                                         onChange={e => setSelectedPipelineId(e.target.value ? Number(e.target.value) : null)}
                                     >
@@ -501,7 +540,7 @@ export default function WhatsAppSettingsClient({
                                             </option>
                                         ))}
                                     </select>
-                                    <p className="text-xs text-gray-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-1">
                                         Toda conversa nova que chegar neste número entra neste funil.
                                     </p>
                                 </div>
@@ -510,7 +549,7 @@ export default function WhatsAppSettingsClient({
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70"
+                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70"
                             >
                                 {loading ? <Loader2 className="animate-spin" /> : <QrIcon size={20} />}
                                 Conectar WhatsApp
@@ -522,11 +561,21 @@ export default function WhatsAppSettingsClient({
 
             {/* Modal de Conexão (QR Code + Código) */}
             {connection && (
-                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-sm p-7 text-center shadow-2xl relative">
+                <div
+                    className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4"
+                    onClick={closeConnection}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Conectar WhatsApp"
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white rounded-xl w-full max-w-sm p-7 text-center shadow-2xl relative"
+                    >
                         <button
                             onClick={closeConnection}
-                            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+                            aria-label="Fechar"
+                            className="absolute top-3 right-3 text-slate-500 hover:text-slate-700 p-2.5"
                         >
                             <X size={22} />
                         </button>
@@ -534,23 +583,23 @@ export default function WhatsAppSettingsClient({
                         {/* ===== VIEW: QR CODE ===== */}
                         {connView === "qr" && (
                             <>
-                                <h2 className="text-xl font-bold text-gray-800 mb-2">Escaneie o QR Code</h2>
-                                <p className="text-gray-500 mb-5 text-sm">
+                                <h2 className="text-xl font-bold text-slate-800 mb-2">Escaneie o QR Code</h2>
+                                <p className="text-slate-500 mb-5 text-sm">
                                     Abra o WhatsApp no celular → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b>.
                                 </p>
 
-                                <div className="bg-white p-2 border rounded-lg inline-block mb-5 min-h-[272px] min-w-[272px] flex items-center justify-center">
+                                <div className="bg-white p-2 border border-slate-200 rounded-lg inline-block mb-5 min-h-[272px] min-w-[272px] flex items-center justify-center">
                                     {connection.qrCode ? (
                                         <img src={connection.qrCode} alt="QR Code" className="w-64 h-64 object-contain" />
                                     ) : (
-                                        <Loader2 className="animate-spin text-gray-400" size={40} />
+                                        <Loader2 className="animate-spin text-slate-400" size={40} />
                                     )}
                                 </div>
 
                                 {/* Opção embaixo: conectar via código */}
                                 <button
                                     onClick={() => setConnView("code")}
-                                    className="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 py-3 rounded-lg font-medium flex items-center justify-center gap-2 mb-3"
+                                    className="w-full border border-slate-300 hover:bg-slate-50 text-slate-700 py-3 rounded-lg font-medium flex items-center justify-center gap-2 mb-3"
                                 >
                                     <KeyRound size={18} />
                                     Não consigo ler o QR — conectar via código
@@ -568,28 +617,29 @@ export default function WhatsAppSettingsClient({
                         {/* ===== VIEW: CÓDIGO ===== */}
                         {connView === "code" && (
                             <>
-                                <h2 className="text-xl font-bold text-gray-800 mb-2">Conectar via código</h2>
+                                <h2 className="text-xl font-bold text-slate-800 mb-2">Conectar via código</h2>
 
                                 {!connection.pairingCode ? (
                                     <>
-                                        <p className="text-gray-500 mb-5 text-sm">
+                                        <p className="text-slate-500 mb-5 text-sm">
                                             Digite o número do WhatsApp que você vai conectar (com DDI e DDD).
                                         </p>
                                         <input
                                             type="tel"
                                             inputMode="numeric"
+                                            aria-label="Número do WhatsApp com DDI e DDD"
                                             placeholder="Ex: 5531999999999"
-                                            className="w-full border border-gray-300 rounded-lg px-4 py-3 text-center text-lg font-mono tracking-wide focus:ring-2 focus:ring-green-500 focus:outline-none mb-2"
+                                            className="w-full border border-slate-300 rounded-lg px-4 py-3 text-center text-lg font-mono tracking-wide text-slate-800 placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none mb-2"
                                             value={connPhone}
                                             onChange={e => setConnPhone(e.target.value)}
                                         />
-                                        <p className="text-xs text-gray-400 mb-5">
+                                        <p className="text-xs text-slate-500 mb-5">
                                             DDI (55) + DDD + número. Sem espaços ou símbolos.
                                         </p>
                                         <button
                                             onClick={handleGenerateCode}
                                             disabled={connLoading}
-                                            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-70 mb-3"
+                                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-70 mb-3"
                                         >
                                             {connLoading ? <Loader2 className="animate-spin" size={18} /> : <KeyRound size={18} />}
                                             Gerar código
@@ -597,28 +647,29 @@ export default function WhatsAppSettingsClient({
                                     </>
                                 ) : (
                                     <>
-                                        <p className="text-gray-500 mb-5 text-sm">
+                                        <p className="text-slate-500 mb-5 text-sm">
                                             No WhatsApp do celular: <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> →
                                             {" "}<b>Conectar com número de telefone</b> e digite o código abaixo.
                                         </p>
 
                                         <button
                                             onClick={copyCode}
+                                            aria-label="Copiar código de pareamento"
                                             title="Clique para copiar"
-                                            className="w-full bg-gray-900 hover:bg-black text-white rounded-xl py-5 mb-2 flex items-center justify-center gap-3 transition-colors"
+                                            className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-5 mb-2 flex items-center justify-center gap-3 transition-colors"
                                         >
                                             <span className="text-3xl font-mono font-bold tracking-[0.3em]">
                                                 {formatPairing(connection.pairingCode)}
                                             </span>
-                                            {copied ? <Check size={20} className="text-green-400" /> : <Copy size={18} className="opacity-70" />}
+                                            {copied ? <Check size={20} className="text-emerald-400" /> : <Copy size={18} className="opacity-70" />}
                                         </button>
-                                        <p className="text-xs text-gray-400 mb-5">
+                                        <p className="text-xs text-slate-500 mb-5">
                                             O código expira em alguns minutos. Se não funcionar, gere um novo.
                                         </p>
 
                                         <button
                                             onClick={() => setConnection({ ...connection, pairingCode: undefined })}
-                                            className="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-lg font-medium mb-3"
+                                            className="w-full border border-slate-300 hover:bg-slate-50 text-slate-700 py-2.5 rounded-lg font-medium mb-3"
                                         >
                                             Gerar novo código
                                         </button>
@@ -628,7 +679,7 @@ export default function WhatsAppSettingsClient({
                                 {/* Voltar para o QR */}
                                 <button
                                     onClick={() => setConnView("qr")}
-                                    className="w-full text-gray-500 hover:text-gray-700 py-2 text-sm font-medium flex items-center justify-center gap-1"
+                                    className="w-full text-slate-500 hover:text-slate-700 py-2 text-sm font-medium flex items-center justify-center gap-1"
                                 >
                                     <ArrowLeft size={14} />
                                     Voltar para o QR Code

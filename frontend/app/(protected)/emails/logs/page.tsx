@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { Loader2, ScrollText, Search, AlertCircle, CheckCircle, Info, Bug } from 'lucide-react';
 import { getEmailLogs, getEmailAccounts } from '@/app/actions-email';
 import { EmailSubNav } from '../accounts/page';
@@ -40,19 +40,19 @@ export default function EmailLogsPage() {
     useEffect(() => { fetchData(); }, [filterType, filterAccount]);
 
     return (
-        <div className="flex flex-col min-h-screen bg-[#F8F9FB]">
+        <div className="flex flex-col min-h-screen bg-slate-50">
             <EmailSubNav />
 
             <div className="flex-1 px-8 py-6 max-w-6xl mx-auto w-full">
                 <div className="flex items-center justify-between mb-6">
                     <div>
-                        <h1 className="text-2xl font-black text-slate-900">Logs de E-mail</h1>
+                        <h1 className="text-2xl font-bold text-slate-800">Logs de E-mail</h1>
                         <p className="text-sm text-slate-500 mt-1">Histórico de operações do módulo de e-mail.</p>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3 mb-6">
-                    <select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm" value={filterType} onChange={e => setFilterType(e.target.value)}>
+                    <select aria-label="Filtrar por tipo de log" className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" value={filterType} onChange={e => setFilterType(e.target.value)}>
                         <option value="">Todos os tipos</option>
                         <option value="info">Info</option>
                         <option value="warning">Avisos</option>
@@ -60,7 +60,7 @@ export default function EmailLogsPage() {
                         <option value="debug">Debug</option>
                     </select>
                     {accounts.length > 1 && (
-                        <select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm" value={filterAccount} onChange={e => setFilterAccount(e.target.value)}>
+                        <select aria-label="Filtrar por conta" className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" value={filterAccount} onChange={e => setFilterAccount(e.target.value)}>
                             <option value="">Todas as contas</option>
                             {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </select>
@@ -79,11 +79,11 @@ export default function EmailLogsPage() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200">
-                                    <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">Data/Hora</th>
-                                    <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">Tipo</th>
-                                    <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">Operação</th>
-                                    <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">Status</th>
-                                    <th className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">Mensagem</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600">Data/Hora</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600">Tipo</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600">Operação</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600">Status</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600">Mensagem</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -93,9 +93,9 @@ export default function EmailLogsPage() {
                                     const StatusIcon = statusConf.icon;
 
                                     return (
-                                        <>
-                                            <tr key={log.id} className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
-                                                <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                                        <Fragment key={log.id}>
+                                            <tr className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                                                <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
                                                     {new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                                 </td>
                                                 <td className="px-4 py-3">
@@ -110,13 +110,13 @@ export default function EmailLogsPage() {
                                                 <td className="px-4 py-3 text-xs text-slate-600 max-w-xs truncate">{log.message || '-'}</td>
                                             </tr>
                                             {expandedId === log.id && log.details_json && (
-                                                <tr key={`${log.id}-details`}>
+                                                <tr>
                                                     <td colSpan={5} className="px-4 py-3 bg-slate-50">
                                                         <pre className="text-xs text-slate-600 font-mono whitespace-pre-wrap">{JSON.stringify(log.details_json, null, 2)}</pre>
                                                     </td>
                                                 </tr>
                                             )}
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                             </tbody>

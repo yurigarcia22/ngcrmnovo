@@ -1,5 +1,4 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { Clock, Sun, Sunset, AlertCircle, CheckCircle } from "lucide-react";
+import { Sun, Sunset, AlertCircle, CheckCircle } from "lucide-react";
 
 interface FollowUpMetricsProps {
     metrics: {
@@ -14,81 +13,70 @@ interface FollowUpMetricsProps {
 
 export function FollowUpMetrics({ metrics }: FollowUpMetricsProps) {
     return (
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6 animate-in slide-in-from-top-4 fade-in duration-300">
-            {/* Total Hoje */}
-            <Card className="border border-slate-200 shadow-sm bg-white overflow-hidden">
-                <CardContent className="p-4 flex flex-col justify-center h-full relative">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                        <Clock className="w-8 h-8 text-blue-900" />
-                    </div>
-                    <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Para Hoje</span>
-                    <span className="text-3xl font-extrabold text-blue-900">{metrics.totalHoje}</span>
-                </CardContent>
-            </Card>
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm mb-6 animate-in slide-in-from-top-4 fade-in duration-300">
+            <div className="flex flex-wrap items-stretch divide-x divide-slate-100">
+                {/* Métrica primária — Para Hoje */}
+                <div className="flex flex-col justify-center px-5 py-4 min-w-[140px]">
+                    <span className="text-sm font-semibold text-slate-700">Para hoje</span>
+                    <span className="text-4xl font-extrabold text-slate-900 leading-tight">{metrics.totalHoje}</span>
+                    <span className="text-xs text-slate-500">follow-ups agendados</span>
+                </div>
 
-            {/* Manhã */}
-            <Card className="border border-slate-200 shadow-sm bg-white">
-                <CardContent className="p-4 flex items-center justify-between h-full">
+                {/* Manhã */}
+                <div className="flex items-center gap-3 px-5 py-4 min-w-[120px]">
+                    <div className="h-9 w-9 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
+                        <Sun className="w-4 h-4" />
+                    </div>
                     <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Manhã</span>
-                        <span className="text-2xl font-bold text-slate-800">{metrics.manha}</span>
+                        <span className="text-2xl font-bold text-slate-800 leading-tight">{metrics.manha}</span>
+                        <span className="text-xs font-medium text-slate-600">Manhã</span>
                     </div>
-                    <div className="h-10 w-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-500">
-                        <Sun className="w-5 h-5" />
-                    </div>
-                </CardContent>
-            </Card>
+                </div>
 
-            {/* Tarde */}
-            <Card className="border border-slate-200 shadow-sm bg-white">
-                <CardContent className="p-4 flex items-center justify-between h-full">
+                {/* Tarde */}
+                <div className="flex items-center gap-3 px-5 py-4 min-w-[120px]">
+                    <div className="h-9 w-9 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
+                        <Sunset className="w-4 h-4" />
+                    </div>
                     <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Tarde</span>
-                        <span className="text-2xl font-bold text-slate-800">{metrics.tarde}</span>
+                        <span className="text-2xl font-bold text-slate-800 leading-tight">{metrics.tarde}</span>
+                        <span className="text-xs font-medium text-slate-600">Tarde</span>
                     </div>
-                    <div className="h-10 w-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500">
-                        <Sunset className="w-5 h-5" />
-                    </div>
-                </CardContent>
-            </Card>
+                </div>
 
-            {/* Atrasados */}
-            <Card className="border border-red-200 shadow-sm bg-red-50 relative overflow-hidden group hover:bg-red-100 transition-colors cursor-pointer">
-                <CardContent className="p-4 flex items-center justify-between h-full">
-                    <div className="flex flex-col relative z-10">
-                        <span className="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Atrasados</span>
-                        <span className="text-3xl font-black text-red-700">{metrics.atrasados}</span>
+                {/* Atrasados */}
+                <div className="flex items-center gap-3 px-5 py-4 min-w-[120px]">
+                    <div className="h-9 w-9 rounded-full bg-rose-50 flex items-center justify-center text-rose-600 shrink-0">
+                        <AlertCircle className="w-4 h-4" />
                     </div>
-                    <div className="relative z-10">
-                        <AlertCircle className="w-8 h-8 text-red-500" strokeWidth={2.5} />
-                    </div>
-                    {/* Decorative Background Icon */}
-                    <AlertCircle className="absolute -bottom-4 -right-4 w-24 h-24 text-red-500 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity" />
-                </CardContent>
-            </Card>
-
-            {/* Concluídos */}
-            <Card className="border border-emerald-200 shadow-sm bg-emerald-50 relative overflow-hidden">
-                <CardContent className="p-4 flex items-center justify-between h-full">
                     <div className="flex flex-col">
-                        <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">Criados/Feitos</span>
-                        <span className="text-2xl font-bold text-emerald-800">{metrics.concluidosHoje}</span>
+                        <span className="text-2xl font-bold text-rose-700 leading-tight">{metrics.atrasados}</span>
+                        <span className="text-xs font-medium text-rose-700">Atrasados</span>
                     </div>
-                    <div>
-                        <CheckCircle className="w-6 h-6 text-emerald-500" />
-                    </div>
-                </CardContent>
-            </Card>
+                </div>
 
-            {/* Sem Follow-up (Alerta) */}
-            <Card className="border border-amber-200 shadow-sm bg-amber-50">
-                <CardContent className="p-4 flex flex-col justify-center h-full">
-                    <span className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Sem Agendamento
-                    </span>
-                    <span className="text-2xl font-bold text-amber-800">{metrics.semFollowup}</span>
-                </CardContent>
-            </Card>
+                {/* Concluídos */}
+                <div className="flex items-center gap-3 px-5 py-4 min-w-[120px]">
+                    <div className="h-9 w-9 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
+                        <CheckCircle className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-2xl font-bold text-slate-800 leading-tight">{metrics.concluidosHoje}</span>
+                        <span className="text-xs font-medium text-slate-600">Criados/feitos</span>
+                    </div>
+                </div>
+
+                {/* Sem agendamento */}
+                <div className="flex items-center gap-3 px-5 py-4 min-w-[120px]">
+                    <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                        <AlertCircle className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-2xl font-bold text-slate-800 leading-tight">{metrics.semFollowup}</span>
+                        <span className="text-xs font-medium text-slate-600">Sem agendamento</span>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

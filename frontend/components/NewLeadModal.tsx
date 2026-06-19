@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { X, Save, Loader2, User, Phone, Mail, DollarSign, GitPullRequest, Layers, UserCheck, StickyNote, Tag } from "lucide-react";
+import { Save, Loader2, User, Phone, Mail, DollarSign, GitPullRequest, Layers, UserCheck, StickyNote, Tag } from "lucide-react";
 import { createLead, getTeamMembers } from "@/app/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { createClient } from "@/utils/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { qk } from "@/lib/query-keys";
 import { toast } from "@/lib/toast";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 interface NewLeadModalProps {
     isOpen: boolean;
@@ -179,22 +180,17 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-w-2xl p-0 gap-0 bg-white border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
 
                 {/* Header */}
-                <div className="bg-gradient-to-r from-slate-50 to-white px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
-                    <div>
-                        <h2 className="text-lg font-bold text-slate-900">
-                            {activeTab === 'manual' ? 'Novo Lead' : 'Importar Leads'}
-                        </h2>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                            {activeTab === 'manual' ? 'Cadastre uma nova oportunidade no funil' : 'Importacao em massa via Excel'}
-                        </p>
-                    </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-lg hover:bg-slate-100">
-                        <X size={20} />
-                    </button>
+                <div className="px-6 py-4 border-b border-slate-100 shrink-0">
+                    <DialogTitle className="text-lg font-bold text-slate-900">
+                        {activeTab === 'manual' ? 'Novo Lead' : 'Importar Leads'}
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                        {activeTab === 'manual' ? 'Cadastre uma nova oportunidade no funil' : 'Importacao em massa via Excel'}
+                    </DialogDescription>
                 </div>
 
                 {/* Tabs */}
@@ -220,7 +216,7 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
 
                             {/* SEÇÃO: CONTATO */}
                             <div>
-                                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">Contato</h3>
+                                <h3 className="text-sm font-semibold text-slate-700 mb-3">Contato</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="md:col-span-2">
                                         <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 mb-1.5">
@@ -265,7 +261,7 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
 
                             {/* SEÇÃO: OPORTUNIDADE */}
                             <div>
-                                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">Oportunidade</h3>
+                                <h3 className="text-sm font-semibold text-slate-700 mb-3">Oportunidade</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 mb-1.5">
@@ -331,8 +327,8 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
                             {/* SEÇÃO: TAGS */}
                             {tags.length > 0 && (
                                 <div>
-                                    <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-                                        <Tag className="w-3 h-3" /> Etiquetas
+                                    <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+                                        <Tag className="w-3.5 h-3.5" /> Etiquetas
                                     </h3>
                                     <div className="flex flex-wrap gap-2">
                                         {tags.map((t: any) => {
@@ -460,7 +456,7 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
                         </div>
                     </div>
                 )}
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }

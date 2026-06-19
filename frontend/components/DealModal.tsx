@@ -10,6 +10,7 @@ import { getFields } from "@/app/(protected)/settings/fields/actions";
 import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
 import { createClient } from "@/utils/supabase/client";
 import { X, Save, Loader2, User, Phone, DollarSign, ThumbsDown, Trash2, Plus, GitPullRequest, Check, MessageCircle, StickyNote, Clock, Pencil } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
@@ -116,41 +117,41 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
 
     if (isLoading) {
         return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="bg-white p-8 rounded-xl shadow-2xl flex flex-col items-center gap-4">
-                    <Loader2 size={40} className="text-blue-600 animate-spin" />
-                    <span className="text-gray-500 font-medium">Carregando informações...</span>
-                </div>
-            </div>
+            <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+                <DialogContent className="max-w-sm p-8 bg-white border-slate-200 [&>button]:hidden">
+                    <DialogTitle className="sr-only">Carregando negócio</DialogTitle>
+                    <div className="flex flex-col items-center gap-4">
+                        <Loader2 size={40} className="text-indigo-600 animate-spin" />
+                        <span className="text-slate-600 font-medium">Carregando informações...</span>
+                    </div>
+                </DialogContent>
+            </Dialog>
         )
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-5xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden relative">
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-w-5xl h-[90vh] p-0 gap-0 bg-white border-slate-200 flex flex-col overflow-hidden">
                 {/* HEADER */}
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
-                    <div className="flex flex-col">
-                        <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider mb-1">Negócio</span>
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
+                    <div className="flex flex-col gap-1">
+                        <DialogDescription className="text-xs font-semibold text-slate-500">Negócio</DialogDescription>
                         <div className="flex items-center gap-3">
-                            <h2 className="text-xl font-bold text-gray-800 leading-tight">
+                            <DialogTitle className="text-xl font-bold text-slate-800 leading-tight">
                                 {deal.title}
-                            </h2>
-                            <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide ${deal.status === 'won' ? 'bg-green-100 text-green-700' :
-                                deal.status === 'lost' ? 'bg-red-100 text-red-700' :
-                                    'bg-blue-50 text-blue-600'
+                            </DialogTitle>
+                            <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide ${deal.status === 'won' ? 'bg-emerald-100 text-emerald-700' :
+                                deal.status === 'lost' ? 'bg-rose-100 text-rose-700' :
+                                    'bg-indigo-50 text-indigo-700'
                                 }`}>
                                 {deal.status === 'won' ? 'Ganho' : deal.status === 'lost' ? 'Perdido' : 'Em Aberto'}
                             </span>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
-                        <X size={24} />
-                    </button>
                 </div>
 
                 {/* SCROLLABLE body */}
-                <div className="flex-1 overflow-y-auto bg-[#f8f9fa] p-6 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto bg-slate-50 p-6 custom-scrollbar">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
 
                         {/* LEFT COLUMN - MAIN INFO */}
@@ -175,10 +176,10 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
 
                         {/* RIGHT COLUMN - NOTES & ACTIVITY */}
                         <div className="space-y-6">
-                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm h-full flex flex-col">
+                            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-full flex flex-col">
                                 <div className="flex items-center gap-2 mb-4">
-                                    <StickyNote size={18} className="text-yellow-500" />
-                                    <h3 className="font-bold text-gray-700 text-sm">Anotações</h3>
+                                    <StickyNote size={18} className="text-amber-500" />
+                                    <h3 className="font-semibold text-slate-700 text-sm">Anotações</h3>
                                 </div>
                                 <NotesSection dealId={deal.id} notes={notes} onNotesUpdate={fetchNotes} loading={loadingNotes} />
                             </div>
@@ -186,8 +187,8 @@ export default function DealModal({ isOpen, onClose, deal, onUpdate }: any) {
 
                     </div>
                 </div>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -257,14 +258,15 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
                     value={newNote}
                     onChange={(e) => setNewNote(e.target.value)}
                     placeholder="Escreva uma observação..."
-                    className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 resize-none transition-all placeholder-gray-400"
+                    aria-label="Nova anotação"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 resize-none transition-all placeholder:text-slate-500"
                     rows={3}
                 />
                 <div className="flex justify-end mt-2">
                     <button
                         onClick={handleAddNote}
                         disabled={isSaving || !newNote.trim()}
-                        className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-1.5 rounded-md text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-md text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isSaving ? "Salvando..." : "Adicionar Nota"}
                     </button>
@@ -273,25 +275,25 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
 
             {/* LIST */}
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1 max-h-[400px]">
-                {loading && <div className="text-center py-4 text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>}
+                {loading && <div className="text-center py-4 text-slate-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>}
 
                 {!loading && notes.length === 0 && (
-                    <div className="text-center py-8 text-gray-400 text-xs italic">
+                    <div className="text-center py-8 text-slate-500 text-xs italic">
                         Nenhuma anotação.
                     </div>
                 )}
 
                 {notes.map(note => (
-                    <div key={note.id} className="bg-yellow-50/50 p-3 rounded-lg border border-yellow-100 group hover:border-yellow-200 transition-colors">
+                    <div key={note.id} className="bg-amber-50/50 p-3 rounded-lg border border-amber-100 group hover:border-amber-200 transition-colors">
                         <div className="flex justify-between items-start mb-1">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase">
+                            <span className="text-[11px] font-semibold text-slate-500">
                                 {new Date(note.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </span>
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                <button onClick={() => startEditing(note)} className="text-gray-300 hover:text-blue-500" title="Editar">
+                                <button onClick={() => startEditing(note)} className="text-slate-400 hover:text-indigo-600" title="Editar" aria-label="Editar nota">
                                     <Pencil size={12} />
                                 </button>
-                                <button onClick={() => handleDeleteNote(note.id)} className="text-gray-300 hover:text-red-400" title="Excluir">
+                                <button onClick={() => handleDeleteNote(note.id)} className="text-slate-400 hover:text-rose-600" title="Excluir" aria-label="Excluir nota">
                                     <Trash2 size={12} />
                                 </button>
                             </div>
@@ -302,16 +304,17 @@ function NotesSection({ dealId, notes, onNotesUpdate, loading }: { dealId: strin
                                 <textarea
                                     value={editContent}
                                     onChange={(e) => setEditContent(e.target.value)}
-                                    className="w-full bg-white border border-yellow-300 rounded p-2 text-sm focus:outline-none resize-none"
+                                    aria-label="Editar conteúdo da nota"
+                                    className="w-full bg-white border border-amber-300 rounded p-2 text-sm focus:outline-none resize-none"
                                     rows={3}
                                 />
                                 <div className="flex justify-end gap-2 mt-2">
-                                    <button onClick={cancelEditing} className="text-xs text-gray-500 hover:text-gray-700">Cancelar</button>
-                                    <button onClick={() => handleUpdateNote(note.id)} className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded font-bold hover:bg-yellow-500">Salvar</button>
+                                    <button onClick={cancelEditing} className="text-xs text-slate-600 hover:text-slate-800">Cancelar</button>
+                                    <button onClick={() => handleUpdateNote(note.id)} className="text-xs bg-amber-500 text-white px-2 py-1 rounded font-bold hover:bg-amber-600">Salvar</button>
                                 </div>
                             </div>
                         ) : (
-                            <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
                         )}
                     </div>
                 ))}
@@ -665,18 +668,19 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
     // RENDER LOSS MODE
     if (isLossMode) {
         return (
-            <div className="bg-white p-6 rounded-xl border border-red-100 shadow-sm animate-in fade-in">
-                <div className="flex items-center gap-2 mb-6 text-red-600">
-                    <button onClick={() => setIsLossMode(false)} className="p-1 hover:bg-red-50 rounded-full"><X size={20} /></button>
+            <div className="bg-white p-6 rounded-xl border border-rose-200 shadow-sm animate-in fade-in">
+                <div className="flex items-center gap-2 mb-6 text-rose-600">
+                    <button onClick={() => setIsLossMode(false)} className="flex h-9 w-9 items-center justify-center hover:bg-rose-50 rounded-full" aria-label="Voltar"><X size={20} /></button>
                     <h3 className="font-bold text-lg flex items-center gap-2"><ThumbsDown size={20} /> Marcar como Perdido</h3>
                 </div>
                 <div className="space-y-4">
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Motivo</label>
+                        <label htmlFor="loss-reason" className="text-sm font-semibold text-slate-700">Motivo</label>
                         <select
+                            id="loss-reason"
                             value={selectedLossReasonId}
                             onChange={e => setSelectedLossReasonId(e.target.value)}
-                            className="w-full mt-1 p-2 border rounded-md"
+                            className="w-full mt-1 p-2 border border-slate-300 rounded-md text-slate-800"
                         >
                             <option value="">Selecione um motivo...</option>
                             {lossReasons && lossReasons.map(r => (
@@ -684,14 +688,14 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                             ))}
                         </select>
                         {(!lossReasons || lossReasons.length === 0) && (
-                            <p className="text-xs text-red-500 mt-1">Nenhum motivo configurado. Vá em Configurações.</p>
+                            <p className="text-xs text-rose-600 mt-1">Nenhum motivo configurado. Vá em Configurações.</p>
                         )}
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Detalhes</label>
-                        <textarea value={lossDetails} onChange={e => setLossDetails(e.target.value)} rows={3} className="w-full mt-1 p-2 border rounded-md" />
+                        <label htmlFor="loss-details" className="text-sm font-semibold text-slate-700">Detalhes</label>
+                        <textarea id="loss-details" value={lossDetails} onChange={e => setLossDetails(e.target.value)} rows={3} className="w-full mt-1 p-2 border border-slate-300 rounded-md text-slate-800" />
                     </div>
-                    <button onClick={handleMarkAsLost} disabled={loading} className="w-full bg-red-600 text-white py-2 rounded-md font-bold hover:bg-red-700">
+                    <button onClick={handleMarkAsLost} disabled={loading} className="w-full bg-rose-600 text-white py-2 rounded-md font-bold hover:bg-rose-700">
                         {loading ? "Processando..." : "Confirmar Perda"}
                     </button>
                 </div>
@@ -703,23 +707,23 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
         <div className="flex flex-col gap-6">
 
             {/* CARD 1: MAIN FIELDS GRID */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
                     {/* LEFT: INFO & CONTACT */}
                     <div className="space-y-5">
                         {/* CLIENTE */}
-                        {/* CLIENTE */}
                         <div className="group">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 block">Cliente</label>
+                            <label htmlFor="deal-client-name" className="text-sm text-slate-700 font-semibold mb-1 block">Cliente</label>
                             <div className="flex items-center gap-2">
-                                <div className="p-2 bg-blue-50 text-blue-600 rounded-full">
+                                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-full">
                                     <User size={18} />
                                 </div>
                                 <input
+                                    id="deal-client-name"
                                     value={name}
                                     onChange={e => setName(e.target.value)}
-                                    className="font-semibold text-gray-800 w-full bg-transparent border-b border-transparent hover:border-gray-200 focus:border-blue-500 focus:outline-none py-1 transition-all"
+                                    className="font-semibold text-slate-800 w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-500 focus:outline-none py-1 transition-all placeholder:text-slate-500"
                                     placeholder="Nome do Cliente"
                                 />
                             </div>
@@ -728,30 +732,32 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                         {/* MULTI-CONTACTS SECTION */}
                         <div className="group">
                             <div className="flex justify-between items-center mb-1">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Contatos</label>
-                                <button className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1" onClick={() => setIsAddingContact(true)}>
+                                <span className="text-sm text-slate-700 font-semibold">Contatos</span>
+                                <button className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1" onClick={() => setIsAddingContact(true)}>
                                     <Plus size={10} /> Novo
                                 </button>
                             </div>
 
                             {/* ADD CONTACT FORM */}
                             {isAddingContact && (
-                                <div className="mb-3 bg-blue-50/50 p-2 rounded-md border border-blue-100 animate-in slide-in-from-top-2">
+                                <div className="mb-3 bg-indigo-50/50 p-2 rounded-md border border-indigo-100 animate-in slide-in-from-top-2">
                                     <input
                                         placeholder="Nome"
-                                        className="w-full text-xs p-1 mb-1 border rounded"
+                                        aria-label="Nome do contato"
+                                        className="w-full text-xs p-1 mb-1 border border-slate-300 rounded text-slate-800 placeholder:text-slate-500"
                                         value={newContact.name}
                                         onChange={e => setNewContact({ ...newContact, name: e.target.value })}
                                     />
                                     <input
                                         placeholder="Telefone / WhatsApp"
-                                        className="w-full text-xs p-1 mb-1 border rounded"
+                                        aria-label="Telefone do contato"
+                                        className="w-full text-xs p-1 mb-1 border border-slate-300 rounded text-slate-800 placeholder:text-slate-500"
                                         value={newContact.phone}
                                         onChange={e => setNewContact({ ...newContact, phone: e.target.value })}
                                     />
                                     <div className="flex justify-end gap-2 mt-1">
-                                        <button onClick={() => setIsAddingContact(false)} className="text-xs text-gray-500">Cancelar</button>
-                                        <button onClick={handleSaveContact} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold">Salvar</button>
+                                        <button onClick={() => setIsAddingContact(false)} className="text-xs text-slate-600 hover:text-slate-800">Cancelar</button>
+                                        <button onClick={handleSaveContact} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded font-bold">Salvar</button>
                                     </div>
                                 </div>
                             )}
@@ -760,50 +766,53 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                             <div className="space-y-2">
                                 {/* Legacy/Main Contact */}
                                 {deal.contacts && (
-                                    <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-md border border-gray-100">
-                                        <div className="p-1.5 bg-white rounded-full border border-gray-100 text-gray-400">
+                                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-md border border-slate-100">
+                                        <div className="p-1.5 bg-white rounded-full border border-slate-100 text-slate-500">
                                             <User size={14} />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <div className="text-xs font-bold text-gray-700 truncate">{deal.contacts.name}</div>
-                                            <div className="text-[10px] text-gray-500 flex items-center gap-1">
+                                            <div className="text-xs font-bold text-slate-700 truncate">{deal.contacts.name}</div>
+                                            <div className="text-[11px] text-slate-500 flex items-center gap-1">
                                                 <Phone size={10} /> {deal.contacts.phone || "-"}
-                                                <span className="text-[9px] bg-gray-200 px-1 rounded ml-auto">Principal</span>
+                                                <span className="text-[9px] bg-slate-200 text-slate-700 px-1 rounded ml-auto">Principal</span>
                                             </div>
                                         </div>
-                                        <button onClick={handleWhatsApp} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors" title="WhatsApp">
+                                        <button onClick={handleWhatsApp} className="flex h-9 w-9 items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="WhatsApp" aria-label="Abrir WhatsApp">
                                             <MessageCircle size={14} />
                                         </button>
                                     </div>
                                 )}
                                 {contacts.map((c: any) => (
-                                    <div key={c.id} className={`flex items-center gap-2 bg-white p-2 rounded-md border transition-colors group/item ${c.is_primary ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100 hover:border-blue-100'}`}>
-                                        <div className={`p-1.5 rounded-full ${c.is_primary ? 'bg-amber-100 text-amber-500' : 'bg-gray-50 text-gray-400'}`}>
+                                    <div key={c.id} className={`flex items-center gap-2 bg-white p-2 rounded-md border transition-colors group/item ${c.is_primary ? 'border-amber-200 bg-amber-50/30' : 'border-slate-100 hover:border-indigo-100'}`}>
+                                        <div className={`p-1.5 rounded-full ${c.is_primary ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-500'}`}>
                                             <User size={14} />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-1">
-                                                <div className="text-xs font-bold text-gray-700 truncate">{c.name}</div>
+                                                <div className="text-xs font-bold text-slate-700 truncate">{c.name}</div>
                                                 {c.is_primary && <div className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded font-bold">Principal</div>}
                                             </div>
-                                            <div className="text-[10px] text-gray-500 truncate">{c.phone}</div>
+                                            <div className="text-[11px] text-slate-500 truncate">{c.phone}</div>
                                         </div>
 
                                         <button
                                             onClick={() => handleSetPrimaryContact(c.id)}
-                                            className={`p-1 transition-colors ${c.is_primary ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}`}
+                                            className={`flex h-9 w-9 items-center justify-center transition-colors ${c.is_primary ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'}`}
                                             title="Definir como Principal"
+                                            aria-label="Definir como contato principal"
+                                            aria-pressed={!!c.is_primary}
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill={c.is_primary ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
                                         </button>
 
                                         <button
                                             onClick={() => window.open(`https://wa.me/55${c.phone?.replace(/\D/g, "")}`, '_blank')}
-                                            className="text-gray-300 hover:text-green-600 p-1 transition-colors"
+                                            className="flex h-9 w-9 items-center justify-center text-slate-400 hover:text-emerald-600 transition-colors"
+                                            aria-label="Abrir WhatsApp"
                                         >
                                             <MessageCircle size={14} />
                                         </button>
-                                        <button onClick={() => handleRemoveContact(c.id)} className="text-gray-300 hover:text-red-500 p-1 opacity-0 group-hover/item:opacity-100 transition-all">
+                                        <button onClick={() => handleRemoveContact(c.id)} className="flex h-9 w-9 items-center justify-center text-slate-400 hover:text-rose-600 opacity-0 group-hover/item:opacity-100 transition-all" aria-label="Remover contato">
                                             <Trash2 size={14} />
                                         </button>
                                     </div>
@@ -812,8 +821,8 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                         </div>
 
                         {/* NEXT MEETING / RESCHEDULE */}
-                        <div className="group pt-2 border-t border-gray-100">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2 block">Próxima Reunião</label>
+                        <div className="group pt-2 border-t border-slate-100">
+                            <span className="text-sm text-slate-700 font-semibold mb-2 block">Próxima Reunião</span>
 
                             {nextTask ? (
                                 <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
@@ -824,7 +833,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                                         </div>
                                         <button
                                             onClick={() => setReschedulingTaskId(reschedulingTaskId === nextTask.id ? null : nextTask.id)}
-                                            className="text-[10px] bg-white border border-amber-200 text-amber-600 px-2 py-1 rounded font-bold hover:bg-amber-100"
+                                            className="text-[11px] bg-white border border-amber-200 text-amber-700 px-2 py-1 rounded font-bold hover:bg-amber-100"
                                         >
                                             Reagendar
                                         </button>
@@ -834,11 +843,12 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                                     {/* RESCHEDULE PICKER */}
                                     {reschedulingTaskId === nextTask.id && (
                                         <div className="mt-3 pt-2 border-t border-amber-200/50 animate-in slide-in-from-top-2">
-                                            <label className="text-[10px] font-bold text-amber-700 mb-1 block">Nova Data:</label>
+                                            <label htmlFor="reschedule-date" className="text-[11px] font-bold text-amber-700 mb-1 block">Nova Data:</label>
                                             <div className="flex gap-2">
                                                 <input
+                                                    id="reschedule-date"
                                                     type="datetime-local"
-                                                    className="flex-1 text-xs border border-amber-300 rounded p-1"
+                                                    className="flex-1 text-xs border border-amber-300 rounded p-1 text-slate-800"
                                                     onChange={(e) => setNewTaskDate(e.target.value)}
                                                 />
                                                 <button
@@ -852,7 +862,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                                     )}
                                 </div>
                             ) : (
-                                <div className="text-xs text-gray-400 italic bg-gray-50 p-2 rounded border border-gray-100 text-center">
+                                <div className="text-xs text-slate-500 italic bg-slate-50 p-2 rounded border border-slate-100 text-center">
                                     Nenhuma reunião agendada.
                                 </div>
                             )}
@@ -860,13 +870,14 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
 
                         {/* OWNER */}
                         <div className="group">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 block">Responsável</label>
+                            <label htmlFor="deal-owner" className="text-sm text-slate-700 font-semibold mb-1 block">Responsável</label>
                             <select
+                                id="deal-owner"
                                 value={selectedOwnerId}
                                 onChange={(e) => setSelectedOwnerId(e.target.value)}
-                                className="w-full bg-gray-50 text-sm p-2 rounded-md border-transparent hover:border-gray-300 focus:border-blue-500 outline-none cursor-pointer"
+                                className="w-full bg-slate-50 text-sm text-slate-800 p-2 rounded-md border border-transparent hover:border-slate-300 focus:border-indigo-500 outline-none cursor-pointer"
                             >
-                                <option value="" className="text-gray-400">Sem responsável</option>
+                                <option value="">Sem responsável</option>
                                 {teamMembers?.map((member: any) => (
                                     <option key={member.id} value={member.id}>{member.full_name}</option>
                                 ))}
@@ -875,15 +886,16 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                     </div>
 
                     {/* RIGHT: DEAL SPECS */}
-                    <div className="space-y-5 border-l border-gray-100 pl-6 md:pl-6">
+                    <div className="space-y-5 border-l border-slate-100 pl-6 md:pl-6">
                         {/* FUNNEL & STAGE */}
                         <div>
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 block">Funil de Vendas</label>
+                            <label htmlFor="deal-pipeline" className="text-sm text-slate-700 font-semibold mb-1 block">Funil de Vendas</label>
                             <div className="flex flex-col gap-2">
                                 <select
+                                    id="deal-pipeline"
                                     value={currentPipelineId}
                                     onChange={(e) => handlePipelineChange(e.target.value)}
-                                    className="w-full bg-gray-50 text-sm font-bold p-2 rounded-md border-transparent hover:border-gray-300 focus:border-blue-500 outline-none"
+                                    className="w-full bg-slate-50 text-sm font-bold text-slate-800 p-2 rounded-md border border-transparent hover:border-slate-300 focus:border-indigo-500 outline-none"
                                 >
                                     {pipelines?.map((pipe: any) => (
                                         <option key={pipe.id} value={pipe.id}>{pipe.name}</option>
@@ -891,12 +903,13 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                                 </select>
 
                                 <select
+                                    aria-label="Etapa do funil"
                                     value={selectedStageId || ""}
                                     onChange={(e) => {
                                         setSelectedStageId(Number(e.target.value));
                                         setHasChanges(true);
                                     }}
-                                    className="w-full bg-white border border-gray-200 text-sm p-2 rounded-md focus:border-blue-500 outline-none"
+                                    className="w-full bg-white border border-slate-200 text-sm text-slate-800 p-2 rounded-md focus:border-indigo-500 outline-none"
                                 >
                                     {pipelines.find(p => p.id === currentPipelineId)?.stages?.sort((a: any, b: any) => a.position - b.position).map((stage: any) => (
                                         <option key={stage.id} value={stage.id}>{stage.name}</option>
@@ -907,14 +920,15 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
 
                         {/* VALUE */}
                         <div>
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 block">Valor Total</label>
-                            <div className="flex items-center gap-2 bg-blue-50/50 p-2 rounded-lg border border-blue-100">
-                                <span className="text-blue-400 font-bold">R$</span>
+                            <label htmlFor="deal-value" className="text-sm text-slate-700 font-semibold mb-1 block">Valor Total</label>
+                            <div className="flex items-center gap-2 bg-indigo-50/50 p-2 rounded-lg border border-indigo-100">
+                                <span className="text-indigo-600 font-bold">R$</span>
                                 <input
+                                    id="deal-value"
                                     type="number"
                                     value={value}
                                     onChange={e => setValue(e.target.value)}
-                                    className="bg-transparent text-xl font-bold text-gray-800 w-full focus:outline-none"
+                                    className="bg-transparent text-xl font-bold text-slate-800 w-full focus:outline-none placeholder:text-slate-500"
                                     placeholder="0,00"
                                 />
                             </div>
@@ -924,23 +938,23 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
             </div>
 
             {/* CARD 2: TAGS & CUSTOM FIELDS */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
                 {/* TAGS */}
                 <div>
                     <div className="flex justify-between items-center mb-2">
-                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Etiquetas</label>
-                        <button onClick={() => setIsAddingTag(!isAddingTag)} className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-1"><Plus size={10} /> Adicionar</button>
+                        <span className="text-sm text-slate-700 font-semibold block">Etiquetas</span>
+                        <button onClick={() => setIsAddingTag(!isAddingTag)} className="text-indigo-600 text-xs font-bold hover:underline flex items-center gap-1"><Plus size={10} /> Adicionar</button>
                     </div>
 
                     {isAddingTag && (
-                        <select className="w-full mb-2 text-sm p-1 border rounded" onChange={e => { if (e.target.value) handleAddTag(e.target.value) }}>
+                        <select aria-label="Selecionar etiqueta" className="w-full mb-2 text-sm p-1 border border-slate-300 rounded text-slate-800" onChange={e => { if (e.target.value) handleAddTag(e.target.value) }}>
                             <option value="">Selecione...</option>
                             {availableTags.filter(t => !localTags.some(lt => lt.tags?.id === t.id)).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
                     )}
 
                     <div className="flex flex-wrap gap-2">
-                        {localTags.length === 0 && <span className="text-xs text-gray-400 italic">Sem etiquetas</span>}
+                        {localTags.length === 0 && <span className="text-xs text-slate-500 italic">Sem etiquetas</span>}
                         {localTags.map((dt: any) => (
                             <span
                                 key={dt.id || dt.tags?.id}
@@ -956,33 +970,35 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
 
                 {/* CUSTOM FIELDS (Compact) */}
                 {fields.length > 0 && (
-                    <div className="pt-4 border-t border-gray-100">
-                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-3 block">Campos Personalizados</label>
+                    <div className="pt-4 border-t border-slate-100">
+                        <span className="text-sm text-slate-700 font-semibold mb-3 block">Campos Personalizados</span>
                         <div className="grid grid-cols-2 gap-4">
                             {fields.map(field => (
                                 <div key={field.id}>
-                                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{field.name}</label>
+                                    <label htmlFor={`custom-field-${field.id}`} className="text-xs text-slate-600 font-semibold block mb-1">{field.name}</label>
                                     {field.type === 'select' ? (
                                         <select
+                                            id={`custom-field-${field.id}`}
                                             value={customValues[field.id] || ""}
                                             onChange={e => {
                                                 setCustomValues(prev => ({ ...prev, [field.id]: e.target.value }));
                                                 setHasChanges(true);
                                             }}
-                                            className="w-full text-xs bg-gray-50 p-1.5 rounded border border-gray-200 outline-none focus:border-blue-500"
+                                            className="w-full text-xs bg-slate-50 text-slate-800 p-1.5 rounded border border-slate-200 outline-none focus:border-indigo-500"
                                         >
                                             <option value="">-</option>
                                             {field.options?.map((op: string) => <option key={op} value={op}>{op}</option>)}
                                         </select>
                                     ) : (
                                         <input
+                                            id={`custom-field-${field.id}`}
                                             type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
                                             value={customValues[field.id] || ""}
                                             onChange={e => {
                                                 setCustomValues(prev => ({ ...prev, [field.id]: e.target.value }));
                                                 setHasChanges(true);
                                             }}
-                                            className="w-full text-xs bg-gray-50 p-1.5 rounded border border-gray-200 outline-none focus:border-blue-500"
+                                            className="w-full text-xs bg-slate-50 text-slate-800 p-1.5 rounded border border-slate-200 outline-none focus:border-indigo-500"
                                         />
                                     )}
                                 </div>
@@ -993,29 +1009,30 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
             </div>
 
             {/* CARD 3: PRODUCTS */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex justify-between items-center mb-3">
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block">Produtos / Serviços</label>
-                    <button onClick={handleAddItem} className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-1"><Plus size={10} /> Adicionar Item</button>
+                    <span className="text-sm text-slate-700 font-semibold block">Produtos / Serviços</span>
+                    <button onClick={handleAddItem} className="text-indigo-600 text-xs font-bold hover:underline flex items-center gap-1"><Plus size={10} /> Adicionar Item</button>
                 </div>
 
                 <div className="space-y-2">
-                    {items.length === 0 && !isAddingItem && <div className="text-xs text-gray-400 italic text-center py-2">Nenhum produto vinculado.</div>}
+                    {items.length === 0 && !isAddingItem && <div className="text-xs text-slate-500 italic text-center py-2">Nenhum produto vinculado.</div>}
 
                     {items.map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-center bg-gray-50 p-2 rounded-md border border-gray-100 text-xs">
-                            <div className="font-bold text-gray-700">{products.find(p => p.id === item.product_id)?.name || "Item Personalizado"}</div>
+                        <div key={idx} className="flex justify-between items-center bg-slate-50 p-2 rounded-md border border-slate-100 text-xs">
+                            <div className="font-bold text-slate-700">{products.find(p => p.id === item.product_id)?.name || "Item Personalizado"}</div>
                             <div className="flex items-center gap-3">
-                                <span className="text-gray-500">x{item.quantity}</span>
-                                <span className="font-semibold text-gray-800">R$ {item.unit_price}</span>
-                                <button onClick={() => handleRemoveItem(idx)} className="text-red-400 hover:text-red-600"><Trash2 size={12} /></button>
+                                <span className="text-slate-500">x{item.quantity}</span>
+                                <span className="font-semibold text-slate-800">R$ {item.unit_price}</span>
+                                <button onClick={() => handleRemoveItem(idx)} className="flex h-9 w-9 items-center justify-center text-slate-400 hover:text-rose-600" aria-label="Remover item"><Trash2 size={12} /></button>
                             </div>
                         </div>
                     ))}
 
                     {isAddingItem && (
                         <select
-                            className="w-full p-2 text-xs border rounded-md"
+                            aria-label="Selecionar produto"
+                            className="w-full p-2 text-xs border border-slate-300 rounded-md text-slate-800"
                             onChange={e => { if (e.target.value) handleProductAdd(e.target.value) }}
                         >
                             <option value="">Selecione o produto...</option>
@@ -1024,7 +1041,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                     )}
 
                     {items.length > 0 && (
-                        <button onClick={updateValueFromItems} className="text-[10px] text-blue-500 hover:underline w-full text-right mt-2">
+                        <button onClick={updateValueFromItems} className="text-[11px] text-indigo-600 hover:underline w-full text-right mt-2">
                             Atualizar Valor Total do Negócio
                         </button>
                     )}
@@ -1036,7 +1053,7 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                 <button
                     onClick={handleSave}
                     disabled={!hasChanges || loading}
-                    className={`flex-1 py-3 rounded-lg font-bold text-sm shadow-md transition-all flex justify-center items-center gap-2 ${hasChanges ? "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg" : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    className={`flex-1 py-3 rounded-lg font-bold text-sm shadow-md transition-all flex justify-center items-center gap-2 ${hasChanges ? "bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-lg" : "bg-slate-200 text-slate-500 cursor-not-allowed"
                         }`}
                 >
                     {loading && <Loader2 size={16} className="animate-spin" />}
@@ -1046,8 +1063,9 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
                 {deal.status !== 'lost' && (
                     <button
                         onClick={() => setIsLossMode(true)}
-                        className="px-4 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                        className="px-4 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors"
                         title="Marcar como Perdido"
+                        aria-label="Marcar como Perdido"
                     >
                         <ThumbsDown size={18} />
                     </button>
@@ -1055,8 +1073,9 @@ function EditForm({ deal, onClose, onUpdate, availableTags, teamMembers, pipelin
 
                 <button
                     onClick={handleDelete}
-                    className="px-4 rounded-lg bg-white border border-gray-200 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                    className="px-4 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
                     title="Excluir Lead"
+                    aria-label="Excluir Lead"
                 >
                     <Trash2 size={18} />
                 </button>

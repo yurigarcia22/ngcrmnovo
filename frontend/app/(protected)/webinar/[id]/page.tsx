@@ -11,8 +11,9 @@ const STATUS_COLORS: Record<string, string> = {
   enriching: "bg-blue-100 text-blue-700",
   ready: "bg-emerald-100 text-emerald-700",
   active: "bg-indigo-100 text-indigo-700",
-  finished: "bg-slate-100 text-slate-500",
-  archived: "bg-slate-50 text-slate-400",
+  paused: "bg-amber-100 text-amber-700",
+  finished: "bg-slate-100 text-slate-600",
+  archived: "bg-slate-100 text-slate-500",
 };
 
 export default async function CampaignDetailPage({
@@ -47,7 +48,7 @@ export default async function CampaignDetailPage({
                 {campaign.name}
               </h1>
               <span
-                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${
+                className={`text-[11px] font-semibold px-2 py-1 rounded-md ${
                   STATUS_COLORS[campaign.status] ?? STATUS_COLORS.draft
                 }`}
               >

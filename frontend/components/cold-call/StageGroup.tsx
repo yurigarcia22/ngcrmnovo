@@ -53,7 +53,11 @@ export function StageGroup({
                 className="flex items-center gap-2 py-2 cursor-pointer group hover:bg-slate-50 rounded-md px-2 transition-colors"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
-                <button className="text-slate-400 hover:text-slate-600 mr-1">
+                <button
+                    className="text-slate-500 hover:text-slate-700 mr-1 flex items-center justify-center h-9 w-9 rounded-md hover:bg-slate-100 transition-colors -ml-1.5"
+                    aria-label={isExpanded ? `Recolher ${stage.name}` : `Expandir ${stage.name}`}
+                    aria-expanded={isExpanded}
+                >
                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 </button>
                 <span
@@ -65,15 +69,15 @@ export function StageGroup({
                     {stage.is_inbox && <Inbox className="h-3.5 w-3.5 text-indigo-500" />}
                     {stage.is_won && <Trophy className="h-3.5 w-3.5 text-emerald-500" />}
                     {stage.is_lost && <Frown className="h-3.5 w-3.5 text-rose-500" />}
-                    {stage.name.toUpperCase()}
+                    {stage.name}
                 </h2>
-                <span className="text-xs text-slate-400 ml-1">({leads.length})</span>
+                <span className="text-xs text-slate-500 ml-1">({leads.length})</span>
             </div>
 
             {isExpanded && (
                 <div className="space-y-1.5 ml-6 mt-2">
                     {leads.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic py-2">Nenhum lead nesta etapa</p>
+                        <p className="text-xs text-slate-500 italic py-2">Nenhum lead nesta etapa</p>
                     ) : (
                         leads.slice(0, visibleCount).map((lead) => {
                             const isSelected = selectedLeads.includes(lead.id);
@@ -129,24 +133,24 @@ export function StageGroup({
 
                                     <div className="flex items-center gap-1 shrink-0">
                                         {lead.site_url && (
-                                            <a href={lead.site_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} className="p-1 text-slate-400 hover:text-blue-600">
-                                                <Globe className="h-3.5 w-3.5" />
+                                            <a href={lead.site_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} aria-label="Abrir site" className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-blue-600 hover:bg-slate-100 transition-colors">
+                                                <Globe className="h-4 w-4" />
                                             </a>
                                         )}
                                         {lead.instagram_url && (
-                                            <a href={lead.instagram_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} className="p-1 text-slate-400 hover:text-pink-500">
-                                                <Instagram className="h-3.5 w-3.5" />
+                                            <a href={lead.instagram_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} aria-label="Abrir Instagram" className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-pink-500 hover:bg-slate-100 transition-colors">
+                                                <Instagram className="h-4 w-4" />
                                             </a>
                                         )}
                                         {lead.google_meu_negocio_url && (
-                                            <a href={lead.google_meu_negocio_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} className="p-1 text-slate-400 hover:text-emerald-600">
-                                                <MapPin className="h-3.5 w-3.5" />
+                                            <a href={lead.google_meu_negocio_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} aria-label="Abrir Google Meu Negócio" className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-emerald-600 hover:bg-slate-100 transition-colors">
+                                                <MapPin className="h-4 w-4" />
                                             </a>
                                         )}
 
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onCallClick(lead); }}
-                                            className="ml-1 px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1"
+                                            className="ml-1 px-3 h-9 text-[11px] font-semibold rounded-md bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1"
                                             title="Abrir lead"
                                         >
                                             <Phone className="h-3 w-3" />
@@ -158,7 +162,8 @@ export function StageGroup({
                                             value={String(stage.id)}
                                             onChange={(e) => onMoveStage(lead.id, isNaN(Number(e.target.value)) ? e.target.value : Number(e.target.value))}
                                             onClick={(e) => e.stopPropagation()}
-                                            className="text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-600 hover:border-indigo-300 cursor-pointer"
+                                            aria-label="Mover lead para etapa"
+                                            className="text-[11px] h-9 border border-slate-200 rounded px-1.5 bg-white text-slate-600 hover:border-indigo-300 cursor-pointer"
                                         >
                                             {allStages.map((s) => (
                                                 <option key={s.id} value={String(s.id)}>
@@ -170,10 +175,11 @@ export function StageGroup({
                                         {onDeleteClick && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); onDeleteClick(lead.id); }}
-                                                className="p-1 text-slate-400 hover:text-rose-500"
+                                                className="flex items-center justify-center h-9 w-9 rounded-md text-slate-500 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                                                aria-label="Excluir lead"
                                                 title="Excluir"
                                             >
-                                                <Trash2 className="h-3.5 w-3.5" />
+                                                <Trash2 className="h-4 w-4" />
                                             </button>
                                         )}
                                     </div>

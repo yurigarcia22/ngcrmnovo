@@ -187,6 +187,19 @@ export default function ChatPage() {
         });
     }, [supabase]);
 
+    // Fecha qualquer modal aberto ao pressionar Esc (acessibilidade).
+    useEffect(() => {
+        if (!isPromoting && !showDeleteModal && !showNewConversation) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            if (isPromoting) setIsPromoting(false);
+            if (showDeleteModal) setShowDeleteModal(false);
+            if (showNewConversation) setShowNewConversation(false);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [isPromoting, showDeleteModal, showNewConversation]);
+
 
     // Ref com o id da conversa aberta — usado dentro do realtime (closure []).
     const selectedDealIdRef = useRef<string | null>(null);
@@ -393,25 +406,40 @@ export default function ChatPage() {
         <div className="flex h-screen bg-gray-100 overflow-hidden text-gray-800 font-sans">
             {/* Promote Lead Modal */}
             {isPromoting && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white rounded-xl shadow-2xl w-[400px] overflow-hidden">
-                        <div className="bg-[#00a86b] p-6 text-white">
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in"
+                    onClick={() => setIsPromoting(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Criar oportunidade"
+                        className="relative bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="bg-emerald-600 p-6 text-white">
                             <div className="flex items-center gap-2 mb-2">
-                                <Calendar size={20} className="text-white/80" />
-                                <span className="text-sm font-medium text-white/90">Agendamento</span>
+                                <Calendar size={18} className="text-white/90" />
+                                <span className="text-sm font-semibold text-white/90">Agendamento</span>
                             </div>
                             <h2 className="text-2xl font-bold">Criar Oportunidade</h2>
-                            <p className="text-white/80 text-sm mt-1">Selecione o destino deste lead no funil.</p>
-                            <button onClick={() => setIsPromoting(false)} className="absolute top-4 right-4 text-white/70 hover:text-white">
+                            <p className="text-white/90 text-sm mt-1">Selecione o destino deste lead no funil.</p>
+                            <button
+                                onClick={() => setIsPromoting(false)}
+                                aria-label="Fechar"
+                                className="absolute top-3 right-3 h-9 w-9 inline-flex items-center justify-center rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-colors"
+                            >
                                 <X size={20} />
                             </button>
                         </div>
 
                         <div className="p-6 space-y-4">
-                            <div className="space-y-1">
-                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Título do Negócio</label>
+                            <div className="space-y-1.5">
+                                <label htmlFor="promote-title" className="text-sm font-semibold text-slate-700">Título do negócio</label>
                                 <input
-                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none bg-gray-50"
+                                    id="promote-title"
+                                    autoFocus
+                                    className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-slate-50"
                                     placeholder="Ex: Novo Cliente VIP"
                                     value={promoteTitle}
                                     onChange={e => setPromoteTitle(e.target.value)}
@@ -419,44 +447,46 @@ export default function ChatPage() {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Valor (R$)</label>
+                                <div className="space-y-1.5">
+                                    <label htmlFor="promote-value" className="text-sm font-semibold text-slate-700">Valor (R$)</label>
                                     <input
+                                        id="promote-value"
                                         type="number"
-                                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none bg-gray-50"
+                                        className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-slate-50"
                                         value={promoteValue}
                                         onChange={e => setPromoteValue(Number(e.target.value))}
                                     />
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Data Reunião</label>
+                                <div className="space-y-1.5">
+                                    <label htmlFor="promote-date" className="text-sm font-semibold text-slate-700">Data da reunião</label>
                                     <input
+                                        id="promote-date"
                                         type="datetime-local"
-                                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none bg-gray-50 text-sm"
+                                        className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-slate-50 text-sm"
                                         value={promoteDate}
                                         onChange={e => setPromoteDate(e.target.value)}
                                     />
                                 </div>
                             </div>
 
-                            <div className="bg-[#e6f4ea] p-4 rounded-lg flex gap-3 items-start">
-                                <div className="p-1 bg-[#00a86b] rounded-full text-white mt-0.5"><Check size={12} strokeWidth={3} /></div>
-                                <div className="text-sm text-[#004d33]">
+                            <div className="bg-emerald-50 p-4 rounded-lg flex gap-3 items-start">
+                                <div className="p-1 bg-emerald-600 rounded-full text-white mt-0.5"><Check size={12} strokeWidth={3} /></div>
+                                <div className="text-sm text-emerald-800">
                                     <p className="font-bold">O que acontece agora?</p>
-                                    <p className="opacity-80">O lead será movido para primeira etapa do funil e um evento de "Reunião Marcada" será registrado.</p>
+                                    <p className="text-emerald-700">O lead será movido para primeira etapa do funil e um evento de "Reunião Marcada" será registrado.</p>
                                 </div>
                             </div>
 
                             <div className="flex gap-3 pt-2">
                                 <button
                                     onClick={() => setIsPromoting(false)}
-                                    className="flex-1 py-3 text-gray-600 font-bold hover:bg-gray-100 rounded-lg transition-colors"
+                                    className="flex-1 py-3 text-slate-700 font-bold hover:bg-slate-100 rounded-lg transition-colors"
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     onClick={handlePromoteToLead}
-                                    className="flex-1 py-3 bg-[#00a86b] text-white font-bold rounded-lg hover:bg-[#008f5b] shadow-lg shadow-green-200 transition-all flex items-center justify-center gap-2"
+                                    className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2"
                                 >
                                     <Check size={18} strokeWidth={3} />
                                     Confirmar
@@ -469,18 +499,27 @@ export default function ChatPage() {
 
             {/* Delete Confirmation Modal */}
             {showDeleteModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white p-6 rounded-2xl shadow-xl w-[400px] space-y-4">
-                        <div className="flex items-center gap-3 text-red-600">
-                            <div className="p-3 bg-red-100 rounded-full"><Trash2 size={24} /></div>
-                            <h3 className="text-lg font-bold">Excluir Contato</h3>
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in"
+                    onClick={() => setShowDeleteModal(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Excluir contato"
+                        className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md space-y-4"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-3 text-rose-600">
+                            <div className="p-3 bg-rose-100 rounded-full"><Trash2 size={24} /></div>
+                            <h3 className="text-lg font-bold">Excluir contato</h3>
                         </div>
-                        <p className="text-gray-600 text-sm">
-                            Tem certeza que deseja excluir <b>{selectedDeal?.contacts?.name}</b>? Esta ação não pode ser desfeita.
+                        <p className="text-slate-600 text-sm">
+                            Tem certeza que deseja excluir <b className="text-slate-800">{selectedDeal?.contacts?.name}</b>? Esta ação não pode ser desfeita.
                         </p>
 
                         {/* Checkbox for Deal */}
-                        <div className="flex items-start gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                             <input
                                 type="checkbox"
                                 id="deleteDealCheck"
@@ -489,25 +528,25 @@ export default function ChatPage() {
                                 className="mt-0.5"
                             />
                             <div className="flex flex-col text-sm">
-                                <label htmlFor="deleteDealCheck" className="font-medium text-gray-800 cursor-pointer">
+                                <label htmlFor="deleteDealCheck" className="font-medium text-slate-800 cursor-pointer">
                                     Excluir também negociações?
                                 </label>
-                                <span className="text-xs text-gray-500">Se marcado, também apagará deals e mensagens.</span>
+                                <span className="text-xs text-slate-600">Se marcado, também apagará deals e mensagens.</span>
                             </div>
                         </div>
 
                         <div className="flex gap-3 justify-end pt-2">
                             <button
                                 onClick={() => setShowDeleteModal(false)}
-                                className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
+                                className="px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-colors"
                             >
                                 Cancelar
                             </button>
                             <button
                                 onClick={handleDeleteContact}
-                                className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium shadow-md shadow-red-200 transition-colors"
+                                className="px-4 py-2 text-white bg-rose-600 hover:bg-rose-700 rounded-lg text-sm font-medium shadow-md shadow-rose-200 transition-colors"
                             >
-                                Confirmar Exclusão
+                                Confirmar exclusão
                             </button>
                         </div>
                     </div>
@@ -516,35 +555,46 @@ export default function ChatPage() {
 
             {/* New Conversation Modal */}
             {showNewConversation && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white p-6 rounded-2xl shadow-xl w-[400px] space-y-4">
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in"
+                    onClick={() => { if (!creatingConv) setShowNewConversation(false); }}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Nova conversa"
+                        className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md space-y-4"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <div className="flex items-center gap-3 text-blue-600">
                             <div className="p-3 bg-blue-100 rounded-full"><MessageSquare size={22} /></div>
-                            <h3 className="text-lg font-bold text-gray-800">Nova conversa</h3>
+                            <h3 className="text-lg font-bold text-slate-800">Nova conversa</h3>
                         </div>
-                        <p className="text-gray-500 text-sm">
+                        <p className="text-slate-600 text-sm">
                             Informe o número do WhatsApp. Se já houver conversa com esse número, o histórico do WhatsApp é puxado automaticamente.
                         </p>
-                        <div className="space-y-2">
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Telefone (com DDD)</label>
+                        <div className="space-y-2.5">
+                            <div className="space-y-1.5">
+                                <label htmlFor="new-conv-phone" className="text-sm font-semibold text-slate-700">Telefone (com DDD)</label>
                                 <input
+                                    id="new-conv-phone"
                                     autoFocus
                                     value={newConvPhone}
                                     onChange={(e) => setNewConvPhone(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter' && !creatingConv) handleCreateConversation(); }}
                                     placeholder="Ex: (37) 99999-9999"
-                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-gray-50 font-mono"
+                                    className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-slate-50 font-mono"
                                 />
                             </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nome (opcional)</label>
+                            <div className="space-y-1.5">
+                                <label htmlFor="new-conv-name" className="text-sm font-semibold text-slate-700">Nome (opcional)</label>
                                 <input
+                                    id="new-conv-name"
                                     value={newConvName}
                                     onChange={(e) => setNewConvName(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter' && !creatingConv) handleCreateConversation(); }}
                                     placeholder="Nome do contato"
-                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-gray-50"
+                                    className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none bg-slate-50"
                                 />
                             </div>
                         </div>
@@ -552,7 +602,7 @@ export default function ChatPage() {
                             <button
                                 onClick={() => setShowNewConversation(false)}
                                 disabled={creatingConv}
-                                className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                className="px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                             >
                                 Cancelar
                             </button>
@@ -569,7 +619,7 @@ export default function ChatPage() {
             )}
 
             {/* LEFT SIDEBAR: Conversations List */}
-            <div className="w-[400px] border-r border-gray-200 flex flex-col bg-white transition-all">
+            <div className="w-full max-w-[380px] md:w-[360px] lg:w-[400px] shrink-0 border-r border-gray-200 flex flex-col bg-white transition-all">
                 {/* Header */}
                 <div className="h-16 px-4 bg-gray-50 flex items-center justify-between shrink-0 border-b border-gray-200">
                     <h1 className="text-xl font-bold text-gray-700">Conversas</h1>
@@ -588,9 +638,10 @@ export default function ChatPage() {
                         {/* Owner Filter */}
                         <div className="relative flex-1">
                             <select
+                                aria-label="Filtrar por responsável"
                                 value={filterOwner}
                                 onChange={(e) => setFilterOwner(e.target.value)}
-                                className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg px-2 py-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none cursor-pointer transition-all"
+                                className="w-full appearance-none bg-gray-50 border border-gray-200 text-slate-700 text-xs rounded-lg px-2 py-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none cursor-pointer transition-all"
                             >
                                 <option value="all">Responsável: Todos</option>
                                 {teamMembers.map(member => (
@@ -603,9 +654,10 @@ export default function ChatPage() {
                         {/* Instance Filter (Placeholder logic for now) */}
                         <div className="relative flex-1">
                             <select
+                                aria-label="Filtrar por número"
                                 value={filterInstance}
                                 onChange={(e) => setFilterInstance(e.target.value)}
-                                className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg px-2 py-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none cursor-pointer transition-all"
+                                className="w-full appearance-none bg-gray-50 border border-gray-200 text-slate-700 text-xs rounded-lg px-2 py-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none cursor-pointer transition-all"
                             >
                                 <option value="all">Número: Todos</option>
                                 {instances.map(inst => (
@@ -644,9 +696,10 @@ export default function ChatPage() {
 
                     {/* Search Bar */}
                     <div className="bg-gray-50 rounded-lg flex items-center px-3 py-1.5 ring-1 ring-gray-200 focus-within:ring-2 focus-within:ring-blue-400 transition-all">
-                        <Search size={18} className="text-gray-400 mr-3" />
+                        <Search size={18} className="text-slate-500 mr-3" />
                         <input
-                            className="bg-transparent border-none text-gray-700 w-full focus:outline-none placeholder-gray-400 text-sm py-1"
+                            aria-label="Pesquisar conversas"
+                            className="bg-transparent border-none text-slate-700 w-full focus:outline-none placeholder-slate-500 text-sm py-1"
                             placeholder="Pesquisar..."
                             value={search}
                             onChange={e => setSearch(e.target.value)}
@@ -657,7 +710,7 @@ export default function ChatPage() {
                 {/* List */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                     {loading && conversations.length === 0 ? (
-                        <div className="p-4 text-center text-gray-400 text-sm animate-pulse">Carregando conversas...</div>
+                        <div className="p-4 text-center text-slate-500 text-sm animate-pulse">Carregando conversas...</div>
                     ) : (
                         conversations.filter((conv) => {
                             if (selectedInstanceName && conv.last_message?.instance_name !== selectedInstanceName) return false;
@@ -700,10 +753,12 @@ export default function ChatPage() {
                             const unread = (conv.unread_count ?? 0) > 0 && !active;
 
                             return (
-                                <div
+                                <button
                                     key={conv.id}
+                                    type="button"
                                     onClick={() => setSelectedDeal(conv)}
-                                    className={`flex items-center gap-3 p-3 px-4 cursor-pointer transition-all border-b border-gray-50 group hover:bg-gray-50 ${active ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'border-l-4 border-l-transparent'}`}
+                                    aria-current={active ? 'true' : undefined}
+                                    className={`w-full text-left flex items-center gap-3 p-3 px-4 cursor-pointer transition-colors border-b border-gray-50 group hover:bg-gray-50 ${active ? 'bg-blue-50' : ''}`}
                                 >
                                     <div className="relative shrink-0">
                                         <ChatAvatar photoUrl={conv.contacts?.photo_url} name={personName} />
@@ -711,11 +766,11 @@ export default function ChatPage() {
 
                                     <div className="flex-1 min-w-0 flex flex-col justify-center">
                                         <div className="flex justify-between items-center mb-0.5">
-                                            <span className={`text-base truncate transition-colors ${active ? 'text-blue-700 font-medium' : unread ? 'text-gray-900 font-bold' : 'text-gray-800 font-medium'}`}>{personName}</span>
-                                            <span className={`text-xs shrink-0 ml-2 ${unread ? 'text-emerald-600 font-bold' : active ? 'text-blue-600' : 'text-gray-400'}`}>{lastMsgTime}</span>
+                                            <span className={`text-base truncate transition-colors ${active ? 'text-blue-700 font-semibold' : unread ? 'text-slate-900 font-bold' : 'text-slate-800 font-medium'}`}>{personName}</span>
+                                            <span className={`text-xs shrink-0 ml-2 ${unread ? 'text-emerald-600 font-bold' : active ? 'text-blue-600' : 'text-slate-500'}`}>{lastMsgTime}</span>
                                         </div>
                                         <div className="flex justify-between items-center gap-2">
-                                            <p className={`text-sm truncate transition-colors ${active ? 'text-blue-600/80' : unread ? 'text-gray-700 font-medium' : 'text-gray-500 group-hover:text-gray-600'}`}>
+                                            <p className={`text-sm truncate transition-colors ${active ? 'text-blue-700/80' : unread ? 'text-slate-700 font-medium' : 'text-slate-500 group-hover:text-slate-600'}`}>
                                                 {lastMsgContent}
                                             </p>
                                             <div className="flex items-center gap-1.5 shrink-0">
@@ -738,12 +793,12 @@ export default function ChatPage() {
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </button>
                             );
                         })
                     )}
                     {!loading && conversations.length === 0 && (
-                        <div className="p-8 text-center text-gray-400 text-sm">
+                        <div className="p-8 text-center text-slate-500 text-sm">
                             Nenhum contato encontrado.
                         </div>
                     )}
@@ -751,7 +806,7 @@ export default function ChatPage() {
             </div>
 
             {/* CENTER: Chat Window */}
-            <div className="flex-1 bg-[#efeae2] relative flex flex-col min-w-[500px] border-r border-gray-200 pattern-isometric pattern-gray-100 pattern-bg-white pattern-size-4 pattern-opacity-10">
+            <div className="flex-1 bg-[#efeae2] relative flex flex-col min-w-0 lg:min-w-[480px] border-r border-gray-200 pattern-isometric pattern-gray-100 pattern-bg-white pattern-size-4 pattern-opacity-10">
                 {selectedDeal ? (
                     <div className="flex-1 flex flex-col h-full bg-[#efeae2] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-fixed">
                         <ChatWindow deal={selectedDeal} theme="light" />
@@ -763,8 +818,8 @@ export default function ChatPage() {
                             <div className="absolute top-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
                         </div>
                         <div className="text-center space-y-2">
-                            <h2 className="text-2xl font-light text-gray-600">Selecione uma conversa</h2>
-                            <p className="text-sm text-gray-500">Escolha um contato na lista para iniciar o atendimento.</p>
+                            <h2 className="text-2xl font-light text-slate-700">Selecione uma conversa</h2>
+                            <p className="text-sm text-slate-500">Escolha um contato na lista para iniciar o atendimento.</p>
                         </div>
                     </div>
                 )}
