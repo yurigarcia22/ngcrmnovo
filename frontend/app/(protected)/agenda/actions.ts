@@ -261,6 +261,86 @@ export async function getVetDashboard() {
     }
 }
 
+// Dados completos da home da clinica (dashboard vet): metricas + atendimentos
+// de hoje + vacinas a vencer (com tutor) + aniversariantes do mes.
+export async function getVetHomeData() {
+    try {
+        const tenantId = await getTenantId();
+        const enabled = await isModuleEnabled(tenantId, "veterinaria");
+        if (!enabled) return { success: true, enabled: false };
+
+        const supabase = svc();
+        const now = new Date();
+        const off = now.getTimezoneOffset();
+        const today = new Date(now.getTime() - off * 60000).toISOString().slice(0, 10);
+        const horizon = new Date(now.getTime() - off * 60000);
+        horizon.setDate(horizon.getDate() + 30);
+        const horizonStr = horizon.toISOString().slice(0, 10);
+        const monthStart = `${today.slice(0, 7)}-01`;
+        const month = today.slice(5, 7);
+
+        // Atendimentos de hoje
+        const { data: todayAppts } = await supabase
+            .from("appointments")
+            .select("*, pet:pets(id, name, species), contact:contacts(id, name, phone), professional:profiles(id, full_name)")
+            .eq("tenant_id", tenantId)
+            .gte("starts_at", `${today}T00:00:00`)
+            .lte("starts_at", `${today}T23:59:59`)
+            .order("starts_at", { ascending: true });
+        const appts = todayAppts ?? [];
+
+        // Vacinas a vencer (ate 30 dias) com tutor
+        const { data: dueVac } = await supabase
+            .from("pet_vaccines")
+            .select("id, vaccine_name, next_due_at, pet:pets(id, name, contact:contacts(name, phone))")
+            .eq("tenant_id", tenantId)
+            .not("next_due_at", "is", null)
+            .lte("next_due_at", horizonStr)
+            .order("next_due_at", { ascending: true })
+            .limit(15);
+
+        // Pets (total + aniversariantes do mes)
+        const { data: pets } = await supabase
+            .from("pets")
+            .select("id, name, birth_date, contact:contacts(name)")
+            .eq("tenant_id", tenantId);
+        const allPets = pets ?? [];
+        const birthdays = allPets
+            .filter((p: any) => p.birth_date && String(p.birth_date).slice(5, 7) === month)
+            .sort((a: any, b: any) => String(a.birth_date).slice(8, 10).localeCompare(String(b.birth_date).slice(8, 10)));
+
+        // Faturamento do mes (atendidos)
+        const { data: monthAppts } = await supabase
+            .from("appointments")
+            .select("price")
+            .eq("tenant_id", tenantId)
+            .gte("starts_at", `${monthStart}T00:00:00`)
+            .eq("status", "atendido");
+        const faturamentoMes = (monthAppts ?? []).reduce((s: number, a: any) => s + Number(a.price || 0), 0);
+
+        // Nome da clinica
+        const { data: tenant } = await supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
+
+        return {
+            success: true,
+            enabled: true,
+            clinicName: tenant?.name ?? "sua clínica",
+            metrics: {
+                atendimentosHoje: appts.filter((a: any) => a.status !== "cancelado").length,
+                vacinasVencendo: (dueVac ?? []).length,
+                aniversariantes: birthdays.length,
+                totalPets: allPets.length,
+                faturamentoMes,
+            },
+            todayAppointments: appts,
+            vaccinesDue: dueVac ?? [],
+            birthdays,
+        };
+    } catch (e: any) {
+        return { success: false, enabled: true, error: e.message };
+    }
+}
+
 // Busca tutores (contatos) + seus pets para o modal de novo atendimento.
 export async function searchTutorsWithPets(search: string) {
     try {

@@ -14,7 +14,7 @@ import { ConversionFunnel } from "./components/ConversionFunnel";
 import { TopSellers } from "./components/TopSellers";
 import { SellersPerformanceTable } from "./components/SellersPerformanceTable";
 import { ResponseQualityCard } from "./components/ResponseQualityCard";
-import VetDashboardSection from "./components/VetDashboardSection";
+import VetDashboard from "./components/VetDashboard";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
     Trophy, Wallet, Target, Coins, Clock, CheckSquare,
@@ -186,6 +186,13 @@ async function DashboardContent({
     // impressao de que "tinha desaparecido".
     const showColdCall = modules?.cold_call === true && !!cm;
     const vocab = getVocab(modules?.veterinaria === true);
+
+    // Clinica veterinaria tem dashboard proprio (claro, voltado a saude),
+    // no lugar do dashboard escuro de vendas.
+    if (modules?.veterinaria === true) {
+        return <VetDashboard />;
+    }
+
     const topSellersData = sellers
         .filter((s: any) => s.wonValue > 0)
         .slice(0, 5)
@@ -195,9 +202,6 @@ async function DashboardContent({
 
     return (
         <div className="space-y-6">
-
-            {/* === RESUMO DA CLINICA (vet) — aparece no topo quando modulo ligado === */}
-            {modules?.veterinaria === true && <VetDashboardSection />}
 
             {/* === HERO ROW: KPIs principais === */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
