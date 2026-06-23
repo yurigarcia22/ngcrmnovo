@@ -16,6 +16,7 @@ import {
     Bell,
     Settings as SettingsIcon,
     ArrowLeft,
+    KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +61,12 @@ const menuSections: MenuSection[] = [
         items: [
             { name: "Respostas Rapidas", href: "/settings/quick-replies", icon: Zap },
             { name: "Conexoes", href: "/settings/whatsapp", icon: Smartphone },
+        ],
+    },
+    {
+        title: "Integracoes",
+        items: [
+            { name: "API & Webhooks", href: "/settings/api", icon: KeyRound },
         ],
     },
 ];
