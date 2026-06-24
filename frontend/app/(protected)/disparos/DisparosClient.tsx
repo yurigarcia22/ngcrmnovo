@@ -15,7 +15,7 @@ interface Campaign {
     interval_min_sec: number; interval_max_sec: number; daily_cap: number;
     total: number; sent: number; failed: number; pending: number;
     instanceConnected?: boolean; last_sent_at?: string | null;
-    messages?: string[]; business_hours_only?: boolean;
+    messages?: string[]; business_hours_only?: boolean; pause_reason?: string | null;
 }
 
 // Numero com contagem animada (sobe suavemente ao mudar).
@@ -138,6 +138,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                         const processed = c.sent + c.failed;
                         const successRate = processed ? Math.round((c.sent / processed) * 100) : null;
                         const disconnected = running && c.instanceConnected === false;
+                        const pausedByDisconnect = c.status === "paused" && c.pause_reason === "numero_desconectado";
                         return (
                             <div key={c.id} onClick={() => setDetail(c)} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow transition-all">
                                 <div className="flex items-start justify-between gap-3">
@@ -167,9 +168,12 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                                 </div>
 
                                 {/* Aviso: numero desconectou */}
-                                {disconnected && (
+                                {(disconnected || pausedByDisconnect) && (
                                     <div className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-[13px] font-medium text-rose-700">
-                                        <WifiOff size={15} /> Número desconectado — o disparo não envia até reconectar em Configurações → Conexões.
+                                        <WifiOff size={15} />
+                                        {pausedByDisconnect
+                                            ? "Pausada automaticamente: o número desconectou. Reconecte em Configurações → Conexões e clique Iniciar (os contatos pendentes foram preservados)."
+                                            : "Número desconectado — o disparo não envia até reconectar em Configurações → Conexões."}
                                     </div>
                                 )}
 

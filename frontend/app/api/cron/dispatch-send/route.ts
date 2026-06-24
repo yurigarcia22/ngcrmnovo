@@ -20,6 +20,30 @@ function hourInSaoPaulo(): number {
 
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
+// Verifica no Evolution se a instancia esta conectada (state 'open'). Cache por run.
+async function isInstanceConnected(url: string, token: string, instance: string, cache: Record<string, boolean>): Promise<boolean> {
+    if (instance in cache) return cache[instance];
+    try {
+        const r = await fetch(`${url}/instance/connectionState/${encodeURIComponent(instance)}`, {
+            headers: { apikey: token }, signal: AbortSignal.timeout(10000),
+        });
+        if (!r.ok) { cache[instance] = false; return false; }
+        const d = await r.json().catch(() => ({}));
+        const ok = d?.instance?.state === "open";
+        cache[instance] = ok;
+        return ok;
+    } catch {
+        cache[instance] = false;
+        return false;
+    }
+}
+
+// Erro de conexao (numero caiu) vs erro do numero (sem whatsapp). Conexao NAO queima o contato.
+function isConnectionError(status: number, body: string): boolean {
+    if (status >= 500) return true;
+    return /connection closed|connection lost|not connected|disconnected|no session|timed out/i.test(body || "");
+}
+
 function renderMessage(template: string, name?: string | null): string {
     const nome = (name || "").trim();
     // Substitui {nome} (tolera espacos: { nome }) pelo nome COMPLETO. Preserva as
@@ -57,6 +81,14 @@ async function run(req: NextRequest) {
     if (!campaigns || campaigns.length === 0) return NextResponse.json({ processed: 0, reason: "nenhuma campanha rodando" });
 
     const results: any[] = [];
+    const connCache: Record<string, boolean> = {};
+
+    // Pausa a campanha e marca o motivo (sem queimar contatos).
+    async function pauseDisconnected(campaignId: string) {
+        await supabase.from("dispatch_campaigns")
+            .update({ status: "paused", pause_reason: "numero_desconectado", updated_at: new Date().toISOString() })
+            .eq("id", campaignId);
+    }
 
     for (const c of campaigns) {
         // Horario comercial (8h-20h America/Sao_Paulo)
@@ -85,6 +117,14 @@ async function run(req: NextRequest) {
                 results.push({ campaign: c.id, skipped: "aguardando intervalo" });
                 continue;
             }
+        }
+
+        // NUMERO DESCONECTOU? -> pausa a campanha e NAO queima contato.
+        const connected = await isInstanceConnected(evolutionUrl, evolutionToken, c.instance_name, connCache);
+        if (!connected) {
+            await pauseDisconnected(c.id);
+            results.push({ campaign: c.id, paused: "numero desconectado" });
+            continue;
         }
 
         // Proximo destinatario pendente
@@ -116,13 +156,21 @@ async function run(req: NextRequest) {
                 await supabase.from("dispatch_campaigns").update({ last_sent_at: new Date().toISOString() }).eq("id", c.id);
                 results.push({ campaign: c.id, sent: rec.phone });
             } else {
-                const err = (await resp.text().catch(() => "")).slice(0, 200);
-                await supabase.from("dispatch_recipients").update({ status: "failed", error: `HTTP ${resp.status}: ${err}` }).eq("id", rec.id);
-                results.push({ campaign: c.id, failed: rec.phone, status: resp.status });
+                const body = (await resp.text().catch(() => "")) || "";
+                if (isConnectionError(resp.status, body)) {
+                    // numero caiu no meio do envio -> pausa, deixa o contato PENDENTE (nao queima)
+                    await pauseDisconnected(c.id);
+                    results.push({ campaign: c.id, paused: "numero desconectado (falha de envio)" });
+                } else {
+                    // erro do numero (ex: sem WhatsApp) -> marca falha e segue
+                    await supabase.from("dispatch_recipients").update({ status: "failed", error: `HTTP ${resp.status}: ${body.slice(0, 200)}` }).eq("id", rec.id);
+                    results.push({ campaign: c.id, failed: rec.phone, status: resp.status });
+                }
             }
         } catch (e: any) {
-            await supabase.from("dispatch_recipients").update({ status: "failed", error: e.message }).eq("id", rec.id);
-            results.push({ campaign: c.id, failed: rec.phone, error: e.message });
+            // timeout/rede = problema de conexao -> pausa sem queimar o contato
+            await pauseDisconnected(c.id);
+            results.push({ campaign: c.id, paused: "erro de conexao", detail: e.message });
         }
     }
 

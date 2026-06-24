@@ -232,9 +232,12 @@ export async function getCampaignRecipients(campaignId: string, status?: string,
 export async function setCampaignStatus(id: string, status: "running" | "paused" | "draft") {
     try {
         const tenantId = await assertDisparos();
+        // Ao retomar (running), limpa o motivo de pausa (ex: desconexao).
+        const patch: any = { status, updated_at: new Date().toISOString() };
+        if (status === "running") patch.pause_reason = null;
         const { error } = await svc()
             .from("dispatch_campaigns")
-            .update({ status, updated_at: new Date().toISOString() })
+            .update(patch)
             .eq("id", id).eq("tenant_id", tenantId);
         if (error) throw error;
         revalidatePath("/disparos");
