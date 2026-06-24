@@ -26,6 +26,7 @@ export const MODULE_KEYS = [
     "emails",
     "whatsapp_connect",
     "veterinaria",
+    "disparos",
 ] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
@@ -95,6 +96,13 @@ export const MODULE_REGISTRY: Record<ModuleKey, ModuleMeta> = {
         label: "Clinica Veterinaria",
         description: "Vertical pet: agenda de atendimentos, cadastro de pets por tutor, carteira de vacinas e lembretes automaticos via WhatsApp.",
         routes: ["/agenda", "/pets"],
+        defaultEnabled: false,
+    },
+    disparos: {
+        key: "disparos",
+        label: "Disparos WhatsApp",
+        description: "Prospeccao: campanhas de disparo em massa pelo numero conectado, com delay, cap diario e variacoes de mensagem.",
+        routes: ["/disparos"],
         defaultEnabled: false,
     },
 };

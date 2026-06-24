@@ -19,7 +19,8 @@ import {
     Mail,
     Megaphone,
     PawPrint,
-    CalendarDays
+    CalendarDays,
+    Send
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { getUnreadCount } from "@/app/actions";
@@ -183,7 +184,7 @@ export default function Sidebar({
                     open={open}
                 />
 
-                {(modules.leads || modules.cold_call || modules.webinar) && open && (
+                {(modules.leads || modules.cold_call || modules.webinar || modules.disparos) && open && (
                     <div className="mt-6 mb-2 ml-2 text-sm font-semibold text-slate-700">
                         {vocab.commercialSection}
                     </div>
@@ -213,6 +214,15 @@ export default function Sidebar({
                         title="Webinar"
                         href="/webinar"
                         isActive={pathname.startsWith("/webinar")}
+                        open={open}
+                    />
+                )}
+                {modules.disparos && (
+                    <Option
+                        Icon={Send}
+                        title="Disparos"
+                        href="/disparos"
+                        isActive={pathname.startsWith("/disparos")}
                         open={open}
                     />
                 )}
