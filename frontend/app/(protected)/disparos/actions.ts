@@ -173,6 +173,41 @@ export async function getDispatchLive() {
     }
 }
 
+// Edita mensagens e ritmo de uma campanha ja criada (nao mexe na lista de contatos).
+export async function updateCampaign(
+    id: string,
+    input: Partial<{ name: string; messages: string[]; intervalMinSec: number; intervalMaxSec: number; dailyCap: number; businessHoursOnly: boolean }>
+) {
+    try {
+        const tenantId = await assertDisparos();
+        const patch: any = { updated_at: new Date().toISOString() };
+        if (input.name !== undefined) {
+            if (!input.name.trim()) throw new Error("Nome não pode ficar vazio.");
+            patch.name = input.name.trim();
+        }
+        if (input.messages !== undefined) {
+            const msgs = input.messages.map((m) => m.trim()).filter(Boolean);
+            if (msgs.length === 0) throw new Error("Escreva ao menos uma mensagem.");
+            patch.messages = msgs;
+        }
+        if (input.intervalMinSec !== undefined || input.intervalMaxSec !== undefined) {
+            const min = Math.max(5, input.intervalMinSec ?? 40);
+            const max = Math.max(min, input.intervalMaxSec ?? 120);
+            patch.interval_min_sec = min;
+            patch.interval_max_sec = max;
+        }
+        if (input.dailyCap !== undefined) patch.daily_cap = Math.max(1, input.dailyCap);
+        if (input.businessHoursOnly !== undefined) patch.business_hours_only = input.businessHoursOnly;
+
+        const { error } = await svc().from("dispatch_campaigns").update(patch).eq("id", id).eq("tenant_id", tenantId);
+        if (error) throw error;
+        revalidatePath("/disparos");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
 export async function setCampaignStatus(id: string, status: "running" | "paused" | "draft") {
     try {
         const tenantId = await assertDisparos();

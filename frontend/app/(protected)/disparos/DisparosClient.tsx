@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import {
     Send, Plus, Play, Pause, Trash2, Users, Upload, Clock, ArrowLeft,
-    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff,
+    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X,
 } from "lucide-react";
-import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive } from "./actions";
+import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -15,6 +15,7 @@ interface Campaign {
     interval_min_sec: number; interval_max_sec: number; daily_cap: number;
     total: number; sent: number; failed: number; pending: number;
     instanceConnected?: boolean; last_sent_at?: string | null;
+    messages?: string[]; business_hours_only?: boolean;
 }
 
 // Numero com contagem animada (sobe suavemente ao mudar).
@@ -69,6 +70,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
     const confirm = useConfirm();
     const [view, setView] = useState<"list" | "new">(initialCampaigns.length ? "list" : "new");
     const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+    const [editing, setEditing] = useState<Campaign | null>(null);
 
     const connected = instances.filter((i) => i.status === "connected");
 
@@ -158,6 +160,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                                                 {running ? <><Pause size={13} /> Pausar</> : <><Play size={13} /> Iniciar</>}
                                             </button>
                                         )}
+                                        <button onClick={() => setEditing(c)} aria-label="Editar" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Pencil size={15} /></button>
                                         <button onClick={() => remove(c)} aria-label="Excluir" className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
                                     </div>
                                 </div>
@@ -199,6 +202,96 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                     })}
                 </div>
             )}
+
+            {editing && (
+                <EditCampaignModal
+                    campaign={editing}
+                    onClose={() => setEditing(null)}
+                    onSaved={(patch) => {
+                        setCampaigns((cs) => cs.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)));
+                        setEditing(null);
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+function EditCampaignModal({ campaign, onClose, onSaved }: { campaign: Campaign; onClose: () => void; onSaved: (patch: Partial<Campaign>) => void }) {
+    const [name, setName] = useState(campaign.name);
+    const [messages, setMessages] = useState<string[]>(campaign.messages?.length ? campaign.messages : [""]);
+    const [intervalMin, setIntervalMin] = useState(campaign.interval_min_sec);
+    const [intervalMax, setIntervalMax] = useState(campaign.interval_max_sec);
+    const [dailyCap, setDailyCap] = useState(campaign.daily_cap);
+    const [businessHours, setBusinessHours] = useState(campaign.business_hours_only !== false);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    async function save() {
+        const msgs = messages.map((m) => m.trim()).filter(Boolean);
+        if (msgs.length === 0) { toast.error("Escreva ao menos uma mensagem."); return; }
+        setSaving(true);
+        const res = await updateCampaign(campaign.id, {
+            name, messages: msgs, intervalMinSec: intervalMin, intervalMaxSec: intervalMax,
+            dailyCap, businessHoursOnly: businessHours,
+        });
+        setSaving(false);
+        if (res.success) {
+            toast.success("Campanha atualizada!");
+            onSaved({ name, messages: msgs, interval_min_sec: intervalMin, interval_max_sec: intervalMax, daily_cap: dailyCap, business_hours_only: businessHours });
+        } else {
+            toast.error(res.error ?? "Erro ao salvar.");
+        }
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Editar campanha" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-slate-800">Editar campanha</h2>
+                    <button onClick={onClose} aria-label="Fechar" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={20} /></button>
+                </div>
+
+                {campaign.status === "running" && (
+                    <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[13px] text-amber-800">
+                        <AlertTriangle size={15} /> A campanha está disparando — as alterações valem para os próximos envios.
+                    </div>
+                )}
+
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nome</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} className="ed-inp mb-4" />
+
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Mensagens (use {"{nome}"}; até 3 variações)</label>
+                <div className="space-y-2 mb-4">
+                    {messages.map((m, i) => (
+                        <textarea key={i} value={m} onChange={(e) => setMessages((ms) => ms.map((x, j) => (j === i ? e.target.value : x)))} rows={4} className="ed-inp resize-y font-mono text-[13px]" placeholder={i === 0 ? "Oi {nome}! ..." : "Variação " + (i + 1)} />
+                    ))}
+                    {messages.length < 3 && (
+                        <button onClick={() => setMessages((ms) => [...ms, ""])} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5"><Plus size={13} /> Adicionar variação</button>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                    <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Intervalo mín (s)</label><input type="number" value={intervalMin} onChange={(e) => setIntervalMin(Number(e.target.value))} className="ed-inp" /></div>
+                    <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Intervalo máx (s)</label><input type="number" value={intervalMax} onChange={(e) => setIntervalMax(Number(e.target.value))} className="ed-inp" /></div>
+                    <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Cap diário</label><input type="number" value={dailyCap} onChange={(e) => setDailyCap(Number(e.target.value))} className="ed-inp" /></div>
+                    <label className="flex items-end gap-2 text-sm text-slate-600 pb-2"><input type="checkbox" checked={businessHours} onChange={(e) => setBusinessHours(e.target.checked)} /> Só 8h-20h</label>
+                </div>
+
+                <div className="flex gap-2">
+                    <button onClick={save} disabled={saving} className="flex-1 rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                        {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Salvar alterações
+                    </button>
+                    <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+                </div>
+
+                <style jsx>{`.ed-inp{width:100%;padding:0.55rem 0.7rem;border:1px solid #e2e8f0;border-radius:0.6rem;font-size:0.875rem;color:#1e293b;outline:none}.ed-inp:focus{box-shadow:0 0 0 2px #c7d2fe}`}</style>
+            </div>
         </div>
     );
 }
