@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import {
     Send, Plus, Play, Pause, Trash2, Users, Upload, Clock, ArrowLeft,
-    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X,
+    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X, Search,
 } from "lucide-react";
-import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign } from "./actions";
+import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign, getCampaignRecipients } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -71,6 +71,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
     const [view, setView] = useState<"list" | "new">(initialCampaigns.length ? "list" : "new");
     const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
     const [editing, setEditing] = useState<Campaign | null>(null);
+    const [detail, setDetail] = useState<Campaign | null>(null);
 
     const connected = instances.filter((i) => i.status === "connected");
 
@@ -138,7 +139,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                         const successRate = processed ? Math.round((c.sent / processed) * 100) : null;
                         const disconnected = running && c.instanceConnected === false;
                         return (
-                            <div key={c.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <div key={c.id} onClick={() => setDetail(c)} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow transition-all">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-2">
@@ -155,13 +156,13 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                         {(running || c.status === "paused" || c.status === "draft") && c.pending > 0 && (
-                                            <button onClick={() => toggle(c)} aria-label={running ? "Pausar" : "Iniciar"}
+                                            <button onClick={(e) => { e.stopPropagation(); toggle(c); }} aria-label={running ? "Pausar" : "Iniciar"}
                                                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 ${running ? "bg-amber-50 text-amber-700 hover:bg-amber-100" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}>
                                                 {running ? <><Pause size={13} /> Pausar</> : <><Play size={13} /> Iniciar</>}
                                             </button>
                                         )}
-                                        <button onClick={() => setEditing(c)} aria-label="Editar" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Pencil size={15} /></button>
-                                        <button onClick={() => remove(c)} aria-label="Excluir" className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); setEditing(c); }} aria-label="Editar" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"><Pencil size={15} /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); remove(c); }} aria-label="Excluir" className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
                                     </div>
                                 </div>
 
@@ -213,6 +214,152 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                     }}
                 />
             )}
+
+            {detail && (
+                <CampaignDetailModal
+                    campaign={detail}
+                    onClose={() => setDetail(null)}
+                    onEdit={() => { const c = detail; setDetail(null); setEditing(c); }}
+                />
+            )}
+        </div>
+    );
+}
+
+const DET_STATUS: Record<string, { t: string; dot: string; text: string }> = {
+    sent: { t: "Enviado", dot: "bg-emerald-500", text: "text-emerald-700" },
+    failed: { t: "Falhou", dot: "bg-rose-500", text: "text-rose-600" },
+    pending: { t: "Pendente", dot: "bg-slate-300", text: "text-slate-500" },
+    skipped: { t: "Pulado", dot: "bg-amber-400", text: "text-amber-600" },
+};
+
+function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign; onClose: () => void; onEdit: () => void }) {
+    const [filter, setFilter] = useState<string>("all");
+    const [recipients, setRecipients] = useState<any[]>([]);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState("");
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    useEffect(() => {
+        let active = true;
+        setLoading(true);
+        getCampaignRecipients(campaign.id, filter).then((res) => {
+            if (!active) return;
+            setRecipients(res.recipients ?? []);
+            setTotal(res.total ?? 0);
+            setLoading(false);
+        });
+        return () => { active = false; };
+    }, [campaign.id, filter]);
+
+    const sentPct = campaign.total ? (campaign.sent / campaign.total) * 100 : 0;
+    const failPct = campaign.total ? (campaign.failed / campaign.total) * 100 : 0;
+    const successRate = campaign.sent + campaign.failed ? Math.round((campaign.sent / (campaign.sent + campaign.failed)) * 100) : null;
+    const q = search.trim().toLowerCase();
+    const shown = q ? recipients.filter((r) => (r.name || "").toLowerCase().includes(q) || (r.phone || "").includes(q)) : recipients;
+
+    const tabs = [
+        { k: "all", label: `Todos (${campaign.total})` },
+        { k: "sent", label: `Enviados (${campaign.sent})` },
+        { k: "failed", label: `Falhas (${campaign.failed})` },
+        { k: "pending", label: `Pendentes (${campaign.pending})` },
+    ];
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Detalhe da campanha" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <div className="flex w-full max-w-2xl max-h-[90vh] flex-col rounded-2xl bg-white shadow-2xl">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
+                    <div className="min-w-0">
+                        <h2 className="text-lg font-bold text-slate-800 truncate">{campaign.name}</h2>
+                        <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
+                            <Smartphone size={12} /> {campaign.instance_name} · intervalo {campaign.interval_min_sec}-{campaign.interval_max_sec}s · cap {campaign.daily_cap}/dia
+                            {campaign.instanceConnected === false && <span className="text-rose-600 font-semibold flex items-center gap-1"><WifiOff size={12} /> desconectado</span>}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={onEdit} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 flex items-center gap-1"><Pencil size={13} /> Editar</button>
+                        <button onClick={onClose} aria-label="Fechar" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={20} /></button>
+                    </div>
+                </div>
+
+                {/* Resumo + barra */}
+                <div className="px-5 pt-4">
+                    <div className="flex h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-full bg-emerald-500 transition-[width] duration-700" style={{ width: `${sentPct}%` }} />
+                        <div className="h-full bg-rose-400 transition-[width] duration-700" style={{ width: `${failPct}%` }} />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[13px]">
+                        <span className="font-semibold text-emerald-700 flex items-center gap-1"><CheckCircle2 size={14} /> {campaign.sent} enviados {successRate !== null && <span className="font-normal text-slate-400">({successRate}%)</span>}</span>
+                        {campaign.failed > 0 && <span className="font-semibold text-rose-600 flex items-center gap-1"><XCircle size={14} /> {campaign.failed} falhas</span>}
+                        <span className="text-slate-500 flex items-center gap-1"><Clock size={14} /> {campaign.pending} pendentes</span>
+                    </div>
+                </div>
+
+                {/* Mensagens usadas */}
+                {campaign.messages && campaign.messages.length > 0 && (
+                    <div className="px-5 pt-4">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Mensagens ({campaign.messages.length} {campaign.messages.length === 1 ? "variação" : "variações"})</p>
+                        <div className="space-y-1.5 max-h-28 overflow-y-auto">
+                            {campaign.messages.map((m, i) => (
+                                <div key={i} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 text-[12px] text-slate-600 whitespace-pre-wrap line-clamp-3">{m}</div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Tabs de status */}
+                <div className="px-5 pt-4 flex items-center gap-1.5 flex-wrap">
+                    {tabs.map((t) => (
+                        <button key={t.k} onClick={() => setFilter(t.k)}
+                            className={`rounded-full px-3 py-1 text-[12px] font-semibold transition-colors ${filter === t.k ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Busca */}
+                <div className="px-5 pt-3">
+                    <div className="relative">
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar nome ou telefone..." className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                    </div>
+                </div>
+
+                {/* Lista de destinatarios */}
+                <div className="flex-1 overflow-y-auto px-5 py-3">
+                    {loading ? (
+                        <div className="flex justify-center py-8"><Loader2 className="animate-spin text-slate-300" size={22} /></div>
+                    ) : shown.length === 0 ? (
+                        <p className="text-center text-sm text-slate-400 py-8">Nenhum contato {filter !== "all" ? "nesse status" : ""}.</p>
+                    ) : (
+                        <ul className="divide-y divide-slate-100">
+                            {shown.map((r) => {
+                                const ds = DET_STATUS[r.status] ?? DET_STATUS.pending;
+                                return (
+                                    <li key={r.id} className="flex items-center gap-3 py-2">
+                                        <span className={`h-2 w-2 shrink-0 rounded-full ${ds.dot}`} />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-sm font-medium text-slate-800 truncate">{r.name || "—"}</div>
+                                            <div className="text-[12px] text-slate-500 font-mono">{r.phone}{r.error ? <span className="ml-2 font-sans text-rose-500">· {String(r.error).slice(0, 60)}</span> : ""}</div>
+                                        </div>
+                                        <span className={`text-[11px] font-semibold shrink-0 ${ds.text}`}>{ds.t}</span>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                    {!loading && total > shown.length && q === "" && (
+                        <p className="text-center text-[12px] text-slate-400 pt-2">mostrando {shown.length} de {total}</p>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

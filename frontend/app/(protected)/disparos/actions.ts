@@ -208,6 +208,27 @@ export async function updateCampaign(
     }
 }
 
+// Detalhe: destinatarios de uma campanha (com filtro por status). Paginado.
+export async function getCampaignRecipients(campaignId: string, status?: string, limit = 300, offset = 0) {
+    try {
+        const tenantId = await assertDisparos();
+        const supabase = svc();
+        let q = supabase
+            .from("dispatch_recipients")
+            .select("id, name, phone, status, sent_at, error", { count: "exact" })
+            .eq("campaign_id", campaignId)
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: true })
+            .range(offset, offset + limit - 1);
+        if (status && status !== "all") q = q.eq("status", status);
+        const { data, count, error } = await q;
+        if (error) throw error;
+        return { success: true, recipients: data ?? [], total: count ?? 0 };
+    } catch (e: any) {
+        return { success: false, recipients: [], total: 0, error: e.message };
+    }
+}
+
 export async function setCampaignStatus(id: string, status: "running" | "paused" | "draft") {
     try {
         const tenantId = await assertDisparos();
