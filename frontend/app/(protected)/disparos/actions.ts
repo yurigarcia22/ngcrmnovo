@@ -20,7 +20,8 @@ export interface ParsedRecipient { name: string; phone: string; }
 
 // Parser: aceita "nome;telefone", "nome,telefone", "telefone" — uma linha por contato.
 // CSV com cabecalho (nome/telefone ou name/phone) tambem funciona.
-export function parseRecipientList(raw: string): { ok: ParsedRecipient[]; invalid: number; duplicates: number } {
+// Helper INTERNO (nao exportado): em arquivo "use server" toda export deve ser async.
+function parseRecipientList(raw: string): { ok: ParsedRecipient[]; invalid: number; duplicates: number } {
     const lines = (raw || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const ok: ParsedRecipient[] = [];
     const seen = new Set<string>();
