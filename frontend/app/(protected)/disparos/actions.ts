@@ -131,10 +131,10 @@ async function loadCampaignsView(supabase: ReturnType<typeof svc>, tenantId: str
 
     const { data: insts } = await supabase
         .from("whatsapp_instances")
-        .select("instance_name, status")
+        .select("instance_name, custom_name, phone_number, status")
         .eq("tenant_id", tenantId);
-    const statusByName: Record<string, string> = {};
-    for (const i of insts ?? []) statusByName[i.instance_name] = i.status;
+    const instByName: Record<string, any> = {};
+    for (const i of insts ?? []) instByName[i.instance_name] = i;
 
     const result = [];
     for (const c of camps ?? []) {
@@ -145,10 +145,13 @@ async function loadCampaignsView(supabase: ReturnType<typeof svc>, tenantId: str
         const total = (counts ?? []).length;
         const sent = (counts ?? []).filter((x) => x.status === "sent").length;
         const failed = (counts ?? []).filter((x) => x.status === "failed").length;
+        const inst = instByName[c.instance_name];
         result.push({
             ...c,
             total, sent, failed, pending: total - sent - failed,
-            instanceConnected: statusByName[c.instance_name] === "connected",
+            instanceConnected: inst?.status === "connected",
+            // Nome amigavel do numero (o que o usuario deu / telefone), nao o nome cru da instancia.
+            instanceLabel: inst?.custom_name || (inst?.phone_number ? `+${inst.phone_number}` : c.instance_name),
         });
     }
     return result;
@@ -176,7 +179,7 @@ export async function getDispatchLive() {
 // Edita mensagens e ritmo de uma campanha ja criada (nao mexe na lista de contatos).
 export async function updateCampaign(
     id: string,
-    input: Partial<{ name: string; messages: string[]; intervalMinSec: number; intervalMaxSec: number; dailyCap: number; businessHoursOnly: boolean }>
+    input: Partial<{ name: string; messages: string[]; intervalMinSec: number; intervalMaxSec: number; dailyCap: number; businessHoursOnly: boolean; instanceName: string }>
 ) {
     try {
         const tenantId = await assertDisparos();
@@ -184,6 +187,10 @@ export async function updateCampaign(
         if (input.name !== undefined) {
             if (!input.name.trim()) throw new Error("Nome não pode ficar vazio.");
             patch.name = input.name.trim();
+        }
+        if (input.instanceName !== undefined) {
+            if (!input.instanceName) throw new Error("Escolha o número que vai disparar.");
+            patch.instance_name = input.instanceName;
         }
         if (input.messages !== undefined) {
             const msgs = input.messages.map((m) => m.trim()).filter(Boolean);

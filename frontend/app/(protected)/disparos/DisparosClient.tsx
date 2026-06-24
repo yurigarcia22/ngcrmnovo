@@ -16,6 +16,7 @@ interface Campaign {
     total: number; sent: number; failed: number; pending: number;
     instanceConnected?: boolean; last_sent_at?: string | null;
     messages?: string[]; business_hours_only?: boolean; pause_reason?: string | null;
+    instanceLabel?: string;
 }
 
 // Numero com contagem animada (sobe suavemente ao mudar).
@@ -151,7 +152,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                                             </span>
                                         </div>
                                         <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
-                                            <Smartphone size={12} /> {c.instance_name} · intervalo {c.interval_min_sec}-{c.interval_max_sec}s · cap {c.daily_cap}/dia
+                                            <Smartphone size={12} /> {c.instanceLabel || c.instance_name} · intervalo {c.interval_min_sec}-{c.interval_max_sec}s · cap {c.daily_cap}/dia
                                             {running && c.last_sent_at && <span className="text-slate-400">· último envio {relTime(c.last_sent_at)}</span>}
                                         </p>
                                     </div>
@@ -211,6 +212,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
             {editing && (
                 <EditCampaignModal
                     campaign={editing}
+                    instances={instances}
                     onClose={() => setEditing(null)}
                     onSaved={(patch) => {
                         setCampaigns((cs) => cs.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)));
@@ -283,7 +285,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                     <div className="min-w-0">
                         <h2 className="text-lg font-bold text-slate-800 truncate">{campaign.name}</h2>
                         <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
-                            <Smartphone size={12} /> {campaign.instance_name} · intervalo {campaign.interval_min_sec}-{campaign.interval_max_sec}s · cap {campaign.daily_cap}/dia
+                            <Smartphone size={12} /> {campaign.instanceLabel || campaign.instance_name} · intervalo {campaign.interval_min_sec}-{campaign.interval_max_sec}s · cap {campaign.daily_cap}/dia
                             {campaign.instanceConnected === false && <span className="text-rose-600 font-semibold flex items-center gap-1"><WifiOff size={12} /> desconectado</span>}
                         </p>
                     </div>
@@ -368,8 +370,9 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
     );
 }
 
-function EditCampaignModal({ campaign, onClose, onSaved }: { campaign: Campaign; onClose: () => void; onSaved: (patch: Partial<Campaign>) => void }) {
+function EditCampaignModal({ campaign, instances, onClose, onSaved }: { campaign: Campaign; instances: Instance[]; onClose: () => void; onSaved: (patch: Partial<Campaign>) => void }) {
     const [name, setName] = useState(campaign.name);
+    const [instanceName, setInstanceName] = useState(campaign.instance_name);
     const [messages, setMessages] = useState<string[]>(campaign.messages?.length ? campaign.messages : [""]);
     const [intervalMin, setIntervalMin] = useState(campaign.interval_min_sec);
     const [intervalMax, setIntervalMax] = useState(campaign.interval_max_sec);
@@ -388,13 +391,13 @@ function EditCampaignModal({ campaign, onClose, onSaved }: { campaign: Campaign;
         if (msgs.length === 0) { toast.error("Escreva ao menos uma mensagem."); return; }
         setSaving(true);
         const res = await updateCampaign(campaign.id, {
-            name, messages: msgs, intervalMinSec: intervalMin, intervalMaxSec: intervalMax,
+            name, instanceName, messages: msgs, intervalMinSec: intervalMin, intervalMaxSec: intervalMax,
             dailyCap, businessHoursOnly: businessHours,
         });
         setSaving(false);
         if (res.success) {
             toast.success("Campanha atualizada!");
-            onSaved({ name, messages: msgs, interval_min_sec: intervalMin, interval_max_sec: intervalMax, daily_cap: dailyCap, business_hours_only: businessHours });
+            onSaved({ name, instance_name: instanceName, messages: msgs, interval_min_sec: intervalMin, interval_max_sec: intervalMax, daily_cap: dailyCap, business_hours_only: businessHours });
         } else {
             toast.error(res.error ?? "Erro ao salvar.");
         }
@@ -416,6 +419,17 @@ function EditCampaignModal({ campaign, onClose, onSaved }: { campaign: Campaign;
 
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nome</label>
                 <input value={name} onChange={(e) => setName(e.target.value)} className="ed-inp mb-4" />
+
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Número que vai disparar</label>
+                <select value={instanceName} onChange={(e) => setInstanceName(e.target.value)} className="ed-inp bg-white mb-1">
+                    {!instances.some((i) => i.instance_name === instanceName) && <option value={instanceName}>{instanceName} (atual)</option>}
+                    {instances.map((i) => (
+                        <option key={i.instance_name} value={i.instance_name}>
+                            {(i.custom_name || i.instance_name)}{i.phone_number ? ` (+${i.phone_number})` : ""}{i.status !== "connected" ? " — desconectado" : ""}
+                        </option>
+                    ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mb-4">Trocar o número faz os próximos envios saírem por ele.</p>
 
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Mensagens (use {"{nome}"}; até 3 variações)</label>
                 <div className="space-y-2 mb-4">
