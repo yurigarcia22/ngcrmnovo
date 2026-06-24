@@ -121,29 +121,53 @@ export async function createCampaign(input: CampaignInput) {
     }
 }
 
+// Monta a "view" das campanhas: contagens + se o numero esta conectado.
+async function loadCampaignsView(supabase: ReturnType<typeof svc>, tenantId: string) {
+    const { data: camps } = await supabase
+        .from("dispatch_campaigns")
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false });
+
+    const { data: insts } = await supabase
+        .from("whatsapp_instances")
+        .select("instance_name, status")
+        .eq("tenant_id", tenantId);
+    const statusByName: Record<string, string> = {};
+    for (const i of insts ?? []) statusByName[i.instance_name] = i.status;
+
+    const result = [];
+    for (const c of camps ?? []) {
+        const { data: counts } = await supabase
+            .from("dispatch_recipients")
+            .select("status")
+            .eq("campaign_id", c.id);
+        const total = (counts ?? []).length;
+        const sent = (counts ?? []).filter((x) => x.status === "sent").length;
+        const failed = (counts ?? []).filter((x) => x.status === "failed").length;
+        result.push({
+            ...c,
+            total, sent, failed, pending: total - sent - failed,
+            instanceConnected: statusByName[c.instance_name] === "connected",
+        });
+    }
+    return result;
+}
+
 export async function listCampaigns() {
     try {
         const tenantId = await assertDisparos();
-        const supabase = svc();
-        const { data: camps } = await supabase
-            .from("dispatch_campaigns")
-            .select("*")
-            .eq("tenant_id", tenantId)
-            .order("created_at", { ascending: false });
+        return { success: true, campaigns: await loadCampaignsView(svc(), tenantId) };
+    } catch (e: any) {
+        return { success: false, campaigns: [], error: e.message };
+    }
+}
 
-        // contagens por campanha
-        const result = [];
-        for (const c of camps ?? []) {
-            const { data: counts } = await supabase
-                .from("dispatch_recipients")
-                .select("status")
-                .eq("campaign_id", c.id);
-            const total = (counts ?? []).length;
-            const sent = (counts ?? []).filter((x) => x.status === "sent").length;
-            const failed = (counts ?? []).filter((x) => x.status === "failed").length;
-            result.push({ ...c, total, sent, failed, pending: total - sent - failed });
-        }
-        return { success: true, campaigns: result };
+// Versao leve para polling em tempo real (mesma forma).
+export async function getDispatchLive() {
+    try {
+        const tenantId = await assertDisparos();
+        return { success: true, campaigns: await loadCampaignsView(svc(), tenantId) };
     } catch (e: any) {
         return { success: false, campaigns: [], error: e.message };
     }

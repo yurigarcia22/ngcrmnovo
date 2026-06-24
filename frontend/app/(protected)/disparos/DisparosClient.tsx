@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
     Send, Plus, Play, Pause, Trash2, Users, Upload, Clock, ArrowLeft,
-    Loader2, Check, Megaphone, AlertTriangle, Smartphone,
+    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff,
 } from "lucide-react";
-import { createCampaign, setCampaignStatus, deleteCampaign } from "./actions";
+import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -14,6 +14,48 @@ interface Campaign {
     id: string; name: string; instance_name: string; status: string;
     interval_min_sec: number; interval_max_sec: number; daily_cap: number;
     total: number; sent: number; failed: number; pending: number;
+    instanceConnected?: boolean; last_sent_at?: string | null;
+}
+
+// Numero com contagem animada (sobe suavemente ao mudar).
+function CountUp({ value }: { value: number }) {
+    const [display, setDisplay] = useState(value);
+    const fromRef = useRef(value);
+    useEffect(() => {
+        const from = fromRef.current;
+        const to = value;
+        if (from === to) return;
+        const start = performance.now();
+        const dur = 600;
+        let raf = 0;
+        const tick = (t: number) => {
+            const p = Math.min(1, (t - start) / dur);
+            const eased = 1 - Math.pow(1 - p, 3); // ease-out-cubic
+            setDisplay(Math.round(from + (to - from) * eased));
+            if (p < 1) raf = requestAnimationFrame(tick);
+            else fromRef.current = to;
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [value]);
+    return <>{display.toLocaleString("pt-BR")}</>;
+}
+
+function relTime(iso?: string | null): string {
+    if (!iso) return "—";
+    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 10) return "agora";
+    if (s < 60) return `há ${s}s`;
+    if (s < 3600) return `há ${Math.floor(s / 60)}min`;
+    return `há ${Math.floor(s / 3600)}h`;
+}
+
+function etaLabel(c: Campaign): string {
+    if (c.pending <= 0) return "";
+    const avg = Math.max(60, (c.interval_min_sec + c.interval_max_sec) / 2); // cron ~1/min
+    const secs = c.pending * avg;
+    const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+    return h > 0 ? `~${h}h ${m}min restantes` : `~${m}min restantes`;
 }
 
 const STATUS: Record<string, { t: string; cls: string }> = {
@@ -29,6 +71,18 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
     const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
 
     const connected = instances.filter((i) => i.status === "connected");
+
+    // Polling em tempo real enquanto houver campanha disparando.
+    const hasRunning = campaigns.some((c) => c.status === "running");
+    useEffect(() => {
+        if (view !== "list" || !hasRunning) return;
+        let active = true;
+        const id = setInterval(async () => {
+            const res = await getDispatchLive();
+            if (active && res.success) setCampaigns(res.campaigns as Campaign[]);
+        }, 4000);
+        return () => { active = false; clearInterval(id); };
+    }, [view, hasRunning]);
 
     async function toggle(c: Campaign) {
         const next = c.status === "running" ? "paused" : "running";
@@ -75,37 +129,69 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                 <div className="space-y-3">
                     {campaigns.map((c) => {
                         const st = STATUS[c.status] ?? STATUS.draft;
-                        const pct = c.total ? Math.round((c.sent / c.total) * 100) : 0;
+                        const running = c.status === "running";
+                        const sentPct = c.total ? (c.sent / c.total) * 100 : 0;
+                        const failPct = c.total ? (c.failed / c.total) * 100 : 0;
+                        const processed = c.sent + c.failed;
+                        const successRate = processed ? Math.round((c.sent / processed) * 100) : null;
+                        const disconnected = running && c.instanceConnected === false;
                         return (
-                            <div key={c.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                            <div key={c.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-2">
                                             <h3 className="font-semibold text-slate-800 truncate">{c.name}</h3>
-                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.t}</span>
+                                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.cls}`}>
+                                                {running && <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" /></span>}
+                                                {st.t}
+                                            </span>
                                         </div>
-                                        <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                                        <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
                                             <Smartphone size={12} /> {c.instance_name} · intervalo {c.interval_min_sec}-{c.interval_max_sec}s · cap {c.daily_cap}/dia
+                                            {running && c.last_sent_at && <span className="text-slate-400">· último envio {relTime(c.last_sent_at)}</span>}
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
-                                        {(c.status === "running" || c.status === "paused" || c.status === "draft") && c.pending > 0 && (
-                                            <button onClick={() => toggle(c)} aria-label={c.status === "running" ? "Pausar" : "Iniciar"}
-                                                className={`rounded-lg px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 ${c.status === "running" ? "bg-amber-50 text-amber-700 hover:bg-amber-100" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}>
-                                                {c.status === "running" ? <><Pause size={13} /> Pausar</> : <><Play size={13} /> Iniciar</>}
+                                        {(running || c.status === "paused" || c.status === "draft") && c.pending > 0 && (
+                                            <button onClick={() => toggle(c)} aria-label={running ? "Pausar" : "Iniciar"}
+                                                className={`rounded-lg px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 ${running ? "bg-amber-50 text-amber-700 hover:bg-amber-100" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}>
+                                                {running ? <><Pause size={13} /> Pausar</> : <><Play size={13} /> Iniciar</>}
                                             </button>
                                         )}
                                         <button onClick={() => remove(c)} aria-label="Excluir" className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
                                     </div>
                                 </div>
-                                <div className="mt-3">
-                                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+
+                                {/* Aviso: numero desconectou */}
+                                {disconnected && (
+                                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-[13px] font-medium text-rose-700">
+                                        <WifiOff size={15} /> Número desconectado — o disparo não envia até reconectar em Configurações → Conexões.
                                     </div>
-                                    <div className="mt-1.5 flex items-center gap-4 text-[12px] text-slate-500">
-                                        <span><b className="text-slate-800">{c.sent}</b>/{c.total} enviados</span>
-                                        <span>{c.pending} pendentes</span>
-                                        {c.failed > 0 && <span className="text-rose-600">{c.failed} falhas</span>}
+                                )}
+
+                                {/* Barra de progresso (2 cores: enviado + falha) */}
+                                <div className="mt-3">
+                                    <div className="flex h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                                        <div className="h-full bg-emerald-500 transition-[width] duration-700 ease-out" style={{ width: `${sentPct}%` }} />
+                                        <div className="h-full bg-rose-400 transition-[width] duration-700 ease-out" style={{ width: `${failPct}%` }} />
+                                    </div>
+
+                                    {/* Stats animadas */}
+                                    <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px]">
+                                        <span className="flex items-center gap-1.5 font-semibold text-emerald-700">
+                                            <CheckCircle2 size={14} /> <span className="tabular-nums"><CountUp value={c.sent} /></span> enviados
+                                            {successRate !== null && <span className="font-normal text-slate-400">({successRate}%)</span>}
+                                        </span>
+                                        {c.failed > 0 && (
+                                            <span className="flex items-center gap-1.5 font-semibold text-rose-600">
+                                                <XCircle size={14} /> <span className="tabular-nums"><CountUp value={c.failed} /></span> falhas
+                                            </span>
+                                        )}
+                                        <span className="flex items-center gap-1.5 text-slate-500">
+                                            <Clock size={14} /> <span className="tabular-nums"><CountUp value={c.pending} /></span> pendentes
+                                        </span>
+                                        <span className="text-slate-400">de <span className="tabular-nums">{c.total.toLocaleString("pt-BR")}</span></span>
+                                        {running && c.pending > 0 && <span className="ml-auto text-slate-400">{etaLabel(c)}</span>}
                                     </div>
                                 </div>
                             </div>
