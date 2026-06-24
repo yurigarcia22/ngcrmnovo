@@ -21,8 +21,15 @@ function hourInSaoPaulo(): number {
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function renderMessage(template: string, name?: string | null): string {
-    const first = (name || "").trim().split(/\s+/)[0] || "";
-    return template.replace(/\{nome\}/gi, first).replace(/\s{2,}/g, " ").trim();
+    const nome = (name || "").trim();
+    // Substitui {nome} (tolera espacos: { nome }) pelo nome COMPLETO. Preserva as
+    // quebras de linha do texto (NAO usar \s, que comeria \n) — so limpa espacos
+    // repetidos e espaco antes de pontuacao (caso o nome venha vazio).
+    return template
+        .replace(/\{\s*nome\s*\}/gi, nome)
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/[ \t]+([!?.,:;])/g, "$1")
+        .trim();
 }
 
 async function run(req: NextRequest) {
