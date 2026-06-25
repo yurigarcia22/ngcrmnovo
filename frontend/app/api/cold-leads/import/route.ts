@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getTenantId } from '@/app/actions';
 import * as XLSX from 'xlsx';
 import { ColdLeadInsert } from '@/types/cold-lead';
+import { canonicalizeNicho } from '@/lib/nicho';
 
 export async function POST(request: NextRequest) {
     const supabase = createClient(
@@ -34,6 +35,14 @@ export async function POST(request: NextRequest) {
 
         const tenantId = await getTenantId();
 
+        // Nichos ja existentes do tenant (pra casar e nao duplicar por caixa/acento)
+        const { data: nichoRows } = await supabase
+            .from('cold_leads')
+            .select('nicho')
+            .eq('tenant_id', tenantId)
+            .not('nicho', 'is', null);
+        const existingNichos = Array.from(new Set((nichoRows ?? []).map((r: any) => r.nicho).filter(Boolean)));
+
         // Expected columns: Nome, Telefone, Nicho, Site, Instagram, Google, Notas
         rawData.forEach((row, index) => {
             const lineNum = index + 2; // +1 header, +1 1-based index
@@ -47,11 +56,18 @@ export async function POST(request: NextRequest) {
                 return;
             }
 
+            // Canonicaliza: casa com nicho existente (ignora caixa/acento) ou Title Case.
+            const nichoCanonico = canonicalizeNicho(String(nicho), existingNichos) || String(nicho).trim();
+            // se for um nicho novo, ja entra na lista pra as proximas linhas casarem
+            if (!existingNichos.some((e) => e.toLowerCase() === nichoCanonico.toLowerCase())) {
+                existingNichos.push(nichoCanonico);
+            }
+
             validLeads.push({
                 tenant_id: tenantId,
                 nome: String(nome).trim(),
                 telefone: String(telefone).trim(),
-                nicho: String(nicho).trim(),
+                nicho: nichoCanonico,
                 site_url: row['Site'] || row['site'] || null,
                 instagram_url: row['Instagram'] || row['instagram'] || null,
                 google_meu_negocio_url: row['Google'] || row['google'] || null,

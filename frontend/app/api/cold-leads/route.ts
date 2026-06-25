@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getTenantId } from '@/app/actions';
 import { ColdLeadInsert } from '@/types/cold-lead';
+import { canonicalizeNicho } from '@/lib/nicho';
 
 export async function GET(request: NextRequest) {
     const supabase = await createClient();
@@ -69,12 +70,21 @@ export async function POST(request: NextRequest) {
 
     const tenantId = await getTenantId();
 
+    // Canonicaliza o nicho: casa com um existente (ignora caixa/acento) pra nao duplicar.
+    let nichoFinal = '';
+    if (body.nicho) {
+        const { data: nichoRows } = await supabase
+            .from('cold_leads').select('nicho').eq('tenant_id', tenantId).not('nicho', 'is', null);
+        const existing = Array.from(new Set((nichoRows ?? []).map((r: any) => r.nicho).filter(Boolean)));
+        nichoFinal = canonicalizeNicho(body.nicho, existing) || String(body.nicho).trim();
+    }
+
     const newLead: ColdLeadInsert = {
         tenant_id: tenantId,
         nome: body.nome,
         telefone: body.telefone,
         // nicho NOT NULL no banco — default vazio quando nao informado
-        nicho: body.nicho || '',
+        nicho: nichoFinal,
         email: body.email || null,
         responsavel_id: body.responsavelId || null,
         stage_id: body.stageId ? Number(body.stageId) : null,
