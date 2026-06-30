@@ -9,7 +9,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useVocab } from "@/components/providers/VocabProvider";
 import ContactPets from "@/components/pets/ContactPets";
 
-export default function DealInfoSidebar({ deal, teamMembers, pipelines, availableTags, products = [], dealItems = [], lossReasons = [] }: any) {
+export default function DealInfoSidebar({ deal, teamMembers, pipelines, availableTags, products = [], dealItems = [], lossReasons = [], acquisitionChannels = [] }: any) {
     const router = useRouter();
     const confirm = useConfirm();
     const vocab = useVocab();
@@ -18,6 +18,10 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     const [company, setCompany] = useState(deal.companies || null);
     const [dealValue, setDealValue] = useState(deal.value);
     const [loadingField, setLoadingField] = useState<string | null>(null);
+
+    // Canal de aquisicao
+    const [channelId, setChannelId] = useState<string>(deal.acquisition_channel_id || "");
+    const [editingChannel, setEditingChannel] = useState(false);
 
     // Editing States (Contact)
     const [editingValue, setEditingValue] = useState(false);
@@ -62,6 +66,25 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
         } else {
             setDealValue(oldVal); // Revert
             toast.error("Erro ao atualizar valor");
+        }
+        setLoadingField(null);
+    }
+
+    async function handleSaveChannel(value: string) {
+        const old = channelId;
+        if (value === old) { setEditingChannel(false); return; }
+        setLoadingField('channel');
+        setChannelId(value); // Optimistic
+        setEditingChannel(false);
+
+        const res = await updateDeal(deal.id, { acquisition_channel_id: value || null });
+        if (res.success) {
+            const chName = acquisitionChannels.find((c: any) => c.id === value)?.name || "nenhum";
+            await logSystemActivity(deal.id, `Alterou o canal de aquisição para "${chName}"`);
+            router.refresh();
+        } else {
+            setChannelId(old); // Revert
+            toast.error("Erro ao atualizar canal");
         }
         setLoadingField(null);
     }
@@ -552,6 +575,43 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                             <button type="button" aria-label={`Editar ${vocab.valueLabel}`} onClick={() => { setTempValue(dealValue); setEditingValue(true); }} className="flex items-center gap-1 font-bold text-slate-800 cursor-pointer hover:bg-slate-50 px-1 -ml-1 rounded group transition-colors w-fit">
                                 <span className="text-xs">R$</span>
                                 <span className="text-lg">{Number(dealValue).toLocaleString('pt-BR')}</span>
+                                <Edit2 size={10} className="text-slate-400 opacity-0 group-hover:opacity-100" />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* CANAL DE AQUISIÇÃO */}
+                    <div className="grid grid-cols-[140px_1fr] items-center gap-2 min-h-[30px]">
+                        <span className="text-sm font-semibold text-slate-700">Canal de aquisição</span>
+                        {editingChannel ? (
+                            <div className="flex items-center gap-1 animate-in fade-in">
+                                <select
+                                    value={channelId}
+                                    onChange={(e) => handleSaveChannel(e.target.value)}
+                                    disabled={loadingField === 'channel'}
+                                    aria-label="Canal de aquisição"
+                                    className="w-full border border-blue-300 rounded px-1 py-0.5 text-xs font-medium focus:outline-none"
+                                    autoFocus
+                                >
+                                    <option value="">Sem canal</option>
+                                    {acquisitionChannels.map((c: any) => (
+                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                    ))}
+                                </select>
+                                <button onClick={() => setEditingChannel(false)} aria-label="Fechar" className="text-rose-500 hover:bg-rose-50 p-1 rounded shrink-0"><X size={14} /></button>
+                            </div>
+                        ) : (
+                            <button type="button" aria-label="Editar canal de aquisição" onClick={() => setEditingChannel(true)} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-1 -ml-1 rounded group transition-colors w-fit">
+                                {(() => {
+                                    const ch = acquisitionChannels.find((c: any) => c.id === channelId);
+                                    if (!ch) return <span className="text-sm text-slate-400 italic">Sem canal</span>;
+                                    return (
+                                        <span className="inline-flex items-center gap-1.5 text-sm font-semibold" style={{ color: ch.color || '#6366f1' }}>
+                                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: ch.color || '#6366f1' }} />
+                                            {ch.name}
+                                        </span>
+                                    );
+                                })()}
                                 <Edit2 size={10} className="text-slate-400 opacity-0 group-hover:opacity-100" />
                             </button>
                         )}

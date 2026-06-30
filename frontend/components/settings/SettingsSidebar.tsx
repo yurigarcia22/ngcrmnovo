@@ -17,6 +17,8 @@ import {
     Settings as SettingsIcon,
     ArrowLeft,
     KeyRound,
+    Radio,
+    Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +33,8 @@ type MenuSection = {
     items: MenuItem[];
 };
 
-const menuSections: MenuSection[] = [
+function buildMenuSections(isAdmin: boolean): MenuSection[] {
+    return [
     {
         title: "Conta",
         items: [
@@ -44,6 +47,8 @@ const menuSections: MenuSection[] = [
         items: [
             { name: "Empresa", href: "/settings/company", icon: Building2 },
             { name: "Minha Equipe", href: "/settings/team", icon: Users },
+            // Metas: configuracao restrita ao admin (define meta geral + de cada vendedor).
+            ...(isAdmin ? [{ name: "Metas", href: "/settings/metas", icon: Target }] : []),
         ],
     },
     {
@@ -52,6 +57,7 @@ const menuSections: MenuSection[] = [
             { name: "Funis de Vendas", href: "/settings/pipelines", icon: GitPullRequest },
             { name: "Produtos", href: "/settings/products", icon: Package },
             { name: "Etiquetas", href: "/settings/tags", icon: Tag },
+            { name: "Canais de Aquisição", href: "/settings/acquisition-channels", icon: Radio },
             { name: "Motivos de Perda", href: "/settings/loss-reasons", icon: AlertOctagon },
             { name: "Campos Personalizados", href: "/settings/fields", icon: LayoutList },
         ],
@@ -69,10 +75,12 @@ const menuSections: MenuSection[] = [
             { name: "API & Webhooks", href: "/settings/api", icon: KeyRound },
         ],
     },
-];
+    ];
+}
 
-export default function SettingsSidebar() {
+export default function SettingsSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
     const pathname = usePathname();
+    const menuSections = buildMenuSections(isAdmin);
 
     return (
         <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-full shrink-0">

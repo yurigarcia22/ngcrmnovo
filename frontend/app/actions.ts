@@ -63,6 +63,51 @@ export async function getTenantId() {
     return profile.tenant_id;
 }
 
+// --- HELPER: Perfil do usuario atual (id, tenant, role) ---
+// Retorna null se nao autenticado (nao lanca, pra uso em layouts/guards).
+export async function getCurrentProfile(): Promise<{ userId: string; tenantId: string; role: string; fullName: string | null } | null> {
+    try {
+        const cookieStore = await cookies();
+        const supabase = createServerClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            {
+                cookies: {
+                    getAll() { return cookieStore.getAll(); },
+                    setAll(cookiesToSet) {
+                        try {
+                            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+                        } catch { /* Server Component: ignore */ }
+                    },
+                },
+            }
+        );
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+
+        const adminClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data: profile } = await adminClient
+            .from("profiles")
+            .select("tenant_id, role, full_name")
+            .eq("id", user.id)
+            .single();
+
+        if (!profile?.tenant_id) return null;
+        return {
+            userId: user.id,
+            tenantId: profile.tenant_id,
+            role: profile.role || "vendedor",
+            fullName: profile.full_name ?? null,
+        };
+    } catch {
+        return null;
+    }
+}
+
 export async function updateTag(tagId: string, name: string, color: string) {
     const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -552,6 +597,7 @@ const DEAL_UPDATABLE_FIELDS = new Set([
     "title", "value", "owner_id", "stage_id", "status",
     "lost_reason_id", "lost_reason", "expected_close_date",
     "snoozed_until", "resolved_at", "custom_values",
+    "acquisition_channel_id",
 ]);
 
 export async function updateDeal(dealId: string, data: any) {

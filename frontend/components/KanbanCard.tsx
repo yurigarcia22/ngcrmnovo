@@ -216,6 +216,24 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                         </div>
                     )}
 
+                    {/* Canal de aquisição */}
+                    {deal.acquisition_channels?.name && (
+                        <div className="mb-3">
+                            <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border"
+                                style={{
+                                    backgroundColor: `${deal.acquisition_channels.color || '#6366f1'}12`,
+                                    borderColor: `${deal.acquisition_channels.color || '#6366f1'}40`,
+                                    color: deal.acquisition_channels.color || '#6366f1',
+                                }}
+                                title={`Canal de aquisição: ${deal.acquisition_channels.name}`}
+                            >
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: deal.acquisition_channels.color || '#6366f1' }} />
+                                {deal.acquisition_channels.name}
+                            </span>
+                        </div>
+                    )}
+
                     {/* Value */}
                     {deal.value > 0 && (
                         <div className="mb-4">

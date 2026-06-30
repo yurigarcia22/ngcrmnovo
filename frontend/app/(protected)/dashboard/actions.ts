@@ -154,6 +154,12 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             }
         }
 
+        // 12. Aquisicao por canal (deals criados no periodo, agrupados por canal)
+        const channelQuery = applyFilters(
+            supabase.from("deals").select("value, status, acquisition_channel_id, acquisition_channels (name, color)"),
+            "created_at"
+        );
+
         // Execute all in parallel
         const [
             { count: totalLeads },
@@ -168,6 +174,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             { data: tenantData },
             { count: lostDeals, data: lostDealsData },
             wonPrevResult,
+            { data: channelDeals },
         ] = await Promise.all([
             leadsQuery,
             openValueQuery,
@@ -181,6 +188,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             tenantQuery,
             lostQuery,
             wonPrevQuery ?? Promise.resolve({ count: 0, data: [] as any[] }),
+            channelQuery,
         ]);
 
         const wonDealsPrev = (wonPrevResult as any)?.count ?? 0;
@@ -288,6 +296,20 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         // Ticket medio (so ganhos)
         const avgTicket = (wonDeals || 0) > 0 ? wonValue / (wonDeals as number) : 0;
 
+        // Aquisicao por canal: conta negocios e soma valor ganho por canal.
+        const channelMap = new Map<string, { name: string; color: string; count: number; wonValue: number }>();
+        (channelDeals ?? []).forEach((d: any) => {
+            const ch = d.acquisition_channels;
+            const key = d.acquisition_channel_id || "__none__";
+            const name = ch?.name || "Sem canal";
+            const color = ch?.color || "#94a3b8";
+            if (!channelMap.has(key)) channelMap.set(key, { name, color, count: 0, wonValue: 0 });
+            const entry = channelMap.get(key)!;
+            entry.count += 1;
+            if (d.status === "won") entry.wonValue += Number(d.value || 0);
+        });
+        const byChannel = Array.from(channelMap.values()).sort((a, b) => b.count - a.count);
+
         return {
             tenantName: tenantData?.name || "Minha Empresa",
             totalLeads: totalLeads || 0,
@@ -301,6 +323,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             conversionRate,
             avgTicket,
             leadsByStage: distByStage,
+            byChannel,
             lastLeads: [],
             tasksCount: tasksCount || 0,
             conversationsCount,
@@ -331,6 +354,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             conversionRate: 0,
             avgTicket: 0,
             leadsByStage: [],
+            byChannel: [],
             lastLeads: [],
             tasksCount: 0,
             conversationsCount: 0,

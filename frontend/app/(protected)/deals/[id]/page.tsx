@@ -4,6 +4,7 @@ import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { getPipelines } from "@/app/(protected)/leads/actions";
 import { getFields } from "@/app/(protected)/settings/fields/actions"; // Check path if errors occur
 import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
+import { getAcquisitionChannels } from "@/app/(protected)/settings/acquisition-channels/actions";
 
 import DealInfoSidebar from "@/components/deal/DealInfoSidebar";
 import DealTimeline from "@/components/deal/DealTimeline";
@@ -26,7 +27,8 @@ export default async function DealPage({ params }: { params: { id: string } }) {
         fieldsRes,
         tagsRes,
         messagesRes,
-        lossReasonsRes
+        lossReasonsRes,
+        channelsRes
     ] = await Promise.all([
         getDealById(id),
         getTeamMembers(),
@@ -37,7 +39,8 @@ export default async function DealPage({ params }: { params: { id: string } }) {
         getFields(),
         import("@/utils/supabase/server").then(mod => mod.createClient().then(client => client.from("tags").select("*").order("name"))),
         getMessages(id),
-        getLossReasons()
+        getLossReasons(),
+        getAcquisitionChannels()
     ]);
 
     if (!dealRes.success || !dealRes.data) {
@@ -94,6 +97,7 @@ export default async function DealPage({ params }: { params: { id: string } }) {
                         products={productsRes.success ? productsRes.data : []}
                         dealItems={itemsRes.success ? itemsRes.data : []}
                         lossReasons={lossReasons}
+                        acquisitionChannels={channelsRes.success ? channelsRes.data : []}
                     />
                 </div>
 

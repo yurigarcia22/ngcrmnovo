@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { getDashboardData, getSellersPerformance } from "@/app/(protected)/dashboard/actions";
+import { getGoalsProgress } from "@/app/(protected)/settings/metas/actions";
 import { getTeamMembers } from "@/app/actions";
 import { getCompanyDetails } from "@/app/(protected)/settings/company/actions";
 import { getOnboardingState } from "@/app/(protected)/dashboard/onboarding";
@@ -14,6 +15,8 @@ import { ConversionFunnel } from "./components/ConversionFunnel";
 import { TopSellers } from "./components/TopSellers";
 import { SellersPerformanceTable } from "./components/SellersPerformanceTable";
 import { ResponseQualityCard } from "./components/ResponseQualityCard";
+import { GoalsCard } from "./components/GoalsCard";
+import { AcquisitionChannelsCard } from "./components/AcquisitionChannelsCard";
 import VetDashboard from "./components/VetDashboard";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
@@ -141,6 +144,7 @@ async function DashboardContent({
     // Captura erro aqui em vez de lancar, pra mostrar mensagem real
     let data: any = null;
     let perfRes: any = null;
+    let goalsRes: any = null;
     let serverError: string | null = null;
     let errorWhere: string | null = null;
 
@@ -149,6 +153,8 @@ async function DashboardContent({
         data = await getDashboardData({ period, userId, startDate, endDate });
         errorWhere = "getSellersPerformance";
         perfRes = await getSellersPerformance({ period, startDate, endDate });
+        errorWhere = "getGoalsProgress";
+        goalsRes = await getGoalsProgress();
         errorWhere = null;
     } catch (e: any) {
         serverError = `[${errorWhere}] ${e?.message ?? String(e)}\n\n${e?.stack ?? ""}`;
@@ -199,6 +205,10 @@ async function DashboardContent({
         .map((s: any) => ({ name: s.name, count: s.wonCount, value: s.wonValue }));
     const showTopSellers = userId === "all" && topSellersData.length > 0;
     const showSellersTable = userId === "all" && sellers.length > 1;
+
+    // Metas: admin sempre ve a geral; vendedor ve a sua (se tiver). Canais sempre aparece.
+    const goalsProg = goalsRes?.success ? goalsRes : null;
+    const showGoals = !!goalsProg && (goalsProg.isAdmin || !!goalsProg.me);
 
     return (
         <div className="space-y-6">
@@ -296,6 +306,18 @@ async function DashboardContent({
                         />
                     </div>
                 )}
+            </div>
+
+            {/* === Metas + Aquisição por canal === */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                {showGoals && (
+                    <div className="lg:col-span-6">
+                        <GoalsCard progress={goalsProg} />
+                    </div>
+                )}
+                <div className={showGoals ? "lg:col-span-6" : "lg:col-span-12"}>
+                    <AcquisitionChannelsCard data={data.byChannel} />
+                </div>
             </div>
 
             {/* === Cold Call (so se modulo ativo) === */}
