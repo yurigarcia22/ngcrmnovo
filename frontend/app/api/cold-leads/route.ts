@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const nicho = searchParams.get('nicho');
     const responsavelId = searchParams.get('responsavelId');
+    const stageId = searchParams.get('stageId'); // carrega so os leads de uma etapa
     const limit = parseInt(searchParams.get('limit') || '1000');
     const offset = parseInt(searchParams.get('offset') || '0');
 
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
         if (search) q = q.or(`nome.ilike.%${search}%,telefone.ilike.%${search}%`);
         if (status) q = q.eq('status', status);
         if (nicho) q = q.eq('nicho', nicho);
+        if (stageId) q = q.eq('stage_id', stageId);
         if (responsavelId === 'meus_leads') {
             if (meId) q = q.eq('responsavel_id', meId);
         } else if (responsavelId && responsavelId !== 'all') {

@@ -2,7 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
-import { getTenantId } from "@/app/actions";
+import { getTenantId, getCurrentProfile } from "@/app/actions";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -36,6 +36,62 @@ export async function getColdCallPipelinesWithStages() {
     } catch (error: any) {
         console.error("getColdCallPipelinesWithStages Error:", error);
         return { success: false, error: error.message, data: [] };
+    }
+}
+
+/**
+ * Contagem de leads por etapa (para os headers do funil), aplicando os mesmos
+ * filtros da lista. Usa count HEAD: nao traz linhas, entao nao sofre com o teto
+ * de 1000 do PostgREST e e leve mesmo com milhares de leads.
+ */
+export async function getColdLeadStageCounts(params: {
+    stageIds: (number | string)[];
+    search?: string;
+    status?: string;
+    nicho?: string;
+    responsavelId?: string;
+}) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+
+        let meId: string | null = null;
+        if (params.responsavelId === "meus_leads") {
+            const prof = await getCurrentProfile();
+            meId = prof?.userId ?? null;
+        }
+
+        const applyFilters = (q: any) => {
+            q = q.eq("tenant_id", tenantId);
+            if (params.search) q = q.or(`nome.ilike.%${params.search}%,telefone.ilike.%${params.search}%`);
+            if (params.status && params.status !== "all") q = q.eq("status", params.status);
+            if (params.nicho && params.nicho !== "all") q = q.eq("nicho", params.nicho);
+            if (params.responsavelId === "meus_leads") {
+                if (meId) q = q.eq("responsavel_id", meId);
+            } else if (params.responsavelId && params.responsavelId !== "all") {
+                q = q.eq("responsavel_id", params.responsavelId);
+            }
+            return q;
+        };
+
+        const entries = await Promise.all(
+            (params.stageIds ?? []).map(async (sid) => {
+                const { count } = await applyFilters(
+                    supabase.from("cold_leads").select("id", { count: "exact", head: true }).eq("stage_id", sid),
+                );
+                return [String(sid), count ?? 0] as const;
+            }),
+        );
+
+        const counts: Record<string, number> = {};
+        for (const [k, v] of entries) counts[k] = v;
+        return { success: true, counts };
+    } catch (error: any) {
+        console.error("getColdLeadStageCounts Error:", error);
+        return { success: false, error: error.message, counts: {} as Record<string, number> };
     }
 }
 

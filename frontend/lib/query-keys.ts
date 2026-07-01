@@ -20,6 +20,10 @@ export const qk = {
         all: ["coldCall"] as const,
         pipelines: () => ["coldCall", "pipelines"] as const,
         leads: (filters: Record<string, unknown>) => ["coldCall", "leads", filters] as const,
+        stageCounts: (pipelineId: number | string | null | undefined, filters: Record<string, unknown>) =>
+            ["coldCall", "stageCounts", pipelineId ?? null, filters] as const,
+        stageLeads: (stageId: string, filters: Record<string, unknown>) =>
+            ["coldCall", "stageLeads", stageId, filters] as const,
         followups: (status?: string) => ["coldCall", "followups", status ?? "all"] as const,
     },
     tasks: {

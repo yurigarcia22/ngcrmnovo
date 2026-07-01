@@ -13,8 +13,8 @@ import { NichoSelector } from '@/components/cold-call/NichoSelector';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getMembers } from '@/app/(protected)/settings/team/actions';
-import { getColdCallPipelinesWithStages, moveColdLeadToStage } from './actions';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getColdCallPipelinesWithStages, moveColdLeadToStage, getColdLeadStageCounts } from './actions';
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/query-keys';
 
 import { NotificationBell } from '@/components/notifications/NotificationBell';
@@ -36,35 +36,8 @@ export default function ColdCallPage() {
         responsavelId: 'meus_leads',
     });
 
-    // === React Query ===
-    const leadsQuery = useQuery({
-        queryKey: qk.coldCall.leads(filters),
-        queryFn: async () => {
-            const params = new URLSearchParams();
-            if (filters.search) params.append('search', filters.search);
-            if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
-            if (filters.status !== 'all') params.append('status', filters.status);
-            if (filters.responsavelId) params.append('responsavelId', filters.responsavelId);
-            // Teto alto: o servidor pagina em blocos de 1000 (max-rows do PostgREST)
-            // ate trazer todos. Sem isso, "Todos Responsaveis" cortava em 1000.
-            params.append('limit', '8000');
-            const res = await fetch(`/api/cold-leads?${params.toString()}`);
-            if (!res.ok) throw new Error('Falha ao carregar leads');
-            const data = await res.json();
-            return (data.data ?? []) as ColdLead[];
-        },
-        staleTime: 30_000,
-    });
-    const leads: ColdLead[] = leadsQuery.data ?? [];
-    const loading = leadsQuery.isLoading && !leadsQuery.data;
-    const setLeads = (
-        updater: ColdLead[] | ((curr: ColdLead[]) => ColdLead[]),
-    ) => {
-        queryClient.setQueryData(qk.coldCall.leads(filters), (prev: ColdLead[] | undefined) => {
-            const base = prev ?? [];
-            return typeof updater === 'function' ? (updater as any)(base) : updater;
-        });
-    };
+    // Dados dos leads: definidos mais abaixo (dependem de coldStages).
+    // Ver bloco "=== Leads: contagens leves + lazy por etapa ===".
 
     const followupsQuery = useQuery({
         queryKey: qk.coldCall.followups(),
@@ -173,6 +146,82 @@ export default function ColdCallPage() {
     );
     const coldStages = selectedColdPipeline?.stages ?? [];
 
+    // === Leads: contagens leves + lazy por etapa ===
+    // Em vez de puxar milhares de leads de uma vez, cada etapa carrega os seus
+    // leads so quando e expandida. As contagens (headers) vem de um count leve.
+    const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
+
+    // Trocar de funil ou de filtro recolhe tudo (nao carrega etapa a toa).
+    useEffect(() => {
+        setExpandedStages(new Set());
+    }, [selectedColdPipelineId, filters.search, filters.nicho, filters.status, filters.responsavelId]);
+
+    const stageIds = useMemo(() => (coldStages as any[]).map((s: any) => String(s.id)), [coldStages]);
+
+    const countsQuery = useQuery({
+        queryKey: qk.coldCall.stageCounts(selectedColdPipelineId, filters),
+        queryFn: async () => {
+            const res = await getColdLeadStageCounts({
+                stageIds,
+                search: filters.search || undefined,
+                status: filters.status,
+                nicho: filters.nicho,
+                responsavelId: filters.responsavelId,
+            });
+            return (res.success ? res.counts : {}) as Record<string, number>;
+        },
+        enabled: stageIds.length > 0,
+        staleTime: 30_000,
+    });
+    const stageCounts: Record<string, number> = countsQuery.data ?? {};
+
+    // Uma query por etapa; so busca quando a etapa esta expandida (lazy).
+    const stageLeadsResults = useQueries({
+        queries: (coldStages as any[]).map((stage: any) => ({
+            queryKey: qk.coldCall.stageLeads(String(stage.id), filters),
+            queryFn: async () => {
+                const params = new URLSearchParams();
+                if (filters.search) params.append('search', filters.search);
+                if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
+                if (filters.status !== 'all') params.append('status', filters.status);
+                if (filters.responsavelId) params.append('responsavelId', filters.responsavelId);
+                params.append('stageId', String(stage.id));
+                // Teto alto + paginacao no servidor: traz a etapa inteira, sem o corte de 1000.
+                params.append('limit', '8000');
+                const res = await fetch(`/api/cold-leads?${params.toString()}`);
+                if (!res.ok) throw new Error('Falha ao carregar leads');
+                const data = await res.json();
+                return (data.data ?? []) as ColdLead[];
+            },
+            enabled: expandedStages.has(String(stage.id)),
+            staleTime: 30_000,
+        })),
+    });
+
+    const leadsByStage: Record<string, ColdLead[]> = {};
+    (coldStages as any[]).forEach((stage: any, i: number) => {
+        leadsByStage[String(stage.id)] = (stageLeadsResults[i]?.data as ColdLead[] | undefined) ?? [];
+    });
+    // Uniao dos leads ja carregados (etapas abertas). Usado por navegacao/metricas.
+    const leads: ColdLead[] = ([] as ColdLead[]).concat(...Object.values(leadsByStage));
+
+    // Total de leads "ativos" (fora das etapas terminais) para a metrica de follow-up.
+    const activeTotal = (coldStages as any[])
+        .filter((s: any) => !s.is_lost && !s.is_won)
+        .reduce((sum: number, s: any) => sum + (stageCounts[String(s.id)] ?? 0), 0);
+    const totalLeadsCount = Object.values(stageCounts).reduce((a, b) => a + b, 0);
+
+    const loading = countsQuery.isLoading && !countsQuery.data;
+
+    const toggleStageExpanded = useCallback((stageId: string) => {
+        setExpandedStages((prev) => {
+            const next = new Set(prev);
+            if (next.has(stageId)) next.delete(stageId);
+            else next.add(stageId);
+            return next;
+        });
+    }, []);
+
     // Persiste o pipeline selecionado
     useEffect(() => {
         if (selectedColdPipelineId) {
@@ -180,28 +229,25 @@ export default function ColdCallPage() {
         }
     }, [selectedColdPipelineId]);
 
-    // Aliases pra handlers legados (invalidate via React Query)
+    // Aliases pra handlers legados: invalida contagens + leads de todas as etapas.
     const fetchLeads = useCallback(() => {
-        queryClient.invalidateQueries({ queryKey: qk.coldCall.leads(filters) });
-    }, [queryClient, filters]);
+        queryClient.invalidateQueries({ queryKey: ["coldCall", "stageCounts"] });
+        queryClient.invalidateQueries({ queryKey: ["coldCall", "stageLeads"] });
+    }, [queryClient]);
     const fetchFollowupsData = useCallback(() => {
         queryClient.invalidateQueries({ queryKey: qk.coldCall.followups() });
     }, [queryClient]);
 
     const handleMoveStage = async (leadId: string, newStageId: number | string) => {
         const stageIdNum = Number(newStageId);
-        // Optimistic
-        setLeads((current) =>
-            current.map((l) => (l.id === leadId ? { ...l, stage_id: stageIdNum } as any : l))
-        );
-
         const res = await moveColdLeadToStage(leadId, stageIdNum);
         if (!res.success) {
             toast.error('Erro ao mover lead');
-            fetchLeads();
         } else {
             toast.success('Lead movido');
         }
+        // Atualiza contagens + os leads das etapas (origem e destino).
+        fetchLeads();
     };
 
     // Abre o modal e fixa a etapa de trabalho na coluna atual do lead.
@@ -214,6 +260,24 @@ export default function ColdCallPage() {
     const handleCallClick = (lead: ColdLead) => {
         openLeadModal(lead);
     };
+
+    // Abre um lead pelo id; se nao estiver carregado (etapa recolhida), busca do servidor.
+    const openLeadById = useCallback(async (leadId: string) => {
+        const found = leads.find((l) => l.id === leadId);
+        if (found) { openLeadModal(found); return; }
+        try {
+            const res = await fetch(`/api/cold-leads/${leadId}`);
+            if (res.ok) {
+                const data = await res.json();
+                const lead = (data?.data ?? data) as ColdLead;
+                if (lead?.id) { openLeadModal(lead); return; }
+            }
+            toast.error('Lead não encontrado.');
+        } catch {
+            toast.error('Erro ao abrir lead.');
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [leads, openLeadModal]);
 
     const handleModalClose = () => {
         setIsModalOpen(false);
@@ -334,9 +398,6 @@ export default function ColdCallPage() {
         });
         if (!ok) return;
 
-        // Optimistic update
-        setLeads(prev => prev.filter(l => l.id !== leadId));
-
         try {
             const res = await fetch(`/api/cold-leads/${leadId}`, {
                 method: 'DELETE'
@@ -344,29 +405,27 @@ export default function ColdCallPage() {
 
             if (!res.ok) throw new Error('Falha ao excluir lead');
             toast.success('Lead excluído');
+            fetchLeads();
         } catch (error) {
             toast.error('Erro ao excluir lead');
-            fetchLeads(); // Revert
+            fetchLeads();
         }
     }, [fetchLeads, confirm]);
 
     // --- Optimized Navigation Logic ---
     const handleLeadUpdate = useCallback((updatedLead: ColdLead) => {
-        setLeads(currentLeads => 
-            currentLeads.map(l => l.id === updatedLead.id ? updatedLead : l)
-        );
+        // Mantem o lead atualizado no modal. A lista reflete no proximo refetch.
         setSelectedLead(current => current?.id === updatedLead.id ? updatedLead : current);
     }, []);
 
-    // Atualiza o lead na lista e mantem a selecao no mesmo lead (sem navegar/fechar).
+    // Mantem a selecao no mesmo lead (sem navegar/fechar) e atualiza contagens/etapa,
+    // porque a interacao pode ter movido o lead de coluna.
     // O avanco para o proximo lead e feito pelo botao "Proximo >" (handleNextLead).
     const handleActionComplete = useCallback((updatedLead: ColdLead) => {
-        setLeads(currentLeads =>
-            currentLeads.map(l => l.id === updatedLead.id ? updatedLead : l)
-        );
         setSelectedLead(current => current?.id === updatedLead.id ? updatedLead : current);
+        fetchLeads();
         fetchFollowupsData(); // Refresh followups after action
-    }, [fetchFollowupsData]);
+    }, [fetchLeads, fetchFollowupsData]);
 
     return (
         <div className="p-6 space-y-6 bg-white min-h-screen relative pb-24">
@@ -400,7 +459,7 @@ export default function ColdCallPage() {
                     tarde: followups.filter(f => (f.periodo === 'tarde' || f.periodo === 'noite' || f.periodo === 'qualquer') && f.status !== 'concluido' && f.status !== 'atrasado').length,
                     atrasados: followups.filter(f => f.status === 'atrasado').length,
                     concluidosHoje: followups.filter(f => f.status === 'concluido').length,
-                    semFollowup: leads.filter(l => !['convertido', 'perdido', 'sem_interesse', 'numero_inexistente'].includes(l.status)).length - followups.filter(f => f.status === 'pendente').length,
+                    semFollowup: Math.max(0, activeTotal - followups.filter(f => f.status === 'pendente').length),
                 }}
             />
 
@@ -521,13 +580,19 @@ export default function ColdCallPage() {
                                 (() => {
                                     const followupLeadIds = new Set(followups.map(f => f.cold_lead_id));
                                     return coldStages.map((stage: any) => {
-                                        const stageLeads = leads.filter((l: any) => Number(l.stage_id) === Number(stage.id));
+                                        const sid = String(stage.id);
+                                        const expanded = expandedStages.has(sid);
+                                        const idx = coldStages.findIndex((s: any) => String(s.id) === sid);
                                         return (
                                             <StageGroup
                                                 key={stage.id}
                                                 stage={stage}
                                                 allStages={coldStages}
-                                                leads={stageLeads}
+                                                count={stageCounts[sid] ?? 0}
+                                                leads={leadsByStage[sid] ?? []}
+                                                expanded={expanded}
+                                                loadingLeads={!!stageLeadsResults[idx]?.isLoading && expanded}
+                                                onToggleExpand={() => toggleStageExpanded(sid)}
                                                 onCallClick={handleCallClick}
                                                 onMoveStage={handleMoveStage}
                                                 selectedLeads={selectedLeads}
@@ -550,7 +615,7 @@ export default function ColdCallPage() {
                                     </Link>
                                 </div>
                             )}
-                            {coldStages.length > 0 && leads.length === 0 && !loading && (
+                            {coldStages.length > 0 && totalLeadsCount === 0 && !loading && (
                                 <div className="text-center py-10 text-muted-foreground flex flex-col items-center gap-2">
                                     <p>Nenhum lead encontrado com estes filtros.</p>
                                 </div>
@@ -565,13 +630,7 @@ export default function ColdCallPage() {
                     <FollowUpBoard
                         followups={followups}
                         onRowClick={(followup) => {
-                            // Find the lead from our leads list that matches this followup's cold_lead_id
-                            const lead = leads.find(l => l.id === followup.cold_lead_id);
-                            if (lead) {
-                                openLeadModal(lead);
-                            } else {
-                                toast.error('Lead não encontrado na lista atual.');
-                            }
+                            openLeadById(followup.cold_lead_id);
                         }}
                         onActionClick={async (id, action) => {
                             if (action === 'complete') {
@@ -583,10 +642,7 @@ export default function ColdCallPage() {
                                     const currentIndex = followups.findIndex(f => f.id === id);
                                     const nextFollowup = followups[currentIndex + 1];
                                     if (nextFollowup) {
-                                        const nextLead = leads.find(l => l.id === nextFollowup.cold_lead_id);
-                                        if (nextLead) {
-                                            openLeadModal(nextLead);
-                                        }
+                                        openLeadById(nextFollowup.cold_lead_id);
                                     }
                                     fetchFollowupsData();
                                 } else {
@@ -602,9 +658,8 @@ export default function ColdCallPage() {
                                     window.location.href = `sip:${sipPhone}`;
                                 }
                                 // Also open the modal
-                                const lead = leads.find(l => l.id === followup?.cold_lead_id);
-                                if (lead) {
-                                    openLeadModal(lead);
+                                if (followup?.cold_lead_id) {
+                                    openLeadById(followup.cold_lead_id);
                                 }
                             } else if (action === 'whatsapp') {
                                 const followup = followups.find(f => f.id === id);

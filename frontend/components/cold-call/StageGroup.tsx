@@ -20,6 +20,10 @@ interface Stage {
 interface StageGroupProps {
     stage: Stage;
     leads: ColdLead[];
+    count: number;
+    expanded: boolean;
+    onToggleExpand: () => void;
+    loadingLeads?: boolean;
     onCallClick: (lead: ColdLead) => void;
     onMoveStage: (leadId: string, newStageId: number | string) => void;
     allStages: Stage[];
@@ -31,11 +35,11 @@ interface StageGroupProps {
 }
 
 export function StageGroup({
-    stage, leads, onCallClick, onMoveStage, allStages,
+    stage, leads, count, expanded, onToggleExpand, loadingLeads = false,
+    onCallClick, onMoveStage, allStages,
     selectedLeads = [], onToggleSelection, isSelectionMode = false,
     onDeleteClick, followupLeadIds,
 }: StageGroupProps) {
-    const [isExpanded, setIsExpanded] = useState(true);
     const [visibleCount, setVisibleCount] = useState(30);
 
     useEffect(() => {
@@ -51,14 +55,14 @@ export function StageGroup({
         <div className="mb-4">
             <div
                 className="flex items-center gap-2 py-2 cursor-pointer group hover:bg-slate-50 rounded-md px-2 transition-colors"
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={onToggleExpand}
             >
                 <button
                     className="text-slate-500 hover:text-slate-700 mr-1 flex items-center justify-center h-9 w-9 rounded-md hover:bg-slate-100 transition-colors -ml-1.5"
-                    aria-label={isExpanded ? `Recolher ${stage.name}` : `Expandir ${stage.name}`}
-                    aria-expanded={isExpanded}
+                    aria-label={expanded ? `Recolher ${stage.name}` : `Expandir ${stage.name}`}
+                    aria-expanded={expanded}
                 >
-                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 </button>
                 <span
                     className="inline-block w-2.5 h-2.5 rounded-full"
@@ -71,12 +75,14 @@ export function StageGroup({
                     {stage.is_lost && <Frown className="h-3.5 w-3.5 text-rose-500" />}
                     {stage.name}
                 </h2>
-                <span className="text-xs text-slate-500 ml-1">({leads.length})</span>
+                <span className="text-xs text-slate-500 ml-1">({count})</span>
             </div>
 
-            {isExpanded && (
+            {expanded && (
                 <div className="space-y-1.5 ml-6 mt-2">
-                    {leads.length === 0 ? (
+                    {loadingLeads ? (
+                        <p className="text-xs text-slate-500 italic py-2">Carregando leads...</p>
+                    ) : leads.length === 0 ? (
                         <p className="text-xs text-slate-500 italic py-2">Nenhum lead nesta etapa</p>
                     ) : (
                         leads.slice(0, visibleCount).map((lead) => {
