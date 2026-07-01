@@ -17,42 +17,55 @@ export async function GET(request: NextRequest) {
 
     const tenantId = await getTenantId();
 
-    let query = supabase
-        .from('cold_leads')
-        .select('*', { count: 'exact' })
-        .eq('tenant_id', tenantId);
+    // "Meus leads" resolve o usuario atual uma vez (fora do loop de paginacao).
+    let meId: string | null = null;
+    if (responsavelId === 'meus_leads') {
+        const { data: { user } } = await supabase.auth.getUser();
+        meId = user?.id ?? null;
+    }
 
-    if (search) {
-        query = query.or(`nome.ilike.%${search}%,telefone.ilike.%${search}%`);
-    }
-    if (status) {
-        query = query.eq('status', status);
-    }
-    if (nicho) {
-        query = query.eq('nicho', nicho);
-    }
-    if (responsavelId) {
+    // Monta a query com todos os filtros (sem range). Reconstruida por pagina.
+    const buildQuery = () => {
+        let q = supabase
+            .from('cold_leads')
+            .select('*', { count: 'exact' })
+            .eq('tenant_id', tenantId);
+        if (search) q = q.or(`nome.ilike.%${search}%,telefone.ilike.%${search}%`);
+        if (status) q = q.eq('status', status);
+        if (nicho) q = q.eq('nicho', nicho);
         if (responsavelId === 'meus_leads') {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                query = query.eq('responsavel_id', user.id);
-            }
-        } else if (responsavelId !== 'all') {
-            query = query.eq('responsavel_id', responsavelId);
+            if (meId) q = q.eq('responsavel_id', meId);
+        } else if (responsavelId && responsavelId !== 'all') {
+            q = q.eq('responsavel_id', responsavelId);
         }
+        // id como desempate: sem ele, leads com mesmo created_at trocam de ordem
+        // entre paginas e causam duplicatas/omissoes nas bordas.
+        return q.order('created_at', { ascending: false }).order('id', { ascending: false });
+    };
+
+    // O PostgREST do Supabase corta cada resposta em 1000 linhas (db-max-rows).
+    // Pra "Todos Responsaveis" trazer todos os leads (o funil pode ter 2000+),
+    // paginamos internamente em blocos de 1000 ate atingir `limit` ou esgotar.
+    const PAGE = 1000;
+    const hardEnd = offset + Math.max(1, limit); // exclusivo
+    const all: any[] = [];
+    let total = 0;
+    let from = offset;
+
+    while (from < hardEnd) {
+        const to = Math.min(from + PAGE, hardEnd) - 1;
+        const { data, error, count } = await buildQuery().range(from, to);
+        if (error) {
+            return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+        if (typeof count === 'number') total = count;
+        const batch = data ?? [];
+        all.push(...batch);
+        if (batch.length < (to - from + 1)) break; // ultima pagina
+        from += PAGE;
     }
 
-    query = query
-        .range(offset, offset + limit - 1)
-        .order('created_at', { ascending: false });
-
-    const { data, error, count } = await query;
-
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ data, total: count });
+    return NextResponse.json({ data: all, total });
 }
 
 export async function POST(request: NextRequest) {

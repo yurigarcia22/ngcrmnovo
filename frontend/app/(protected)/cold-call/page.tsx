@@ -45,7 +45,9 @@ export default function ColdCallPage() {
             if (filters.nicho !== 'all') params.append('nicho', filters.nicho);
             if (filters.status !== 'all') params.append('status', filters.status);
             if (filters.responsavelId) params.append('responsavelId', filters.responsavelId);
-            params.append('limit', '1000');
+            // Teto alto: o servidor pagina em blocos de 1000 (max-rows do PostgREST)
+            // ate trazer todos. Sem isso, "Todos Responsaveis" cortava em 1000.
+            params.append('limit', '8000');
             const res = await fetch(`/api/cold-leads?${params.toString()}`);
             if (!res.ok) throw new Error('Falha ao carregar leads');
             const data = await res.json();
