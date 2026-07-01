@@ -277,105 +277,76 @@ export async function POST(
             updates.proxima_ligacao = proxima_ligacao;
         }
 
-        // Logic based on call result mapping to new funnel
-        // Helper to determine if we should update status based on hierarchy
-        // Hierarchy: novo_lead < ligacao_feita < contato_realizado < contato_decisor < reuniao_marcada
-        const statusHierarchy: Record<string, number> = {
-            'novo_lead': 0,
-            'numero_inexistente': 0, // Special case
-            'lead_qualificado': 1, // Treating as early stage
-            'ligacao_feita': 2,
-            'contato_realizado': 3,
-            'contato_decisor': 4,
-            'reuniao_marcada': 5
-        };
-
-        const currentRank = statusHierarchy[currentLead.status] || 0;
-
-        switch (resultado) {
-            case 'numero_inexistente':
-                updates.status = 'numero_inexistente';
-                updates.ultimo_resultado = 'número inexistente';
-                break;
-
-            case 'sem_interesse':
-                updates.status = 'sem_interesse';
-                updates.tentativas = (currentLead.tentativas || 0) + 1;
-                updates.ultimo_resultado = 'sem interesse';
-                break;
-
-            case 'ligacao_feita':
-                // Only update status if it's an advancement or neutral, don't regress from higher stages
-                if (currentRank < 2) {
-                    updates.status = 'ligacao_feita';
-                }
-                updates.tentativas = (currentLead.tentativas || 0) + 1;
-                updates.ultimo_resultado = 'ligação feita';
-                break;
-
-            case 'contato_realizado':
-                if (currentRank < 3) {
-                    updates.status = 'contato_realizado';
-                }
-                updates.tentativas = (currentLead.tentativas || 0) + 1;
-                updates.ultimo_resultado = 'contato realizado';
-                break;
-
-            case 'contato_decisor':
-                if (currentRank < 4) {
-                    updates.status = 'contato_decisor';
-                }
-                updates.tentativas = (currentLead.tentativas || 0) + 1;
-                updates.ultimo_resultado = 'falou com decisor';
-                break;
-
-            case 'reuniao_marcada':
-                console.log("Processing reuniao_marcada for lead:", id);
-                updates.status = 'reuniao_marcada'; // Always set to this success state
-                updates.tentativas = (currentLead.tentativas || 0) + 1;
-                updates.ultimo_resultado = 'reunião marcada';
-
-                // Trigger duplication!
-                try {
-                    await createOpportunityFromColdLeadPlaceholder(currentLead, pipeline_id, stage_id, proxima_ligacao);
-                    console.log("Duplication triggered successfully");
-                } catch (dupError) {
-                    console.error("Duplication failed but continuing:", dupError);
-                    // Do not block status update
-                }
-                break;
-
-            default:
-                break;
-        }
-
         const supabaseAdmin = createAdminClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        // Sincroniza stage_id com o status final, DENTRO do proprio funil do lead.
-        // Nao ha trigger no banco: status e stage_id sao mantidos em sync aqui, para
-        // que a acao rapida tambem mova o card de coluna no kanban.
-        try {
-            const finalStatus = (updates.status as string | undefined) ?? currentLead.status;
+        // Metadados de cada resultado.
+        //   always=true  -> aplica status/coluna sempre (terminais e reuniao marcada).
+        //   always=false -> intermediarios: SO AVANCAM, nunca regridem a coluna.
+        // Assim, registrar "ligacao feita" num lead que ja esta em "falou com decisor"
+        // conta a interacao (nota) sem puxar o lead pra tras no funil.
+        const RESULT_META: Record<string, { status: string; label: string; countsTentativa: boolean; always?: boolean; duplicate?: boolean }> = {
+            numero_inexistente: { status: 'numero_inexistente', label: 'número inexistente', countsTentativa: false, always: true },
+            sem_interesse: { status: 'sem_interesse', label: 'sem interesse', countsTentativa: true, always: true },
+            ligacao_feita: { status: 'ligacao_feita', label: 'ligação feita', countsTentativa: true },
+            contato_realizado: { status: 'contato_realizado', label: 'contato realizado', countsTentativa: true },
+            contato_decisor: { status: 'contato_decisor', label: 'falou com decisor', countsTentativa: true },
+            reuniao_marcada: { status: 'reuniao_marcada', label: 'reunião marcada', countsTentativa: true, always: true, duplicate: true },
+        };
+
+        const meta = RESULT_META[resultado as string];
+        if (meta) {
+            if (meta.countsTentativa) updates.tentativas = (currentLead.tentativas || 0) + 1;
+            updates.ultimo_resultado = meta.label;
+
+            // Compara pela POSICAO real da coluna (nao pelo status text, que pode estar
+            // dessincronizado quando o card foi arrastado a mao no kanban).
+            let applyMove = !!meta.always;
+            let targetStageId: number | null = null;
+
             if ((currentLead as any).stage_id) {
                 const { data: curStage } = await supabaseAdmin
                     .from('stages')
-                    .select('pipeline_id')
+                    .select('id, position, pipeline_id')
                     .eq('id', (currentLead as any).stage_id)
                     .maybeSingle();
+
                 if (curStage?.pipeline_id) {
-                    const newStageId = await resolveStageIdInPipeline(
-                        supabaseAdmin,
-                        curStage.pipeline_id,
-                        finalStatus,
-                    );
-                    if (newStageId) (updates as any).stage_id = newStageId;
+                    targetStageId = await resolveStageIdInPipeline(supabaseAdmin, curStage.pipeline_id, meta.status);
+                    if (!applyMove && targetStageId) {
+                        const { data: tgt } = await supabaseAdmin
+                            .from('stages')
+                            .select('position')
+                            .eq('id', targetStageId)
+                            .maybeSingle();
+                        const curPos = (curStage.position ?? -1) as number;
+                        const tgtPos = (tgt?.position ?? null) as number | null;
+                        // So avanca: a coluna-alvo tem que estar estritamente a frente.
+                        if (tgtPos !== null && tgtPos > curPos) applyMove = true;
+                    }
+                }
+            } else {
+                // Sem coluna atual: nao ha de onde regredir.
+                applyMove = true;
+            }
+
+            if (applyMove) {
+                updates.status = meta.status;
+                if (targetStageId) (updates as any).stage_id = targetStageId;
+
+                // Reuniao marcada gera a oportunidade no funil de vendas.
+                if (meta.duplicate) {
+                    try {
+                        await createOpportunityFromColdLeadPlaceholder(currentLead, pipeline_id, stage_id, proxima_ligacao);
+                    } catch (dupError) {
+                        console.error("Duplication failed but continuing:", dupError);
+                    }
                 }
             }
-        } catch (stageErr) {
-            console.error('Falha ao sincronizar stage_id:', stageErr);
+            // Se nao avancou: mantem status e coluna atuais. A nota abaixo ainda
+            // registra a interacao para as metricas do dashboard.
         }
 
         console.log("Updating cold lead status to:", updates.status);
