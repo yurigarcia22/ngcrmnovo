@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { CalendarCheck, X, Phone, Loader2, CalendarClock } from "lucide-react";
 import { getColdMeetingsDetails } from "@/app/(protected)/dashboard/actions";
 
@@ -69,7 +70,7 @@ export function ColdMeetingsCard({
                 <div className="text-xl font-bold text-emerald-300">{value}</div>
             </button>
 
-            {open && (
+            {open && typeof document !== "undefined" && createPortal(
                 <div
                     className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
                     onClick={() => setOpen(false)}
@@ -137,7 +138,8 @@ export function ColdMeetingsCard({
                             )}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </>
     );
