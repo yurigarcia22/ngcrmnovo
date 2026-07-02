@@ -40,6 +40,30 @@ async function resolveStageIdFromStatus(
     return (data?.id as number | undefined) ?? null;
 }
 
+// Busca um lead pelo id (RLS restringe ao tenant do usuario). Usado para abrir
+// um lead a partir do follow-up mesmo quando a etapa dele nao esta carregada.
+export async function GET(
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const supabase = await createClient();
+    const { id } = await params;
+
+    const { data, error } = await supabase
+        .from('cold_leads')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+    if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!data) {
+        return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+    }
+    return NextResponse.json(data);
+}
+
 export async function PATCH(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
