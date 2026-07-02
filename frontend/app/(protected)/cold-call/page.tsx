@@ -36,6 +36,17 @@ export default function ColdCallPage() {
         responsavelId: 'meus_leads',
     });
 
+    // Busca com debounce: o input atualiza `searchInput` na hora, mas o filtro
+    // efetivo (filters.search) so muda depois de parar de digitar. Evita refetch +
+    // recolher as etapas a cada tecla.
+    const [searchInput, setSearchInput] = useState('');
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setFilters((prev) => (prev.search === searchInput ? prev : { ...prev, search: searchInput }));
+        }, 350);
+        return () => clearTimeout(t);
+    }, [searchInput]);
+
     // Dados dos leads: definidos mais abaixo (dependem de coldStages).
     // Ver bloco "=== Leads: contagens leves + lazy por etapa ===".
 
@@ -77,6 +88,19 @@ export default function ColdCallPage() {
         staleTime: 5 * 60_000,
     });
     const pipelines: any[] = pipelinesQuery.data ?? [];
+
+    // Nichos existentes (para o dropdown de filtro). Valores exatos do banco.
+    const nichesQuery = useQuery({
+        queryKey: ['coldCall', 'niches'],
+        queryFn: async () => {
+            const res = await fetch('/api/cold-leads/niches');
+            if (!res.ok) return [] as string[];
+            const d = await res.json();
+            return (d.data ?? []) as string[];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const niches: string[] = nichesQuery.data ?? [];
 
     const [selectedLead, setSelectedLead] = useState<ColdLead | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -487,8 +511,8 @@ export default function ColdCallPage() {
                             <div className="relative flex gap-2 flex-1 min-w-[240px]">
                                 <Input
                                     placeholder="Buscar..."
-                                    value={filters.search}
-                                    onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                                    value={searchInput}
+                                    onChange={(e) => setSearchInput(e.target.value)}
                                     className="bg-white"
                                 />
                                 <Button
@@ -503,11 +527,17 @@ export default function ColdCallPage() {
                                 </Button>
                             </div>
                             <div className="min-w-[200px] flex-1">
-                                <NichoSelector
-                                    value={filters.nicho === 'all' ? '' : filters.nicho}
-                                    onChange={(val) => setFilters({ ...filters, nicho: val || 'all' })}
-                                    placeholder="Filtrar por Nicho..."
-                                />
+                                <select
+                                    aria-label="Filtrar por nicho"
+                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                                    value={filters.nicho}
+                                    onChange={(e) => setFilters({ ...filters, nicho: e.target.value })}
+                                >
+                                    <option value="all">Todos os nichos</option>
+                                    {niches.map((n) => (
+                                        <option key={n} value={n}>{n}</option>
+                                    ))}
+                                </select>
                             </div>
                             {/* SELETOR DE FUNIL DE COLD CALL */}
                             <div className="min-w-[240px] flex-1 flex items-center gap-1">
@@ -556,7 +586,7 @@ export default function ColdCallPage() {
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'meus_leads' })}
+                                    onClick={() => { setSearchInput(''); setFilters({ search: '', nicho: 'all', status: 'all', responsavelId: 'meus_leads' }); }}
                                     className="text-slate-500 hover:text-slate-900"
                                 >
                                     Limpar
