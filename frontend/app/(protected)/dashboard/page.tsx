@@ -17,6 +17,7 @@ import { SellersPerformanceTable } from "./components/SellersPerformanceTable";
 import { ResponseQualityCard } from "./components/ResponseQualityCard";
 import { GoalsCard } from "./components/GoalsCard";
 import { AcquisitionChannelsCard } from "./components/AcquisitionChannelsCard";
+import { ColdMeetingsCard } from "./components/ColdMeetingsCard";
 import VetDashboard from "./components/VetDashboard";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
@@ -358,12 +359,13 @@ async function DashboardContent({
                             color="text-cyan-300"
                             pct={data.coldMetrics?.connections ? Math.round(((data.coldMetrics.decisionMakers || 0) / data.coldMetrics.connections) * 100) : 0}
                         />
-                        <ColdCard
-                            icon={CalendarCheck}
-                            label="Reuniões"
+                        <ColdMeetingsCard
                             value={data.coldMetrics?.meetings ?? 0}
-                            color="text-emerald-300"
                             pct={data.coldMetrics?.decisionMakers ? Math.round((data.coldMetrics.meetings / data.coldMetrics.decisionMakers) * 100) : 0}
+                            period={period}
+                            userId={userId}
+                            startDate={startDate}
+                            endDate={endDate}
                         />
                         <ColdCard
                             icon={Trophy}

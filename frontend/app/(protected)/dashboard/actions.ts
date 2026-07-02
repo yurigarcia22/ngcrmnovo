@@ -421,6 +421,82 @@ export async function getWonDealsDetails(filters?: { period?: string; userId?: s
 }
 
 // =====================================================================
+// DETALHE: reunioes marcadas (cold call) no periodo — para o pop-up do card
+// =====================================================================
+export async function getColdMeetingsDetails(filters?: { period?: string; userId?: string; startDate?: string; endDate?: string }) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { period = "today", userId, startDate: customStart, endDate: customEnd } = filters || {};
+
+        // Mesma logica de data BRT (UTC-3) do getDashboardData.
+        const brT = new Date(Date.now() - 3 * 3600 * 1000);
+        const sYear = brT.getUTCFullYear();
+        const sMonth = brT.getUTCMonth();
+        const sDay = brT.getUTCDate();
+        let startDate = new Date(Date.UTC(sYear, sMonth, sDay, 3, 0, 0, 0)).toISOString();
+        let endDate = new Date(Date.UTC(sYear, sMonth, sDay, 26, 59, 59, 999)).toISOString();
+
+        if (period === "yesterday") {
+            const y = new Date(brT); y.setUTCDate(brT.getUTCDate() - 1);
+            startDate = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 3, 0, 0, 0)).toISOString();
+            endDate = new Date(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate(), 26, 59, 59, 999)).toISOString();
+        } else if (period === "week") {
+            const w = new Date(brT); w.setUTCDate(brT.getUTCDate() - 7);
+            startDate = new Date(Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate(), 3, 0, 0, 0)).toISOString();
+        } else if (period === "month") {
+            startDate = new Date(Date.UTC(sYear, sMonth, 1, 3, 0, 0, 0)).toISOString();
+        } else if (period === "custom" && customStart && customEnd) {
+            const [cy, cm, cd] = customStart.split('-').map(Number);
+            const [ey, em, ed] = customEnd.split('-').map(Number);
+            startDate = new Date(Date.UTC(cy, cm - 1, cd, 3, 0, 0, 0)).toISOString();
+            endDate = new Date(Date.UTC(ey, em - 1, ed, 26, 59, 59, 999)).toISOString();
+        } else if (period === "all") {
+            startDate = new Date(0).toISOString();
+        }
+
+        let q = supabase
+            .from("cold_lead_notes")
+            .select("cold_lead_id, created_by, created_at, cold_leads!inner(tenant_id, nome, telefone, nicho, proxima_ligacao)")
+            .eq("cold_leads.tenant_id", tenantId)
+            .ilike("content", "Interação Registrada: reuniao_marcada")
+            .order("created_at", { ascending: false });
+        if (period !== "all") q = q.gte("created_at", startDate).lte("created_at", endDate);
+        if (userId && userId !== "all") q = q.eq("created_by", userId);
+
+        const { data: notes, error } = await q;
+        if (error) throw error;
+
+        // Nome do vendedor que marcou (created_by -> profiles).
+        const ids = Array.from(new Set((notes ?? []).map((n: any) => n.created_by).filter(Boolean)));
+        const nameById: Record<string, string> = {};
+        if (ids.length > 0) {
+            const { data: profs } = await supabase.from("profiles").select("id, full_name").in("id", ids);
+            for (const p of profs ?? []) nameById[p.id] = p.full_name || "Usuário";
+        }
+
+        const meetings = (notes ?? []).map((n: any) => ({
+            leadId: n.cold_lead_id,
+            nome: n.cold_leads?.nome ?? "Sem nome",
+            telefone: n.cold_leads?.telefone ?? "",
+            nicho: n.cold_leads?.nicho ?? "",
+            marcadaEm: n.created_at,
+            proximaReuniao: n.cold_leads?.proxima_ligacao ?? null,
+            vendedor: n.created_by ? (nameById[n.created_by] ?? "Usuário") : "Sistema",
+        }));
+
+        return { success: true, data: meetings };
+    } catch (error: any) {
+        console.error("getColdMeetingsDetails Error:", error);
+        return { success: false, error: error.message, data: [] as any[] };
+    }
+}
+
+// =====================================================================
 // PERFORMANCE BY SELLER + RESPONSE QUALITY (Pacotes 1 + 2)
 // =====================================================================
 export async function getSellersPerformance(filters?: {
