@@ -219,7 +219,7 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
 
         const { data: lead, error: leadErr } = await admin
             .from("cold_leads")
-            .select("id, status, tentativas, nome, telefone, custom_fields, responsavel_id")
+            .select("id, status, tentativas, nome, telefone, custom_fields, responsavel_id, stage_id")
             .eq("id", leadId)
             .eq("tenant_id", tenantId)
             .maybeSingle();
@@ -227,11 +227,22 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
 
         const { data: stage, error: stageErr } = await admin
             .from("stages")
-            .select("id, name, is_won, is_lost")
+            .select("id, name, is_won, is_lost, position")
             .eq("id", stageIdNum)
             .eq("tenant_id", tenantId)
             .maybeSingle();
         if (stageErr || !stage) return { success: false, error: "Etapa nao encontrada." };
+
+        // Nao deixa a acao rapida REGREDIR o lead. Posicao da coluna atual:
+        let currentPos: number | null = null;
+        if ((lead as any).stage_id) {
+            const { data: curStage } = await admin
+                .from("stages").select("position").eq("id", (lead as any).stage_id).maybeSingle();
+            currentPos = (curStage?.position ?? null) as number | null;
+        }
+        // Terminais (ganho/perdido) sempre aplicam; intermediarios so avancam.
+        const isTerminal = !!stage.is_won || !!stage.is_lost;
+        const applyMove = isTerminal || currentPos === null || (stage.position ?? 0) > currentPos;
 
         // Sincroniza status com a etapa (so terminais sobrescrevem; reativa lead terminal
         // que voltou para uma etapa ativa).
@@ -262,12 +273,16 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         else resultKey = "ligacao_feita";
 
         const updates: any = {
-            stage_id: stageIdNum,
-            status: newStatus,
             tentativas: (lead.tentativas || 0) + 1,
             ultimo_resultado: stage.name,
             ultima_interacao: new Date().toISOString(),
         };
+        // So muda de coluna/status quando avanca (ou terminal). Regressao apenas
+        // registra a interacao (conta no dashboard), sem puxar o lead pra tras.
+        if (applyMove) {
+            updates.stage_id = stageIdNum;
+            updates.status = newStatus;
+        }
 
         const { data: updated, error: updErr } = await admin
             .from("cold_leads")
@@ -299,7 +314,7 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         // (cria contato + deal + replica notas). Antes so a Acao Rapida nao convertia,
         // deixando a venda orfa de /leads. Idempotente (reaproveita deal aberto).
         let convertedDealId: string | null = null;
-        if (stage.is_won) {
+        if (applyMove && stage.is_won) {
             convertedDealId = await convertColdLeadToDeal(
                 admin, tenantId, (lead as any).responsavel_id ?? actingUserId,
                 { id: lead.id, nome: (lead as any).nome, telefone: (lead as any).telefone, custom_fields: (lead as any).custom_fields },
