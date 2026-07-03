@@ -186,10 +186,12 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
     const handleStageAction = async (stage: any) => {
         setLoading(true);
         try {
-            const res = await registerColdLeadStage(lead.id, stage.id);
-            if (!res.success || !res.data) throw new Error(res.error || "Erro");
-            toast.success(`Movido para ${stage.name}`);
-            (onLeadUpdate ?? onActionComplete)(res.data as ColdLead);
+            const res: any = await registerColdLeadStage(lead.id, stage.id);
+            if (!res.success) throw new Error(res.error || "Falha ao registrar");
+            // moved=false: a etapa-alvo estava atras da atual, entao so registrou a
+            // interacao (nao regride o lead). Feedback coerente com o que aconteceu.
+            toast.success(res.moved === false ? `Interação registrada · ${stage.name}` : `Movido para ${stage.name}`);
+            if (res.data) (onLeadUpdate ?? onActionComplete)(res.data as ColdLead);
 
             // Discagem automatica ligada: ao registrar a acao, ja pula pro proximo
             // lead (que dispara a proxima ligacao). Pequeno delay pra ver o feedback.
@@ -197,8 +199,8 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             if (autoDial && hasNext && onNext) {
                 setTimeout(() => onNext(), 600);
             }
-        } catch (e) {
-            toast.error("Erro ao registrar ação");
+        } catch (e: any) {
+            toast.error("Erro ao registrar ação", { description: e?.message || String(e) });
         } finally {
             setLoading(false);
         }
@@ -290,8 +292,8 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             // Para ir ao proximo, o usuario usa o botao "Proximo >" do cabecalho.
             (onLeadUpdate ?? onActionComplete)(updatedLead);
 
-        } catch (error) {
-            toast.error("Erro ao processar ação");
+        } catch (error: any) {
+            toast.error("Erro ao processar ação", { description: error?.message || String(error) });
         } finally {
             setLoading(false);
         }

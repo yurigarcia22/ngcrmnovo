@@ -323,7 +323,7 @@ export async function registerColdLeadStage(leadId: string, stageId: number | st
         }
 
         revalidatePath("/cold-call");
-        return { success: true, data: updated, convertedDealId };
+        return { success: true, data: updated, convertedDealId, moved: applyMove };
     } catch (error: any) {
         console.error("registerColdLeadStage Error:", error);
         return { success: false, error: error.message };
