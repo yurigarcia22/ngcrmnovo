@@ -1,7 +1,69 @@
 "use server";
 
 import { createClient } from "@supabase/supabase-js";
-import { getTenantId } from "@/app/actions";
+import { revalidatePath } from "next/cache";
+import { getTenantId, getCurrentProfile } from "@/app/actions";
+
+export type MeetingOutcome = "aconteceu" | "cancelada" | "no_show";
+
+// Registra/atualiza o resultado de uma reuniao marcada (1 por nota).
+export async function setMeetingOutcome(input: {
+    noteId: string;
+    coldLeadId: string;
+    outcome: MeetingOutcome;
+    meetingAt?: string | null;
+    clear?: boolean;
+}) {
+    try {
+        const tenantId = await getTenantId();
+        const profile = await getCurrentProfile();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Toggle: remover o resultado quando o usuario clica no mesmo de novo.
+        if (input.clear) {
+            const { error } = await supabase
+                .from("cold_meeting_outcomes").delete()
+                .eq("tenant_id", tenantId).eq("note_id", input.noteId);
+            if (error) throw error;
+            revalidatePath("/dashboard");
+            return { success: true };
+        }
+
+        const { data: found } = await supabase
+            .from("cold_meeting_outcomes")
+            .select("id")
+            .eq("tenant_id", tenantId)
+            .eq("note_id", input.noteId)
+            .maybeSingle();
+
+        const payload = {
+            tenant_id: tenantId,
+            cold_lead_id: input.coldLeadId,
+            note_id: input.noteId,
+            outcome: input.outcome,
+            meeting_at: input.meetingAt ?? null,
+            created_by: profile?.userId ?? null,
+            updated_at: new Date().toISOString(),
+        };
+
+        if (found?.id) {
+            const { error } = await supabase.from("cold_meeting_outcomes").update(payload).eq("id", found.id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabase.from("cold_meeting_outcomes").insert(payload);
+            if (error) throw error;
+        }
+
+        revalidatePath("/dashboard");
+        return { success: true };
+    } catch (e: any) {
+        console.error("setMeetingOutcome Error:", e);
+        return { success: false, error: e.message };
+    }
+}
 
 export async function getDashboardData(filters?: { period?: string; userId?: string; startDate?: string; endDate?: string }) {
     try {
@@ -112,7 +174,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         // 9. Cold Activity Notes
         let coldActivityQuery = supabase
             .from("cold_lead_notes")
-            .select("content, created_by, cold_leads!inner(tenant_id)")
+            .select("id, content, created_by, cold_leads!inner(tenant_id)")
             .eq("cold_leads.tenant_id", tenantId)
             .ilike("content", "Interação Registrada:%");
 
@@ -254,6 +316,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         let decisionMakers = 0;
         let meetings = 0;
         let conversions = 0;
+        const meetingNoteIds: string[] = [];
 
         activityNotes?.forEach((note: any) => {
             const rawResult = note.content.replace("Interação Registrada:", "").trim();
@@ -271,11 +334,26 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             }
             if (rawResult === 'reuniao_marcada') {
                 meetings++;
+                if (note.id) meetingNoteIds.push(note.id);
             }
             if (rawResult === 'convertido') {
                 conversions++;
             }
         });
+
+        // Resultado das reunioes marcadas no periodo (aconteceu / cancelada / no-show).
+        let meetingHappened = 0, meetingCanceled = 0, meetingNoShow = 0;
+        if (meetingNoteIds.length > 0) {
+            const { data: outcomes } = await supabase
+                .from("cold_meeting_outcomes")
+                .select("outcome")
+                .in("note_id", meetingNoteIds);
+            for (const o of outcomes ?? []) {
+                if (o.outcome === "aconteceu") meetingHappened++;
+                else if (o.outcome === "cancelada") meetingCanceled++;
+                else if (o.outcome === "no_show") meetingNoShow++;
+            }
+        }
 
 
         // === METRICAS DERIVADAS ===
@@ -335,7 +413,10 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
                 connections: connections,
                 decisionMakers: decisionMakers,
                 meetings: meetings,
-                conversions: conversions
+                conversions: conversions,
+                meetingHappened,
+                meetingCanceled,
+                meetingNoShow,
             }
         };
 
@@ -360,7 +441,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             conversationsCount: 0,
             unansweredChatsCount: 0,
             longestWaitTime: "0m",
-            coldMetrics: { total: 0, calls: 0, connections: 0, decisionMakers: 0, meetings: 0, conversions: 0 }
+            coldMetrics: { total: 0, calls: 0, connections: 0, decisionMakers: 0, meetings: 0, conversions: 0, meetingHappened: 0, meetingCanceled: 0, meetingNoShow: 0 }
         };
     }
 }
@@ -461,7 +542,7 @@ export async function getColdMeetingsDetails(filters?: { period?: string; userId
 
         let q = supabase
             .from("cold_lead_notes")
-            .select("cold_lead_id, created_by, created_at, cold_leads!inner(tenant_id, nome, telefone, nicho, proxima_ligacao)")
+            .select("id, cold_lead_id, created_by, created_at, cold_leads!inner(tenant_id, nome, telefone, nicho, proxima_ligacao)")
             .eq("cold_leads.tenant_id", tenantId)
             .ilike("content", "Interação Registrada: reuniao_marcada")
             .order("created_at", { ascending: false });
@@ -479,7 +560,17 @@ export async function getColdMeetingsDetails(filters?: { period?: string; userId
             for (const p of profs ?? []) nameById[p.id] = p.full_name || "Usuário";
         }
 
+        // Resultado ja registrado de cada reuniao (aconteceu / cancelada / no_show).
+        const noteIds = (notes ?? []).map((n: any) => n.id).filter(Boolean);
+        const outcomeByNote: Record<string, string> = {};
+        if (noteIds.length > 0) {
+            const { data: outs } = await supabase
+                .from("cold_meeting_outcomes").select("note_id, outcome").in("note_id", noteIds);
+            for (const o of outs ?? []) if (o.note_id) outcomeByNote[o.note_id] = o.outcome;
+        }
+
         const meetings = (notes ?? []).map((n: any) => ({
+            noteId: n.id,
             leadId: n.cold_lead_id,
             nome: n.cold_leads?.nome ?? "Sem nome",
             telefone: n.cold_leads?.telefone ?? "",
@@ -487,6 +578,7 @@ export async function getColdMeetingsDetails(filters?: { period?: string; userId
             marcadaEm: n.created_at,
             proximaReuniao: n.cold_leads?.proxima_ligacao ?? null,
             vendedor: n.created_by ? (nameById[n.created_by] ?? "Usuário") : "Sistema",
+            outcome: outcomeByNote[n.id] ?? null,
         }));
 
         return { success: true, data: meetings };

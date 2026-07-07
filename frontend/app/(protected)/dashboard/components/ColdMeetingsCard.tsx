@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarCheck, X, Phone, Loader2, CalendarClock } from "lucide-react";
-import { getColdMeetingsDetails } from "@/app/(protected)/dashboard/actions";
+import { CalendarCheck, X, Phone, Loader2, CalendarClock, Check, XCircle, UserX } from "lucide-react";
+import { toast } from "sonner";
+import { getColdMeetingsDetails, setMeetingOutcome, type MeetingOutcome } from "@/app/(protected)/dashboard/actions";
 
 type Meeting = {
+    noteId: string;
     leadId: string;
     nome: string;
     telefone: string;
@@ -13,7 +15,14 @@ type Meeting = {
     marcadaEm: string;
     proximaReuniao: string | null;
     vendedor: string;
+    outcome: MeetingOutcome | null;
 };
+
+const OUTCOMES: { key: MeetingOutcome; label: string; icon: typeof Check; active: string; idle: string }[] = [
+    { key: "aconteceu", label: "Aconteceu", icon: Check, active: "bg-emerald-600 text-white border-emerald-600", idle: "text-emerald-700 border-emerald-200 hover:bg-emerald-50" },
+    { key: "cancelada", label: "Cancelada", icon: XCircle, active: "bg-rose-600 text-white border-rose-600", idle: "text-rose-700 border-rose-200 hover:bg-rose-50" },
+    { key: "no_show", label: "No-show", icon: UserX, active: "bg-amber-500 text-white border-amber-500", idle: "text-amber-700 border-amber-200 hover:bg-amber-50" },
+];
 
 function formatPhone(p: string): string {
     const d = String(p || "").replace(/\D/g, "");
@@ -44,6 +53,7 @@ export function ColdMeetingsCard({
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [meetings, setMeetings] = useState<Meeting[]>([]);
+    const [savingNote, setSavingNote] = useState<string | null>(null);
 
     async function openModal() {
         setOpen(true);
@@ -51,6 +61,20 @@ export function ColdMeetingsCard({
         const res = await getColdMeetingsDetails({ period, userId, startDate, endDate });
         setMeetings(res.success ? (res.data as Meeting[]) : []);
         setLoading(false);
+    }
+
+    async function handleOutcome(m: Meeting, outcome: MeetingOutcome) {
+        // Clicar de novo no atual remove; senao aplica.
+        const next = m.outcome === outcome ? null : outcome;
+        setSavingNote(m.noteId);
+        setMeetings((prev) => prev.map((x) => (x.noteId === m.noteId ? { ...x, outcome: next } : x)));
+        const res = await setMeetingOutcome({ noteId: m.noteId, coldLeadId: m.leadId, outcome: next ?? outcome, meetingAt: m.proximaReuniao, clear: next === null });
+        if (!res.success) {
+            toast.error("Erro ao salvar resultado", { description: res.error });
+            const r = await getColdMeetingsDetails({ period, userId, startDate, endDate });
+            setMeetings(r.success ? (r.data as Meeting[]) : []);
+        }
+        setSavingNote(null);
     }
 
     return (
@@ -86,7 +110,7 @@ export function ColdMeetingsCard({
                                 </div>
                                 <div>
                                     <h2 className="text-base font-bold text-slate-900">Reuniões marcadas</h2>
-                                    <p className="text-[11px] text-slate-500">{meetings.length} no período · só visualização</p>
+                                    <p className="text-[11px] text-slate-500">{meetings.length} no período · marque o resultado</p>
                                 </div>
                             </div>
                             <button onClick={() => setOpen(false)} aria-label="Fechar" className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
@@ -131,6 +155,26 @@ export function ColdMeetingsCard({
                                                         </div>
                                                     )}
                                                 </div>
+                                            </div>
+
+                                            {/* Resultado da reunião */}
+                                            <div className="flex items-center gap-2 mt-2.5">
+                                                {OUTCOMES.map((o) => {
+                                                    const Icon = o.icon;
+                                                    const isActive = m.outcome === o.key;
+                                                    return (
+                                                        <button
+                                                            key={o.key}
+                                                            type="button"
+                                                            disabled={savingNote === m.noteId}
+                                                            onClick={() => handleOutcome(m, o.key)}
+                                                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[12px] font-semibold transition-colors disabled:opacity-50 ${isActive ? o.active : `bg-white ${o.idle}`}`}
+                                                        >
+                                                            <Icon className="w-3.5 h-3.5" />
+                                                            {o.label}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
                                         </li>
                                     ))}

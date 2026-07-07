@@ -22,7 +22,7 @@ import VetDashboard from "./components/VetDashboard";
 import OnboardingBanner from "@/components/dashboard/OnboardingBanner";
 import {
     Trophy, Wallet, Target, Coins, Clock, CheckSquare,
-    Phone, PhoneCall, Users, UserCheck, CalendarCheck,
+    Phone, PhoneCall, Users, UserCheck, CalendarCheck, XCircle, UserX,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -375,6 +375,36 @@ async function DashboardContent({
                             pct={data.coldMetrics?.calls ? Math.round(((data.coldMetrics.conversions || 0) / data.coldMetrics.calls) * 100) : 0}
                         />
                     </div>
+
+                    {/* Resultado das reuniões marcadas no período */}
+                    {(data.coldMetrics?.meetings ?? 0) > 0 && (
+                        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl bg-[#0f172a]/40 border border-white/5 px-4 py-3">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Resultado das reuniões</span>
+                            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-300">
+                                <CalendarCheck className="w-3.5 h-3.5" /> {data.coldMetrics?.meetingHappened ?? 0}
+                                <span className="text-[11px] font-medium text-gray-400">aconteceram</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-rose-300">
+                                <XCircle className="w-3.5 h-3.5" /> {data.coldMetrics?.meetingCanceled ?? 0}
+                                <span className="text-[11px] font-medium text-gray-400">canceladas</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-300">
+                                <UserX className="w-3.5 h-3.5" /> {data.coldMetrics?.meetingNoShow ?? 0}
+                                <span className="text-[11px] font-medium text-gray-400">no-show</span>
+                            </span>
+                            {(() => {
+                                const done = data.coldMetrics?.meetingHappened ?? 0;
+                                const m = data.coldMetrics?.meetings ?? 0;
+                                const pending = Math.max(0, m - done - (data.coldMetrics?.meetingCanceled ?? 0) - (data.coldMetrics?.meetingNoShow ?? 0));
+                                return pending > 0 ? (
+                                    <span className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-300">
+                                        <Clock className="w-3.5 h-3.5" /> {pending}
+                                        <span className="text-[11px] font-medium text-gray-400">aguardando</span>
+                                    </span>
+                                ) : null;
+                            })()}
+                        </div>
+                    )}
                 </div>
             )}
 
