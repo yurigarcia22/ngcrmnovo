@@ -124,7 +124,7 @@ export function DiagnosticoPdf({ d, empresa, subtitulo, data }: { d: Diagnostico
                                 {!!d.prova_social.de && <Text style={s.provaDe}>{d.prova_social.de}</Text>}
                                 <Text style={s.provaSeta}>para</Text>
                                 <Text style={s.provaPara}>{d.prova_social.para}</Text>
-                                {!!d.prova_social.metrica && <Text style={s.provaMetrica}>{d.prova_social.metrica.toUpperCase()}</Text>}
+                                {!!d.prova_social.metrica && <Text style={s.provaMetrica}>{d.prova_social.metrica.toLowerCase()}</Text>}
                             </View>
                             <View style={s.provaRight}>
                                 <Text style={s.provaLbl}>JA FIZEMOS ISSO NO SEU SETOR</Text>
