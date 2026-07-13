@@ -18,6 +18,110 @@ async function assertProspeccao(): Promise<string> {
     return tenantId;
 }
 
+// ===================== Biblioteca de Cases (prova social) =====================
+
+export interface ProspeccaoCase {
+    id: string;
+    nicho: string;
+    cliente: string | null;
+    cliente_publico: boolean;
+    headline: string;
+    metrica: string;
+    valor_antes: string | null;
+    valor_depois: string | null;
+    prazo: string | null;
+    o_que_fizemos: string | null;
+    ativo: boolean;
+}
+
+export async function listCases() {
+    try {
+        const tenantId = await assertProspeccao();
+        const { data, error } = await svc()
+            .from("prospeccao_cases")
+            .select("id, nicho, cliente, cliente_publico, headline, metrica, valor_antes, valor_depois, prazo, o_que_fizemos, ativo")
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+        return { success: true, cases: (data ?? []) as ProspeccaoCase[] };
+    } catch (e: any) {
+        return { success: false, cases: [] as ProspeccaoCase[], error: e.message };
+    }
+}
+
+export interface CaseInput {
+    id?: string;
+    nicho: string;
+    cliente?: string;
+    cliente_publico: boolean;
+    headline: string;
+    metrica: string;
+    valor_antes?: string;
+    valor_depois?: string;
+    prazo?: string;
+    o_que_fizemos?: string;
+    ativo?: boolean;
+}
+
+export async function saveCase(input: CaseInput) {
+    try {
+        const tenantId = await assertProspeccao();
+        if (!input.nicho?.trim()) throw new Error("Informe o nicho do case.");
+        if (!input.headline?.trim()) throw new Error("Informe o resultado (headline) do case.");
+
+        const row = {
+            tenant_id: tenantId,
+            nicho: input.nicho.trim().toLowerCase(),
+            cliente: input.cliente?.trim() || null,
+            cliente_publico: input.cliente_publico !== false,
+            headline: input.headline.trim(),
+            metrica: (input.metrica || "").trim() || "resultado",
+            valor_antes: input.valor_antes?.trim() || null,
+            valor_depois: input.valor_depois?.trim() || null,
+            prazo: input.prazo?.trim() || null,
+            o_que_fizemos: input.o_que_fizemos?.trim() || null,
+            ativo: input.ativo !== false,
+        };
+
+        const supabase = svc();
+        if (input.id) {
+            const { error } = await supabase.from("prospeccao_cases").update(row).eq("tenant_id", tenantId).eq("id", input.id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabase.from("prospeccao_cases").insert(row);
+            if (error) throw error;
+        }
+        revalidatePath("/prospeccao/cases");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+export async function toggleCase(id: string, ativo: boolean) {
+    try {
+        const tenantId = await assertProspeccao();
+        const { error } = await svc().from("prospeccao_cases").update({ ativo }).eq("tenant_id", tenantId).eq("id", id);
+        if (error) throw error;
+        revalidatePath("/prospeccao/cases");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+export async function deleteCase(id: string) {
+    try {
+        const tenantId = await assertProspeccao();
+        const { error } = await svc().from("prospeccao_cases").delete().eq("tenant_id", tenantId).eq("id", id);
+        if (error) throw error;
+        revalidatePath("/prospeccao/cases");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
 export interface ProspeccaoLead {
     id: string;
     empresa: string;

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
     Search, Sparkles, Plus, Trash2, Check, FileText, Loader2,
     Building2, MapPin, Tag, MessageSquare, AlertTriangle, ClipboardList, Upload,
-    FileBarChart2, Send, ExternalLink,
+    FileBarChart2, Send, ExternalLink, Trophy,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,9 @@ export default function ProspeccaoClient({ initialLeads }: { initialLeads: Prosp
                 icon={<Sparkles className="w-5 h-5" />}
                 actions={
                     <>
+                        <Button variant="outline" asChild>
+                            <Link href="/prospeccao/cases"><Trophy /> Cases</Link>
+                        </Button>
                         <Button variant="outline" asChild>
                             <Link href="/prospeccao/importar"><Upload /> Importar planilha</Link>
                         </Button>
