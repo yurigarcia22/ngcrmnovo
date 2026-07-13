@@ -116,6 +116,34 @@ const SYSTEM_DIAG = [
     "REGRAS: sem travessao, sem emoji, portugues do Brasil simples. Responda SOMENTE o JSON.",
 ].join("\n");
 
+// Trava final anti-jargao: troca termos tecnicos que o modelo insiste em usar
+// por linguagem de dono. Garante zero jargao mesmo se o prompt falhar.
+const SUBS: [RegExp, string][] = [
+    [/integra(c|ç)(a|ã)o de ferramentas de an(a|á)lise/gi, "ferramentas de acompanhamento"],
+    [/ferramentas de an(a|á)lise integradas como o pixel/gi, "uma forma de ver quem visita o site"],
+    [/ferramentas? (como |tipo )?o? ?pixel/gi, "uma forma de ver quem visita o site"],
+    [/\bo pixel\b/gi, "essa ferramenta"],
+    [/\bpixel\b/gi, "ferramenta de acompanhamento"],
+    [/\bremarketing\b/gi, "chamar de volta quem visitou"],
+    [/\bfunil de vendas\b/gi, "processo de vendas"],
+    [/\bfunil\b/gi, "processo de vendas"],
+    [/\bengajamento\b/gi, "interesse"],
+    [/\bintegrar\b/gi, "conectar"],
+    [/\bIntegrar\b/g, "Conectar"],
+    [/\bintegra(c|ç)(a|ã)o\b/gi, "conexao"],
+    [/\btr(a|á)fego pago\b/gi, "anuncios pra quem procura o que voce vende"],
+    [/\btr(a|á)fego\b/gi, "visitas"],
+    [/\bleads?\b/gi, "interessados"],
+    [/\bCRM\b/g, "sistema de acompanhamento"],
+    [/\bconvers(a|ã)o\b/gi, "transformar interesse em cliente"],
+    [/\bconverter\b/gi, "transformar em cliente"],
+];
+function limparJargao(t: string): string {
+    let s = t || "";
+    for (const [re, sub] of SUBS) s = s.replace(re, sub);
+    return s.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
+}
+
 export async function gerarDiagnostico(
     lead: LeadParaEnriquecer,
     cases: CaseNG[] = []
@@ -182,25 +210,25 @@ export async function gerarDiagnostico(
 
     const diagnostico: Diagnostico = {
         nota_geral: Math.max(0, Math.min(100, Math.round(Number(p.nota_geral) || 0))),
-        veredito: String(p.veredito || ""),
-        resumo_executivo: String(p.resumo_executivo || ""),
-        contexto_mercado: String(p.contexto_mercado || ""),
+        veredito: limparJargao(String(p.veredito || "")),
+        resumo_executivo: limparJargao(String(p.resumo_executivo || "")),
+        contexto_mercado: limparJargao(String(p.contexto_mercado || "")),
         eixos: Array.isArray(p.eixos) ? p.eixos.slice(0, 6).map((e: any) => ({
-            nome: String(e.nome || ""),
+            nome: limparJargao(String(e.nome || "")),
             nota: Math.max(0, Math.min(10, Math.round(Number(e.nota) || 0))),
             status: ["critico", "atencao", "bom"].includes(e.status) ? e.status : "atencao",
             base: e.base === "observado" ? "observado" : "hipotese",
-            achado: String(e.achado || ""),
-            recomendacao: String(e.recomendacao || ""),
+            achado: limparJargao(String(e.achado || "")),
+            recomendacao: limparJargao(String(e.recomendacao || "")),
         })) : [],
         oportunidade_central: {
-            titulo: String(p.oportunidade_central?.titulo || ""),
-            texto: String(p.oportunidade_central?.texto || ""),
+            titulo: limparJargao(String(p.oportunidade_central?.titulo || "")),
+            texto: limparJargao(String(p.oportunidade_central?.texto || "")),
         },
         plano: Array.isArray(p.plano) ? p.plano.slice(0, 5).map((x: any, i: number) => ({
             passo: Number(x.passo) || i + 1,
-            titulo: String(x.titulo || ""),
-            descricao: String(x.descricao || ""),
+            titulo: limparJargao(String(x.titulo || "")),
+            descricao: limparJargao(String(x.descricao || "")),
             prazo: String(x.prazo || ""),
         })) : [],
         prova_social: prova,
