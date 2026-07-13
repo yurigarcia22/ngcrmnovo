@@ -135,6 +135,8 @@ const SUBS: [RegExp, string][] = [
     [/\bleads\b/gi, "interessados"],
     [/\blead\b/gi, "interessado"],
     [/\bCRM\b/g, "sistema de acompanhamento"],
+    [/\bintegrar\b/gi, "conectar"],
+    [/\bintegra(c|ç)(a|ã)o\b/gi, "conexao"],
 ];
 function limparJargao(t: string): string {
     let s = (t || "").replace(/_/g, " ");
