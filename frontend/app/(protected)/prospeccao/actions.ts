@@ -1,0 +1,243 @@
+"use server";
+
+import { createClient } from "@supabase/supabase-js";
+import { getTenantId } from "@/app/actions";
+import { isModuleEnabled } from "@/lib/modules";
+import { normalizeToCanonical, isPlausibleBRPhone } from "@/lib/phone";
+import { enriquecerLead, type DossieLead } from "@/lib/prospeccao/enrich";
+import { revalidatePath } from "next/cache";
+
+function svc() {
+    return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
+
+async function assertProspeccao(): Promise<string> {
+    const tenantId = await getTenantId();
+    if (!(await isModuleEnabled(tenantId, "prospeccao"))) throw new Error("Módulo Prospecção desativado.");
+    return tenantId;
+}
+
+export interface ProspeccaoLead {
+    id: string;
+    empresa: string;
+    cnpj: string | null;
+    site: string | null;
+    instagram: string | null;
+    telefone: string | null;
+    cidade: string | null;
+    nicho: string | null;
+    status: string;
+    socio: string | null;
+    dossie: DossieLead | null;
+    erro: string | null;
+    enriched_at: string | null;
+    created_at: string;
+}
+
+export async function listLeads() {
+    try {
+        const tenantId = await assertProspeccao();
+        const { data, error } = await svc()
+            .from("prospeccao_leads")
+            .select("id, empresa, cnpj, site, instagram, telefone, cidade, nicho, status, socio, dossie, erro, enriched_at, created_at")
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+        return { success: true, leads: (data ?? []) as ProspeccaoLead[] };
+    } catch (e: any) {
+        return { success: false, leads: [] as ProspeccaoLead[], error: e.message };
+    }
+}
+
+export interface NovoLeadInput {
+    empresa: string;
+    cnpj?: string;
+    site?: string;
+    instagram?: string;
+    telefone?: string;
+    cidade?: string;
+    nicho?: string;
+}
+
+export async function addLead(input: NovoLeadInput) {
+    try {
+        const tenantId = await assertProspeccao();
+        if (!input.empresa?.trim()) throw new Error("Informe o nome da empresa.");
+
+        let telefone: string | null = null;
+        if (input.telefone && isPlausibleBRPhone(input.telefone)) telefone = normalizeToCanonical(input.telefone);
+
+        const { data, error } = await svc()
+            .from("prospeccao_leads")
+            .insert({
+                tenant_id: tenantId,
+                empresa: input.empresa.trim(),
+                cnpj: input.cnpj?.trim() || null,
+                site: input.site?.trim() || null,
+                instagram: input.instagram?.trim() || null,
+                telefone,
+                cidade: input.cidade?.trim() || null,
+                nicho: input.nicho?.trim() || null,
+                status: "novo",
+            })
+            .select("id")
+            .single();
+        if (error) throw error;
+
+        revalidatePath("/prospeccao");
+        return { success: true, id: data.id };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Importa varias linhas: "empresa;cnpj;site;cidade;nicho;telefone" (; ou tab).
+// So "empresa" e obrigatoria; o resto pode ficar vazio.
+export async function importLeads(raw: string) {
+    try {
+        const tenantId = await assertProspeccao();
+        const lines = (raw || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        const rows: any[] = [];
+        let ignoradas = 0;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (i === 0 && /empresa|cnpj|site|nicho|cidade/i.test(line) && /[;\t]/.test(line)) continue; // cabecalho
+            const p = line.split(/[;\t]/).map((c) => c.trim());
+            const empresa = p[0];
+            if (!empresa) { ignoradas++; continue; }
+            const telefoneRaw = p[5] || "";
+            const telefone = telefoneRaw && isPlausibleBRPhone(telefoneRaw) ? normalizeToCanonical(telefoneRaw) : null;
+            rows.push({
+                tenant_id: tenantId,
+                empresa,
+                cnpj: p[1] || null,
+                site: p[2] || null,
+                cidade: p[3] || null,
+                nicho: p[4] || null,
+                telefone,
+                status: "novo",
+            });
+        }
+        if (rows.length === 0) throw new Error("Nenhuma linha válida. Formato: empresa;cnpj;site;cidade;nicho;telefone");
+
+        for (let i = 0; i < rows.length; i += 500) {
+            const { error } = await svc().from("prospeccao_leads").insert(rows.slice(i, i + 500));
+            if (error) throw error;
+        }
+
+        revalidatePath("/prospeccao");
+        return { success: true, total: rows.length, ignoradas };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Roda a pesquisa (enriquecimento + dossie) de UM lead.
+export async function enrichLead(id: string) {
+    try {
+        const tenantId = await assertProspeccao();
+        const supabase = svc();
+
+        const { data: lead, error: e1 } = await supabase
+            .from("prospeccao_leads")
+            .select("id, empresa, cnpj, site, instagram, cidade, nicho")
+            .eq("tenant_id", tenantId)
+            .eq("id", id)
+            .single();
+        if (e1 || !lead) throw new Error("Lead não encontrado.");
+
+        await supabase.from("prospeccao_leads").update({ status: "pesquisando", erro: null }).eq("tenant_id", tenantId).eq("id", id);
+
+        try {
+            const res = await enriquecerLead({
+                empresa: lead.empresa,
+                cnpj: lead.cnpj,
+                site: lead.site,
+                instagram: lead.instagram,
+                cidade: lead.cidade,
+                nicho: lead.nicho,
+            });
+            const { error: e2 } = await supabase
+                .from("prospeccao_leads")
+                .update({
+                    status: "pronto",
+                    socio: res.socio || null,
+                    dossie: res.dossie,
+                    raw_enrichment: res.raw,
+                    erro: null,
+                    enriched_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                })
+                .eq("tenant_id", tenantId)
+                .eq("id", id);
+            if (e2) throw e2;
+            revalidatePath("/prospeccao");
+            return { success: true };
+        } catch (inner: any) {
+            await supabase
+                .from("prospeccao_leads")
+                .update({ status: "erro", erro: String(inner.message || inner).slice(0, 500), updated_at: new Date().toISOString() })
+                .eq("tenant_id", tenantId)
+                .eq("id", id);
+            revalidatePath("/prospeccao");
+            return { success: false, error: inner.message || "Falha ao pesquisar." };
+        }
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Edita a mensagem_1 do dossie (revisao humana antes de aprovar).
+export async function updateMensagem(id: string, mensagem: string) {
+    try {
+        const tenantId = await assertProspeccao();
+        const supabase = svc();
+        const { data: lead, error: e1 } = await supabase
+            .from("prospeccao_leads")
+            .select("dossie")
+            .eq("tenant_id", tenantId)
+            .eq("id", id)
+            .single();
+        if (e1 || !lead) throw new Error("Lead não encontrado.");
+        const dossie = (lead.dossie || {}) as DossieLead;
+        dossie.mensagem_1 = mensagem;
+        const { error: e2 } = await supabase
+            .from("prospeccao_leads")
+            .update({ dossie, updated_at: new Date().toISOString() })
+            .eq("tenant_id", tenantId)
+            .eq("id", id);
+        if (e2) throw e2;
+        revalidatePath("/prospeccao");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+export async function setLeadStatus(id: string, status: "novo" | "aprovado") {
+    try {
+        const tenantId = await assertProspeccao();
+        const { error } = await svc()
+            .from("prospeccao_leads")
+            .update({ status, updated_at: new Date().toISOString() })
+            .eq("tenant_id", tenantId)
+            .eq("id", id);
+        if (error) throw error;
+        revalidatePath("/prospeccao");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+export async function deleteLead(id: string) {
+    try {
+        const tenantId = await assertProspeccao();
+        const { error } = await svc().from("prospeccao_leads").delete().eq("tenant_id", tenantId).eq("id", id);
+        if (error) throw error;
+        revalidatePath("/prospeccao");
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}

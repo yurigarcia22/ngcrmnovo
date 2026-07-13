@@ -20,7 +20,8 @@ import {
     Megaphone,
     PawPrint,
     CalendarDays,
-    Send
+    Send,
+    Sparkles
 } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { getUnreadCount } from "@/app/actions";
@@ -184,7 +185,7 @@ export default function Sidebar({
                     open={open}
                 />
 
-                {(modules.leads || modules.cold_call || modules.webinar || modules.disparos) && open && (
+                {(modules.leads || modules.cold_call || modules.webinar || modules.disparos || modules.prospeccao) && open && (
                     <div className="mt-6 mb-2 ml-2 text-sm font-semibold text-slate-700">
                         {vocab.commercialSection}
                     </div>
@@ -223,6 +224,15 @@ export default function Sidebar({
                         title="Disparos"
                         href="/disparos"
                         isActive={pathname.startsWith("/disparos")}
+                        open={open}
+                    />
+                )}
+                {modules.prospeccao && (
+                    <Option
+                        Icon={Sparkles}
+                        title="Prospecção"
+                        href="/prospeccao"
+                        isActive={pathname.startsWith("/prospeccao")}
                         open={open}
                     />
                 )}
