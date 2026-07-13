@@ -118,30 +118,33 @@ const SYSTEM_DIAG = [
 
 // Trava final anti-jargao: troca termos tecnicos que o modelo insiste em usar
 // por linguagem de dono. Garante zero jargao mesmo se o prompt falhar.
+// Só substituicoes SEGURAS (substantivo por substantivo, nao quebram a frase).
+// Termos que exigiriam reestruturar a frase (converter/conversao) ficam a cargo
+// do prompt, pra evitar portugues quebrado.
 const SUBS: [RegExp, string][] = [
-    [/integra(c|ç)(a|ã)o de ferramentas de an(a|á)lise/gi, "ferramentas de acompanhamento"],
     [/ferramentas de an(a|á)lise integradas como o pixel/gi, "uma forma de ver quem visita o site"],
-    [/ferramentas? (como |tipo )?o? ?pixel/gi, "uma forma de ver quem visita o site"],
+    [/ferramentas? (como |tipo )?o? ?pixel( do meta)?/gi, "uma forma de ver quem visita o site"],
     [/\bo pixel\b/gi, "essa ferramenta"],
-    [/\bpixel\b/gi, "ferramenta de acompanhamento"],
-    [/\bremarketing\b/gi, "chamar de volta quem visitou"],
+    [/\bpixel( do meta)?\b/gi, "ferramenta de acompanhamento"],
+    [/\bremarketing\b/gi, "lembretes para quem visitou"],
     [/\bfunil de vendas\b/gi, "processo de vendas"],
     [/\bfunil\b/gi, "processo de vendas"],
     [/\bengajamento\b/gi, "interesse"],
-    [/\bintegrar\b/gi, "conectar"],
-    [/\bIntegrar\b/g, "Conectar"],
-    [/\bintegra(c|ç)(a|ã)o\b/gi, "conexao"],
-    [/\btr(a|á)fego pago\b/gi, "anuncios pra quem procura o que voce vende"],
+    [/\btr(a|á)fego pago\b/gi, "anuncios"],
     [/\btr(a|á)fego\b/gi, "visitas"],
-    [/\bleads?\b/gi, "interessados"],
+    [/\bleads\b/gi, "interessados"],
+    [/\blead\b/gi, "interessado"],
     [/\bCRM\b/g, "sistema de acompanhamento"],
-    [/\bconvers(a|ã)o\b/gi, "transformar interesse em cliente"],
-    [/\bconverter\b/gi, "transformar em cliente"],
 ];
 function limparJargao(t: string): string {
-    let s = t || "";
+    let s = (t || "").replace(/_/g, " ");
     for (const [re, sub] of SUBS) s = s.replace(re, sub);
     return s.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
+}
+// Para nomes/titulos curtos: limpa jargao e garante inicial maiuscula.
+function limparTitulo(t: string): string {
+    const s = limparJargao(t);
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
 export async function gerarDiagnostico(
@@ -214,7 +217,7 @@ export async function gerarDiagnostico(
         resumo_executivo: limparJargao(String(p.resumo_executivo || "")),
         contexto_mercado: limparJargao(String(p.contexto_mercado || "")),
         eixos: Array.isArray(p.eixos) ? p.eixos.slice(0, 6).map((e: any) => ({
-            nome: limparJargao(String(e.nome || "")),
+            nome: limparTitulo(String(e.nome || "")),
             nota: Math.max(0, Math.min(10, Math.round(Number(e.nota) || 0))),
             status: ["critico", "atencao", "bom"].includes(e.status) ? e.status : "atencao",
             base: e.base === "observado" ? "observado" : "hipotese",
@@ -222,12 +225,12 @@ export async function gerarDiagnostico(
             recomendacao: limparJargao(String(e.recomendacao || "")),
         })) : [],
         oportunidade_central: {
-            titulo: limparJargao(String(p.oportunidade_central?.titulo || "")),
+            titulo: limparTitulo(String(p.oportunidade_central?.titulo || "")),
             texto: limparJargao(String(p.oportunidade_central?.texto || "")),
         },
         plano: Array.isArray(p.plano) ? p.plano.slice(0, 5).map((x: any, i: number) => ({
             passo: Number(x.passo) || i + 1,
-            titulo: limparJargao(String(x.titulo || "")),
+            titulo: limparTitulo(String(x.titulo || "")),
             descricao: limparJargao(String(x.descricao || "")),
             prazo: String(x.prazo || ""),
         })) : [],
