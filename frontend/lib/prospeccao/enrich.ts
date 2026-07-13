@@ -1,12 +1,10 @@
 /**
  * Camada de pesquisa da Prospeccao Inteligente.
  *
- * Dado um lead (empresa com CNPJ e/ou site), enriquece com dados publicos e
- * gera um DOSSIE com observacoes concretas, dor, gancho, insight e a 1a
- * mensagem. Tudo baseado em fato: o prompt proibe inventar dado.
- *
- * Fontes: BrasilAPI (CNPJ + QSA/socios), texto do site. Geracao: OpenAI.
- * Sem dependencia de SDK: usa fetch nativo (Node 20).
+ * Dado um lead (empresa com CNPJ e/ou site), enriquece com dados publicos reais
+ * (Receita Federal via BrasilAPI + analise tecnica do site) e gera um DOSSIE de
+ * consultor: observacoes especificas, dor, gancho, insight e a 1a mensagem.
+ * O prompt proibe inventar dado: dossie so fala do que a pesquisa achou.
  *
  * Env:
  *   OPENAI_API_KEY        (obrigatoria)
@@ -32,6 +30,21 @@ export interface LeadParaEnriquecer {
     nicho?: string | null;
 }
 
+export interface SinaisSite {
+    online: boolean;
+    titulo: string;
+    descricao: string;
+    tem_pixel_meta: boolean;
+    tem_ga_ou_gtm: boolean;
+    tem_whatsapp: boolean;
+    tem_loja_online: boolean;
+    tem_form_captura: boolean;
+    tem_blog: boolean;
+    plataforma: string;
+    paginas_lidas: string[];
+    resumo_texto: string;
+}
+
 export interface ResultadoEnriquecimento {
     socio: string;
     dossie: DossieLead;
@@ -54,7 +67,9 @@ export async function consultarCnpj(cnpj: string): Promise<Record<string, any> |
     if (digits.length !== 14) return null;
     for (let tentativa = 0; tentativa < 2; tentativa++) {
         try {
-            const r = await fetchComTimeout(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
+            const r = await fetchComTimeout(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, {
+                headers: { "User-Agent": "Mozilla/5.0 (compatible; NGProspect/1.0)" },
+            });
             if (r.ok) {
                 const j = await r.json();
                 if (j && j.razao_social) return j;
@@ -67,25 +82,94 @@ export async function consultarCnpj(cnpj: string): Promise<Record<string, any> |
     return null;
 }
 
-/** Baixa o site e extrai texto limpo (ate ~4000 chars). Tolerante a falha. */
-export async function extrairTextoSite(site: string): Promise<string> {
-    if (!site) return "";
-    let url = site.trim();
-    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+function limparHtml(html: string): string {
+    return html
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function extrairTag(html: string, re: RegExp): string {
+    const m = html.match(re);
+    return m ? m[1].replace(/\s+/g, " ").trim().slice(0, 300) : "";
+}
+
+/**
+ * Analisa o site de verdade: le a home + ate 2 paginas internas, detecta sinais
+ * tecnicos (pixel, analytics, WhatsApp, loja, captura, plataforma) e resume o texto.
+ * Isso e o que separa um dossie de consultor de um dossie generico.
+ */
+export async function analisarSite(site: string): Promise<SinaisSite> {
+    const vazio: SinaisSite = {
+        online: false, titulo: "", descricao: "", tem_pixel_meta: false, tem_ga_ou_gtm: false,
+        tem_whatsapp: false, tem_loja_online: false, tem_form_captura: false, tem_blog: false,
+        plataforma: "", paginas_lidas: [], resumo_texto: "",
+    };
+    if (!site) return vazio;
+    let base = site.trim();
+    if (!/^https?:\/\//i.test(base)) base = "https://" + base;
+
+    let homeHtml = "";
     try {
-        const r = await fetchComTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; NGProspect/1.0)" } });
-        if (!r.ok) return "";
-        const html = await r.text();
-        return html
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 4000);
+        const r = await fetchComTimeout(base, { headers: { "User-Agent": "Mozilla/5.0 (compatible; NGProspect/1.0)" } });
+        if (!r.ok) return vazio;
+        homeHtml = await r.text();
     } catch {
-        return "";
+        return vazio;
     }
+
+    const low = homeHtml.toLowerCase();
+    const plataforma =
+        /shopify/.test(low) ? "Shopify" :
+        /woocommerce|wp-content/.test(low) ? (/(woocommerce)/.test(low) ? "WooCommerce" : "WordPress") :
+        /nuvemshop|tiendanube/.test(low) ? "Nuvemshop" :
+        /vtex/.test(low) ? "VTEX" :
+        /wix\.com|wixstatic/.test(low) ? "Wix" :
+        /squarespace/.test(low) ? "Squarespace" : "";
+
+    const sinais: SinaisSite = {
+        online: true,
+        titulo: extrairTag(homeHtml, /<title[^>]*>([\s\S]*?)<\/title>/i),
+        descricao: extrairTag(homeHtml, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i),
+        tem_pixel_meta: /connect\.facebook\.net|fbq\(|facebook pixel/i.test(homeHtml),
+        tem_ga_ou_gtm: /googletagmanager\.com|gtag\(|google-analytics\.com|ga\('create'/i.test(homeHtml),
+        tem_whatsapp: /wa\.me\/|api\.whatsapp\.com|whatsapp/i.test(homeHtml),
+        tem_loja_online: /add[-_ ]?to[-_ ]?cart|adicionar ao carrinho|checkout|finalizar compra|meu carrinho|comprar agora/i.test(homeHtml) || !!plataforma.match(/Shopify|Woo|Nuvem|VTEX/),
+        tem_form_captura: /type=["']email["']|newsletter|cadastre-se|assine|inscreva/i.test(homeHtml),
+        tem_blog: /\/blog|artigos|noticias/i.test(homeHtml),
+        plataforma,
+        paginas_lidas: [base],
+        resumo_texto: limparHtml(homeHtml).slice(0, 3500),
+    };
+
+    // Le ate 2 paginas internas relevantes (sobre / servicos / produtos)
+    try {
+        const hrefs = Array.from(homeHtml.matchAll(/href=["']([^"']+)["']/gi)).map((m) => m[1]);
+        const alvos = hrefs
+            .filter((h) => /(sobre|quem-somos|servi|produto|soluco|contato)/i.test(h))
+            .slice(0, 2)
+            .map((h) => {
+                try { return new URL(h, base).href; } catch { return ""; }
+            })
+            .filter((h) => h && h.startsWith("http"));
+        for (const alvo of Array.from(new Set(alvos))) {
+            try {
+                const r = await fetchComTimeout(alvo, { headers: { "User-Agent": "Mozilla/5.0 (compatible; NGProspect/1.0)" } }, 10000);
+                if (r.ok) {
+                    const t = limparHtml(await r.text()).slice(0, 1500);
+                    if (t.length > 150) {
+                        sinais.resumo_texto += "\n\n[" + alvo + "]\n" + t;
+                        sinais.paginas_lidas.push(alvo);
+                    }
+                }
+            } catch { /* ignora pagina interna que falhar */ }
+        }
+    } catch { /* sem links internos */ }
+
+    sinais.resumo_texto = sinais.resumo_texto.slice(0, 6000);
+    return sinais;
 }
 
 /** Extrai o primeiro nome do socio-administrador a partir do QSA da receita. */
@@ -99,15 +183,30 @@ export function extrairSocio(receita: Record<string, any> | null): string {
     return primeiro.charAt(0).toUpperCase() + primeiro.slice(1);
 }
 
+function anosDeMercado(dataInicio?: string): number | null {
+    if (!dataInicio) return null;
+    const d = new Date(dataInicio);
+    if (isNaN(d.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24 * 365)));
+}
+
 const SYSTEM_PROMPT = [
-    "Voce e analista comercial do Grupo NG, assessoria de marketing e vendas do Yuri Garcia.",
-    "Com base na ficha da empresa, produza um JSON com exatamente estas chaves:",
-    '- "observacoes": array com 3 observacoes concretas e verificaveis sobre a presenca comercial/digital da empresa. Nada generico, nada de elogio vazio. Cada observacao cita um fato da ficha.',
-    '- "dor": a dor provavel que essas observacoes indicam (1 frase).',
-    '- "gancho": qual das 3 observacoes e a mais forte pra abrir conversa (copie o texto dela). Gancho bom aponta DOR, risco ou oportunidade perdida; elogio nao e gancho. Se a observacao mais forte for positiva, reformule como o que a empresa esta deixando na mesa por causa disso.',
-    '- "insight_gratis": 1 insight acionavel que podemos entregar de graca na conversa.',
-    '- "mensagem_1": a primeira mensagem de WhatsApp, seguindo EXATAMENTE esta estrutura: saudacao com o primeiro nome do socio (se houver; senao cumprimente o responsavel pela empresa) + "Aqui e o Yuri, do Grupo NG" + o gancho em linguagem natural + 1 frase curta sobre o que a NG faz + loop aberto ("notei mais 2 pontos alem desse") + pergunta final curta. Escreva com pontuacao natural de conversa (virgulas, pontos e interrogacao), nunca frases emendadas sem pontuacao. Sem link. Sem travessao. Maximo 450 caracteres. Tom brasileiro informal-profissional, soando 100% humano, nunca robotico.',
-    "REGRA ABSOLUTA: proibido inventar dados. Se a informacao nao esta na ficha, nao use. NUNCA transforme a ausencia de um dado em observacao (nada de 'nao foi possivel consultar o CNPJ' ou 'nao ha dados sobre seguidores'); observacao e so sobre o que EXISTE na ficha. Se faltar dado do site, baseie as observacoes no que existir (receita, instagram, nicho). Responda SOMENTE o JSON.",
+    "Voce e consultor comercial senior do Grupo NG, assessoria de marketing e vendas do Yuri Garcia. Voce olhou os dados publicos desta empresa (Receita Federal e o site dela) como quem prepara uma reuniao de diagnostico. Pense como dono de negocio, nao como redator.",
+    "",
+    "Seu trabalho e CRUZAR os dados e tirar conclusoes que o dono nao veria sozinho. Exemplos de raciocinio (adapte ao caso, nao copie):",
+    "- Empresa com muitos anos de mercado + site sem pixel de rastreamento = anos de trafego jogados fora, impossivel remarketing.",
+    "- CNAE de atacado + site sem area de catalogo/login de lojista = dependencia de indicacao, sem canal de aquisicao de novos lojistas.",
+    "- Tem loja online mas sem WhatsApp visivel = atrito na duvida antes da compra, carrinho abandonado que nao volta.",
+    "- Instagram ativo como unico canal = todo o negocio refem do alcance organico de UMA plataforma.",
+    "",
+    "Produza um JSON com EXATAMENTE estas chaves:",
+    '- "observacoes": array com 3 observacoes. Cada uma: um FATO concreto da ficha + a CONSEQUENCIA comercial dele (o que isso custa em cliente/faturamento). Especifica, nao obvia. Proibido elogio vazio e proibido observacao sobre ausencia de dado de pesquisa.',
+    '- "dor": em 1 frase, a dor central que amarra as 3 observacoes (foco em dinheiro perdido ou risco).',
+    '- "gancho": a observacao mais forte pra abrir conversa, reescrita como algo que doi ou como oportunidade que a concorrencia ja aproveita. Nunca um elogio.',
+    "- insight_gratis: 1 acao concreta e especifica pra ESSA empresa que ela poderia aplicar sozinha (entregamos de graca pra gerar reciprocidade). Nada de conselho generico tipo faca um site.",
+    "- mensagem_1: a primeira mensagem de WhatsApp. Estrutura: saudacao com o primeiro nome do socio (se houver; senao Oi tudo bem) + aqui e o Yuri do Grupo NG + o gancho dito de forma leve e humana + 1 frase curta do que a NG faz + loop aberto (notei mais 2 pontos alem desse) + pergunta final curta. Pontuacao natural de conversa. Sem link. Sem travessao. Sem emoji. Maximo 500 caracteres. Tom de gente de verdade mandando mensagem, nunca anuncio nem robo.",
+    "",
+    "REGRAS ABSOLUTAS: proibido inventar numero ou fato que nao esteja na ficha. Nunca cite metrica que voce nao tem (ex: numero de seguidores). Nunca transforme a falta de um dado em observacao. Se a pesquisa do site falhou, trabalhe com a Receita e o nicho. Responda SOMENTE o JSON.",
 ].join("\n");
 
 /** Chama a OpenAI para gerar o dossie a partir da ficha consolidada. */
@@ -122,11 +221,11 @@ async function gerarDossie(ficha: Record<string, unknown>): Promise<DossieLead> 
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
             body: JSON.stringify({
                 model: OPENAI_MODEL,
-                temperature: 0.7,
+                temperature: 0.65,
                 response_format: { type: "json_object" },
                 messages: [
                     { role: "system", content: SYSTEM_PROMPT },
-                    { role: "user", content: "FICHA DA EMPRESA:\n" + JSON.stringify(ficha, null, 2) },
+                    { role: "user", content: "FICHA DA EMPRESA (dados reais coletados):\n" + JSON.stringify(ficha, null, 2) },
                 ],
             }),
         },
@@ -158,43 +257,64 @@ async function gerarDossie(ficha: Record<string, unknown>): Promise<DossieLead> 
     };
 }
 
-/**
- * Orquestra o enriquecimento completo de um lead: consulta CNPJ, le o site,
- * monta a ficha e gera o dossie. Lanca erro se a geracao falhar.
- */
-export async function enriquecerLead(lead: LeadParaEnriquecer): Promise<ResultadoEnriquecimento> {
-    const [receita, textoSite] = await Promise.all([
-        lead.cnpj ? consultarCnpj(lead.cnpj) : Promise.resolve(null),
-        lead.site ? extrairTextoSite(lead.site) : Promise.resolve(""),
-    ]);
-
-    const socio = extrairSocio(receita);
-
-    const ficha: Record<string, unknown> = {
+/** Monta a ficha consolidada (Receita + site) que alimenta o dossie. Exportada pro diagnostico reusar. */
+export function montarFicha(lead: LeadParaEnriquecer, receita: Record<string, any> | null, site: SinaisSite): Record<string, unknown> {
+    const anos = anosDeMercado(receita?.data_inicio_atividade);
+    return {
         empresa: lead.empresa || receita?.nome_fantasia || receita?.razao_social || "",
         nicho: lead.nicho || receita?.cnae_fiscal_descricao || "",
         cidade: lead.cidade || receita?.municipio || "",
         instagram: lead.instagram || "",
-        socio_primeiro_nome: socio,
-        dados_receita: receita
+        receita: receita
             ? {
                   razao_social: receita.razao_social,
                   nome_fantasia: receita.nome_fantasia,
                   porte: receita.porte,
-                  atividade_principal: receita.cnae_fiscal_descricao,
+                  anos_de_mercado: anos,
                   abertura: receita.data_inicio_atividade,
                   capital_social: receita.capital_social,
-                  socios: ((receita.qsa as any[]) || []).map((s) => ({ nome: s.nome_socio, qualificacao: s.qualificacao_socio })),
+                  simples_nacional: receita.opcao_pelo_simples,
+                  atividade_principal: receita.cnae_fiscal_descricao,
+                  atividades_secundarias: ((receita.cnaes_secundarios as any[]) || []).map((c) => c.descricao),
+                  socio_admin: extrairSocio(receita) || null,
               }
-            : "CNPJ nao consultado ou invalido",
-        texto_site: textoSite || "site nao disponivel",
+            : "CNPJ nao consultado",
+        site: site.online
+            ? {
+                  online: true,
+                  titulo: site.titulo,
+                  descricao_meta: site.descricao,
+                  plataforma: site.plataforma || "nao identificada",
+                  tem_pixel_meta: site.tem_pixel_meta,
+                  tem_google_analytics: site.tem_ga_ou_gtm,
+                  tem_whatsapp_no_site: site.tem_whatsapp,
+                  tem_loja_online: site.tem_loja_online,
+                  tem_captura_de_lead: site.tem_form_captura,
+                  tem_blog: site.tem_blog,
+                  paginas_lidas: site.paginas_lidas,
+                  trecho_do_site: site.resumo_texto,
+              }
+            : "sem site informado ou site fora do ar",
     };
+}
 
+/**
+ * Orquestra o enriquecimento completo: consulta CNPJ, analisa o site, monta a
+ * ficha rica e gera o dossie. Lanca erro se a geracao falhar.
+ */
+export async function enriquecerLead(lead: LeadParaEnriquecer): Promise<ResultadoEnriquecimento> {
+    const [receita, site] = await Promise.all([
+        lead.cnpj ? consultarCnpj(lead.cnpj) : Promise.resolve(null),
+        lead.site ? analisarSite(lead.site) : Promise.resolve(await analisarSite("")),
+    ]);
+
+    const socio = extrairSocio(receita);
+    const ficha = montarFicha(lead, receita, site);
     const dossie = await gerarDossie(ficha);
 
     return {
         socio,
         dossie,
-        raw: { receita: receita || null, texto_site_len: textoSite.length, modelo: OPENAI_MODEL },
+        raw: { receita: receita || null, site, ficha, modelo: OPENAI_MODEL },
     };
 }

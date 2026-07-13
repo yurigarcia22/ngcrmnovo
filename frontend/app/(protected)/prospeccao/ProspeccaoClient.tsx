@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
     Search, Sparkles, Plus, Trash2, Check, FileText, Loader2,
     Building2, MapPin, Tag, MessageSquare, AlertTriangle, ClipboardList, Upload,
+    FileBarChart2, Send, ExternalLink,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import {
     addLead, importLeads, enrichLead, updateMensagem, setLeadStatus, deleteLead,
+    gerarDiagnostico, enviarDiagnosticoWhatsapp,
     type ProspeccaoLead,
 } from "./actions";
 
@@ -250,6 +252,32 @@ function DossieDialog({ lead, onClose, onApprove, onSaved, busy }: {
 }) {
     const [mensagem, setMensagem] = React.useState("");
     const [saving, setSaving] = React.useState(false);
+    const [diagBusy, setDiagBusy] = React.useState(false);
+    const [enviando, setEnviando] = React.useState(false);
+
+    async function onDiagnostico() {
+        if (!lead) return;
+        setDiagBusy(true);
+        try {
+            const r = await gerarDiagnostico(lead.id);
+            if (r.success) { toast.success("Diagnóstico gerado. Já dá pra ver o PDF."); onSaved(); }
+            else toast.error(r.error || "Falha ao gerar diagnóstico.");
+        } finally {
+            setDiagBusy(false);
+        }
+    }
+
+    async function onEnviarPdf() {
+        if (!lead) return;
+        setEnviando(true);
+        try {
+            const r = await enviarDiagnosticoWhatsapp(lead.id);
+            if (r.success) toast.success("PDF enviado no WhatsApp do lead.");
+            else toast.error(r.error || "Falha ao enviar o PDF.");
+        } finally {
+            setEnviando(false);
+        }
+    }
 
     React.useEffect(() => {
         setMensagem(lead?.dossie?.mensagem_1 || "");
@@ -322,6 +350,37 @@ function DossieDialog({ lead, onClose, onApprove, onSaved, busy }: {
                                     {saving ? <Loader2 className="animate-spin" /> : <Check />} Salvar mensagem
                                 </Button>
                             </div>
+                        </section>
+
+                        <section className="rounded-lg border border-slate-200 p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                                <FileBarChart2 className="w-4 h-4 text-indigo-600" />
+                                <h4 className="text-sm font-semibold text-slate-800">Diagnóstico em PDF</h4>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-3">
+                                Raio-x comercial completo em PDF, pra mandar como arquivo no WhatsApp depois que o lead responder (nunca link).
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button variant={lead.diag_token ? "outline" : "default"} size="sm" onClick={onDiagnostico} disabled={diagBusy}>
+                                    {diagBusy ? <Loader2 className="animate-spin" /> : <FileBarChart2 />}
+                                    {lead.diag_token ? "Refazer diagnóstico" : "Gerar diagnóstico"}
+                                </Button>
+                                {lead.diag_token && (
+                                    <>
+                                        <Button variant="outline" size="sm" asChild>
+                                            <a href={`/api/prospeccao/diag-pdf/${lead.diag_token}`} target="_blank" rel="noopener noreferrer">
+                                                <ExternalLink /> Ver PDF
+                                            </a>
+                                        </Button>
+                                        <Button variant="success" size="sm" onClick={onEnviarPdf} disabled={enviando || !lead.telefone}>
+                                            {enviando ? <Loader2 className="animate-spin" /> : <Send />} Enviar PDF no WhatsApp
+                                        </Button>
+                                    </>
+                                )}
+                            </div>
+                            {lead.diag_token && !lead.telefone && (
+                                <p className="text-xs text-amber-600 mt-2">Sem telefone cadastrado, o envio pelo WhatsApp fica indisponível.</p>
+                            )}
                         </section>
                     </div>
                 )}
