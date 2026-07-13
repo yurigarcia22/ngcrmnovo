@@ -368,6 +368,22 @@ export async function POST(req: NextRequest) {
     const incomingInstance: string = body?.instance ?? body?.data?.instance ?? "";
     console.log("[webhook evolution] event=" + event + " instance=" + (incomingInstance || "(sem instance)"));
 
+    // Instancia dedicada da Prospeccao (Izabella): trata aqui o SDR da prospeccao
+    // e NAO segue o fluxo do webinar. Isolado: so intercepta essa instancia.
+    const PROSPECCAO_INSTANCE = process.env.EVOLUTION_INSTANCE || "Izabella";
+    if (incomingInstance && incomingInstance === PROSPECCAO_INSTANCE) {
+      if (event === "messages.upsert" || event === "MESSAGES_UPSERT") {
+        try {
+          const { handleProspeccaoInbound } = await import("@/lib/prospeccao/inbound");
+          const r = await handleProspeccaoInbound(body);
+          console.log("[webhook evolution] prospeccao inbound:", JSON.stringify(r));
+        } catch (e) {
+          console.error("[webhook evolution] prospeccao inbound erro:", e);
+        }
+      }
+      return NextResponse.json({ ok: true, prospeccao: true });
+    }
+
     // Fan-out pro CRM (Supabase Edge Function) se esta instancia tambem
     // esta cadastrada em whatsapp_instances. Roda em paralelo, nao bloqueia.
     forwardToCRMIfCRMInstance(body, incomingInstance);
