@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
     Search, Sparkles, Plus, Trash2, Check, FileText, Loader2,
-    Building2, MapPin, Tag, MessageSquare, AlertTriangle, ClipboardList,
+    Building2, MapPin, Tag, MessageSquare, AlertTriangle, ClipboardList, Upload,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -84,9 +85,14 @@ export default function ProspeccaoClient({ initialLeads }: { initialLeads: Prosp
                 description="Antes de abordar, o sistema pesquisa a empresa (CNPJ, sócios, site) e monta um dossiê com observações reais e a primeira mensagem."
                 icon={<Sparkles className="w-5 h-5" />}
                 actions={
-                    <Button onClick={() => setAddOpen(true)}>
-                        <Plus /> Adicionar leads
-                    </Button>
+                    <>
+                        <Button variant="outline" asChild>
+                            <Link href="/prospeccao/importar"><Upload /> Importar planilha</Link>
+                        </Button>
+                        <Button onClick={() => setAddOpen(true)}>
+                            <Plus /> Adicionar leads
+                        </Button>
+                    </>
                 }
             />
 

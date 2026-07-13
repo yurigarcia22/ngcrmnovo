@@ -132,6 +132,42 @@ export async function importLeads(raw: string) {
     }
 }
 
+// Import estruturado (wizard de planilha): recebe linhas ja mapeadas e insere em lotes.
+export async function importLeadRows(rows: NovoLeadInput[]) {
+    try {
+        const tenantId = await assertProspeccao();
+        const input = Array.isArray(rows) ? rows.slice(0, 2000) : [];
+        const clean = input
+            .map((r) => {
+                const telefoneRaw = (r.telefone || "").trim();
+                return {
+                    tenant_id: tenantId,
+                    empresa: (r.empresa || "").trim(),
+                    cnpj: r.cnpj?.trim() || null,
+                    site: r.site?.trim() || null,
+                    instagram: r.instagram?.trim() || null,
+                    telefone: telefoneRaw && isPlausibleBRPhone(telefoneRaw) ? normalizeToCanonical(telefoneRaw) : null,
+                    cidade: r.cidade?.trim() || null,
+                    nicho: r.nicho?.trim() || null,
+                    status: "novo",
+                };
+            })
+            .filter((r) => r.empresa);
+        if (clean.length === 0) throw new Error("Nenhuma linha válida (empresa é obrigatória).");
+
+        const supabase = svc();
+        for (let i = 0; i < clean.length; i += 500) {
+            const { error } = await supabase.from("prospeccao_leads").insert(clean.slice(i, i + 500));
+            if (error) throw error;
+        }
+
+        revalidatePath("/prospeccao");
+        return { success: true, total: clean.length };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
 // Roda a pesquisa (enriquecimento + dossie) de UM lead.
 export async function enrichLead(id: string) {
     try {
