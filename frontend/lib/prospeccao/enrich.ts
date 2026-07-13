@@ -48,18 +48,23 @@ async function fetchComTimeout(url: string, opts: RequestInit = {}, ms = 15000):
     }
 }
 
-/** Consulta CNPJ na BrasilAPI. Retorna o objeto da receita ou null (tolerante a falha). */
+/** Consulta CNPJ na BrasilAPI com 1 retry (a API oscila). Retorna o objeto da receita ou null. */
 export async function consultarCnpj(cnpj: string): Promise<Record<string, any> | null> {
     const digits = (cnpj || "").replace(/\D/g, "");
     if (digits.length !== 14) return null;
-    try {
-        const r = await fetchComTimeout(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
-        if (!r.ok) return null;
-        const j = await r.json();
-        return j && j.razao_social ? j : null;
-    } catch {
-        return null;
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+        try {
+            const r = await fetchComTimeout(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
+            if (r.ok) {
+                const j = await r.json();
+                if (j && j.razao_social) return j;
+            }
+        } catch {
+            // tenta de novo
+        }
+        if (tentativa === 0) await new Promise((res) => setTimeout(res, 2000));
     }
+    return null;
 }
 
 /** Baixa o site e extrai texto limpo (ate ~4000 chars). Tolerante a falha. */
@@ -101,8 +106,8 @@ const SYSTEM_PROMPT = [
     '- "dor": a dor provavel que essas observacoes indicam (1 frase).',
     '- "gancho": qual das 3 observacoes e a mais forte pra abrir conversa (copie o texto dela).',
     '- "insight_gratis": 1 insight acionavel que podemos entregar de graca na conversa.',
-    '- "mensagem_1": a primeira mensagem de WhatsApp, seguindo EXATAMENTE esta estrutura: saudacao com o primeiro nome do socio (se houver; senao cumprimente o responsavel pela empresa) + "Aqui e o Yuri, do Grupo NG" + o gancho em linguagem natural + 1 frase curta sobre o que a NG faz + loop aberto ("notei mais 2 pontos alem desse") + pergunta final curta. Sem link. Sem travessao. Maximo 450 caracteres. Tom brasileiro informal-profissional, soando 100% humano, nunca robotico.',
-    "REGRA ABSOLUTA: proibido inventar dados. Se a informacao nao esta na ficha, nao use. Se faltar dado do site, baseie as observacoes no que existir (receita, instagram, nicho). Responda SOMENTE o JSON.",
+    '- "mensagem_1": a primeira mensagem de WhatsApp, seguindo EXATAMENTE esta estrutura: saudacao com o primeiro nome do socio (se houver; senao cumprimente o responsavel pela empresa) + "Aqui e o Yuri, do Grupo NG" + o gancho em linguagem natural + 1 frase curta sobre o que a NG faz + loop aberto ("notei mais 2 pontos alem desse") + pergunta final curta. Escreva com pontuacao natural de conversa (virgulas, pontos e interrogacao), nunca frases emendadas sem pontuacao. Sem link. Sem travessao. Maximo 450 caracteres. Tom brasileiro informal-profissional, soando 100% humano, nunca robotico.',
+    "REGRA ABSOLUTA: proibido inventar dados. Se a informacao nao esta na ficha, nao use. NUNCA transforme a ausencia de um dado em observacao (nada de 'nao foi possivel consultar o CNPJ' ou 'nao ha dados sobre seguidores'); observacao e so sobre o que EXISTE na ficha. Se faltar dado do site, baseie as observacoes no que existir (receita, instagram, nicho). Responda SOMENTE o JSON.",
 ].join("\n");
 
 /** Chama a OpenAI para gerar o dossie a partir da ficha consolidada. */
