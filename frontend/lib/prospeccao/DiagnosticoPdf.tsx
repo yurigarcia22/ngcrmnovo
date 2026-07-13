@@ -44,6 +44,19 @@ const s = StyleSheet.create({
     achado: { fontSize: 9.5, color: "#3a4062", lineHeight: 1.5, marginBottom: 5 },
     reco: { fontSize: 9.5, color: MUTE, lineHeight: 1.5 },
     recoB: { color: CORAL, fontFamily: "Helvetica-Bold" },
+    mercado: { backgroundColor: "#f4f6fb", borderWidth: 1, borderColor: "#e2e6f0", borderRadius: 10, padding: 16 },
+    mercadoLbl: { fontSize: 7, letterSpacing: 1.5, color: NAVY, fontFamily: "Helvetica-Bold", marginBottom: 6 },
+    mercadoT: { fontSize: 10, color: "#3a4062", lineHeight: 1.6 },
+    prova: { backgroundColor: NAVY, borderRadius: 10, padding: 18, flexDirection: "row", alignItems: "center", gap: 16 },
+    provaLeft: { alignItems: "center", justifyContent: "center", paddingRight: 16, borderRightWidth: 1, borderRightColor: "#2c3358" },
+    provaDe: { fontSize: 10, color: "#8990b0", textDecoration: "line-through" },
+    provaSeta: { fontSize: 8, color: CORAL, marginVertical: 1 },
+    provaPara: { fontSize: 26, fontFamily: "Helvetica-Bold", color: "#ffffff" },
+    provaMetrica: { fontSize: 7, color: "#8990b0", marginTop: 2 },
+    provaRight: { flex: 1 },
+    provaLbl: { fontSize: 7, letterSpacing: 1.5, color: CORAL, fontFamily: "Helvetica-Bold", marginBottom: 4 },
+    provaCliente: { fontSize: 12, fontFamily: "Helvetica-Bold", color: "#ffffff", marginBottom: 3 },
+    provaTxt: { fontSize: 9, color: "#c3c7db", lineHeight: 1.45 },
     opp: { backgroundColor: "#fbf1f0", borderWidth: 1, borderColor: "#f6d9d6", borderRadius: 10, padding: 18 },
     oppLbl: { fontSize: 7, letterSpacing: 1.5, color: CORAL, fontFamily: "Helvetica-Bold", marginBottom: 6 },
     oppTitle: { fontSize: 13, fontFamily: "Helvetica-Bold", color: NAVY, marginBottom: 5 },
@@ -92,6 +105,35 @@ export function DiagnosticoPdf({ d, empresa, subtitulo, data }: { d: Diagnostico
                     <View style={s.section}>
                         <Text style={s.h2}>Resumo executivo</Text>
                         <Text style={s.resumo}>{d.resumo_executivo}</Text>
+                    </View>
+                )}
+
+                {!!d.contexto_mercado && (
+                    <View style={s.section} wrap={false}>
+                        <View style={s.mercado}>
+                            <Text style={s.mercadoLbl}>COMO ESSE MERCADO FUNCIONA</Text>
+                            <Text style={s.mercadoT}>{d.contexto_mercado}</Text>
+                        </View>
+                    </View>
+                )}
+
+                {d.prova_social && (d.prova_social.para || d.prova_social.de) && (
+                    <View style={s.section} wrap={false}>
+                        <View style={s.prova}>
+                            <View style={s.provaLeft}>
+                                {!!d.prova_social.de && <Text style={s.provaDe}>{d.prova_social.de}</Text>}
+                                <Text style={s.provaSeta}>para</Text>
+                                <Text style={s.provaPara}>{d.prova_social.para}</Text>
+                                {!!d.prova_social.metrica && <Text style={s.provaMetrica}>{d.prova_social.metrica.toUpperCase()}</Text>}
+                            </View>
+                            <View style={s.provaRight}>
+                                <Text style={s.provaLbl}>JA FIZEMOS ISSO NO SEU SETOR</Text>
+                                <Text style={s.provaCliente}>{d.prova_social.titulo}</Text>
+                                <Text style={s.provaTxt}>
+                                    {d.prova_social.o_que_fizemos}{d.prova_social.prazo ? ` (${d.prova_social.prazo}).` : "."}
+                                </Text>
+                            </View>
+                        </View>
                     </View>
                 )}
 

@@ -265,10 +265,17 @@ export async function gerarDiagnostico(id: string) {
             .single();
         if (e1 || !lead) throw new Error("Lead não encontrado.");
 
+        // Biblioteca de cases reais do tenant (prova social por nicho)
+        const { data: cases } = await supabase
+            .from("prospeccao_cases")
+            .select("nicho, cliente, cliente_publico, headline, metrica, valor_antes, valor_depois, prazo, o_que_fizemos")
+            .eq("tenant_id", tenantId)
+            .eq("ativo", true);
+
         const { diagnostico, socio } = await gerarDiagnosticoIA({
             empresa: lead.empresa, cnpj: lead.cnpj, site: lead.site,
             instagram: lead.instagram, cidade: lead.cidade, nicho: lead.nicho,
-        });
+        }, cases || []);
 
         const token = lead.diag_token || globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 24);
         const patch: Record<string, unknown> = {
