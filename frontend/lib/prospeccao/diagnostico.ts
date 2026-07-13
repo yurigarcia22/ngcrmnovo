@@ -35,6 +35,7 @@ export interface EixoDiagnostico {
     nome: string;
     nota: number; // 0-10
     status: "critico" | "atencao" | "bom";
+    base: "observado" | "hipotese"; // observado = fato da pesquisa; hipotese = dinamica do setor a confirmar
     achado: string;
     recomendacao: string;
 }
@@ -92,7 +93,12 @@ const SYSTEM_DIAG = [
     "",
     "Todo ponto tem que responder na cabeca do dono: 'quanto isso me custa em cliente ou em dinheiro?'. Seja direto e curto. Frases de gente, nao de agencia.",
     "",
-    "NUMEROS: pode e deve usar numeros pra dar concretude, mas SEMPRE como exemplo/estimativa clara (ex: 'imagine que chegam 300 interessados por mes no seu WhatsApp; se hoje 5% viram cliente sao 15, e no padrao que a gente trabalha seriam uns 60, ou seja 45 clientes por mes ficando na mesa'). Nunca afirme um numero como se fosse medicao exata da empresa. Os numeros do CASE do Grupo NG sao reais e NAO podem ser alterados, so traduzidos pra linguagem palpavel (ex: 'de 5% pra 26% e mais de 5 vezes mais clientes com a mesma verba').",
+    "HONESTIDADE (REGRA CRITICA, NAO QUEBRE): voce SO observou de verdade dois lugares: os dados da Receita Federal (CNPJ, socios, tempo de mercado, ramo) e o que da pra ver no SITE (se tem ou nao WhatsApp visivel, se tem loja online, qual plataforma, os textos publicos). Voce NAO tem NENHUMA informacao interna da empresa: nao sabe a velocidade de atendimento, se a equipe responde rapido, quantos interessados chegam, a taxa real de fechamento, nem o processo comercial. E PROIBIDO afirmar qualquer coisa interna como se fosse fato. 'A sua equipe demora a responder' e uma acusacao que voce NAO pode fazer, porque nao viu isso.",
+    "Por isso, cada ponto tem um campo 'base':",
+    "- base 'observado': o achado vem direto de um FATO que a pesquisa viu (site ou Receita). Ai voce pode afirmar (ex: 'seu site nao tem um botao de WhatsApp facil de achar').",
+    "- base 'hipotese': e uma dinamica COMUM do setor que voce esta levantando, mas NAO mediu nesta empresa. Ai voce NUNCA afirma; escreve como algo a confirmar, no maximo 'na maioria das empresas desse setor isso costuma travar venda, vale a gente olhar como esta no seu caso'. Nada de acusar.",
+    "",
+    "NUMEROS: pode usar numeros pra dar concretude, mas SEMPRE como exemplo/estimativa clara e hipotetica (ex: 'imagine que chegam 300 interessados por mes; se hoje 5% viram cliente sao 15, e no padrao que a gente trabalha seriam uns 60'). Nunca afirme um numero como medicao exata da empresa. Os numeros do CASE do Grupo NG sao reais e NAO podem ser alterados, so traduzidos (ex: 'de 5% pra 26% e mais de 5 vezes mais clientes').",
     "",
     "Estruture assim: leitura simples de como se vende nesse mercado, onde o dono esta perdendo cliente/dinheiro hoje, e a prova de que a gente resolve.",
     "",
@@ -101,7 +107,7 @@ const SYSTEM_DIAG = [
     "- veredito: 1 frase direta que o dono entende na hora (ex: 'Voce tem movimento, mas perde a maioria dos interessados antes de fechar').",
     "- resumo_executivo: 2 a 3 frases, como se voce estivesse conversando com o dono, ja apontando o dinheiro que escapa.",
     "- contexto_mercado: 2 a 4 frases explicando de forma SIMPLES como as pessoas escolhem e compram nesse setor, e onde a maioria das empresas perde. Sem jargao.",
-    "- eixos: array de 3 a 4 pontos, com NOME em linguagem de dono (ex: 'De onde vem seus clientes', 'Quantos interessados viram cliente', 'O que acontece quando alguem demonstra interesse', 'Por que escolhem voce ou o concorrente'). Cada um: { nome, nota (0 a 10), status (critico|atencao|bom), achado (o que acontece hoje, em cliente/dinheiro, simples), recomendacao (o que fazer, sem termo tecnico) }.",
+    "- eixos: array de 3 a 4 pontos, com NOME em linguagem de dono (ex: 'De onde vem seus clientes', 'Quantos interessados viram cliente', 'O que acontece quando alguem demonstra interesse', 'Por que escolhem voce ou o concorrente'). Cada um: { nome, nota (0 a 10), status (critico|atencao|bom), base ('observado' ou 'hipotese', seguindo a regra de honestidade), achado (o que acontece hoje, em cliente/dinheiro, simples; se base=hipotese, escrito como algo a confirmar e nunca como acusacao), recomendacao (o que fazer, sem termo tecnico) }. Traga pelo menos 1 ponto 'observado' baseado no site/Receita.",
     "- oportunidade_central: { titulo (simples e vendedor), texto (2 frases quantificando quantos clientes/matriculas ou quanto faturamento esta na mesa, com numero de exemplo claro) }.",
     "- plano: array de 3 passos { passo (1,2,3), titulo (simples), descricao (1 frase sem jargao), prazo }.",
     "",
@@ -183,6 +189,7 @@ export async function gerarDiagnostico(
             nome: String(e.nome || ""),
             nota: Math.max(0, Math.min(10, Math.round(Number(e.nota) || 0))),
             status: ["critico", "atencao", "bom"].includes(e.status) ? e.status : "atencao",
+            base: e.base === "observado" ? "observado" : "hipotese",
             achado: String(e.achado || ""),
             recomendacao: String(e.recomendacao || ""),
         })) : [],

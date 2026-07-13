@@ -36,9 +36,10 @@ const s = StyleSheet.create({
     h2: { fontSize: 12, fontFamily: "Helvetica-Bold", color: NAVY, marginBottom: 9 },
     resumo: { fontSize: 11, color: INK, lineHeight: 1.55 },
     eixo: { borderWidth: 1, borderColor: LINE, borderRadius: 8, padding: 12, marginBottom: 8 },
-    eixoHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 7 },
+    eixoHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 5 },
     eixoNome: { fontSize: 11, fontFamily: "Helvetica-Bold", color: INK },
     badge: { fontSize: 7, fontFamily: "Helvetica-Bold", paddingVertical: 2, paddingHorizontal: 6, borderRadius: 3, letterSpacing: 0.5 },
+    baseTag: { fontSize: 6.5, fontFamily: "Helvetica-Bold", letterSpacing: 0.5, marginBottom: 7 },
     barBg: { height: 5, backgroundColor: "#eef0f6", borderRadius: 5, marginBottom: 8 },
     barFill: { height: 5, borderRadius: 5 },
     achado: { fontSize: 9.5, color: "#3a4062", lineHeight: 1.5, marginBottom: 5 },
@@ -147,6 +148,9 @@ export function DiagnosticoPdf({ d, empresa, subtitulo, data }: { d: Diagnostico
                                     <Text style={s.eixoNome}>{e.nome}</Text>
                                     <Text style={[s.badge, { color: st.cor, backgroundColor: st.bg }]}>{st.label}</Text>
                                 </View>
+                                <Text style={[s.baseTag, { color: e.base === "observado" ? "#3f9d6d" : "#7a7f99" }]}>
+                                    {e.base === "observado" ? "VISTO NA ANALISE DO SEU SITE" : "PONTO A CONFIRMAR COM VOCE"}
+                                </Text>
                                 <View style={s.barBg}><View style={[s.barFill, { width: `${e.nota * 10}%`, backgroundColor: st.cor }]} /></View>
                                 <Text style={s.achado}>{e.achado}</Text>
                                 <Text style={s.reco}><Text style={s.recoB}>O que fazer: </Text>{e.recomendacao}</Text>
