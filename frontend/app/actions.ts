@@ -1896,11 +1896,14 @@ export async function markAsLost(dealId: string, reason?: string, details?: stri
 }
 
 export async function recoverDeal(dealId: string) {
+    const tenantId = await getTenantId();
     const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    // Filtra por tenant: service role ignora RLS, sem isso um id de outro tenant
+    // poderia ser reaberto (IDOR).
     const { error } = await supabase
         .from('deals')
         .update({
@@ -1909,11 +1912,12 @@ export async function recoverDeal(dealId: string) {
             lost_reason: null,
             lost_details: null
         })
-        .eq('id', dealId);
+        .eq('id', dealId)
+        .eq('tenant_id', tenantId);
 
     if (error) return { success: false, error: error.message };
 
-    revalidatePath('/');
+    revalidatePath('/'); revalidatePath('/leads');
     return { success: true };
 }
 

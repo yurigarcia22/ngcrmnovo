@@ -289,6 +289,9 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     // --- MULTI CONTACTS & MEETING STATE ---
     const [contacts, setContacts] = useState(deal.deal_contacts || []);
     const [newContact, setNewContact] = useState({ name: "", phone: "" });
+    const [savingContact, setSavingContact] = useState(false);
+    const [editingContactId, setEditingContactId] = useState<string | null>(null);
+    const [editContact, setEditContact] = useState({ name: "", phone: "" });
 
     // Meeting
     const [nextTask, setNextTask] = useState<any>(null);
@@ -317,14 +320,43 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     }, [deal.tasks]);
 
     async function handleSaveContact() {
-        if (!newContact.name) return;
-        const res = await addDealContact(deal.id, { name: newContact.name, phone: newContact.phone });
+        if (!newContact.name.trim() || savingContact) return;
+        // Evita duplicata: mesmo telefone (so digitos) ja vinculado ao negocio.
+        const newDigits = newContact.phone.replace(/\D/g, "");
+        if (newDigits && contacts.some((c: any) => (c.phone || "").replace(/\D/g, "") === newDigits)) {
+            toast.warning("Esse telefone já está nos contatos deste negócio.");
+            return;
+        }
+        setSavingContact(true);
+        const res = await addDealContact(deal.id, { name: newContact.name.trim(), phone: newContact.phone.trim() });
         if (res.success) {
             setContacts([...contacts, res.data]);
             setNewContact({ name: "", phone: "" });
             setIsAddingContact(false);
-            await logSystemActivity(deal.id, `Adicionou contato secundário: ${newContact.name}`);
+            await logSystemActivity(deal.id, `Adicionou contato secundário: ${newContact.name.trim()}`);
             router.refresh();
+        } else {
+            toast.error("Erro ao adicionar contato", res.error);
+        }
+        setSavingContact(false);
+    }
+
+    function startEditContact(c: any) {
+        setEditingContactId(c.id);
+        setEditContact({ name: c.name || "", phone: c.phone || "" });
+    }
+
+    async function handleUpdateContact(id: string) {
+        if (!editContact.name.trim()) return;
+        // Optimistic
+        setContacts(contacts.map((c: any) => c.id === id ? { ...c, name: editContact.name.trim(), phone: editContact.phone.trim() } : c));
+        setEditingContactId(null);
+        const res = await updateDealContact(id, { name: editContact.name.trim(), phone: editContact.phone.trim() });
+        if (res.success) {
+            await logSystemActivity(deal.id, `Editou o contato "${editContact.name.trim()}"`);
+            router.refresh();
+        } else {
+            toast.error("Erro ao editar contato", res.error);
         }
     }
 
@@ -769,7 +801,9 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                 />
                                 <div className="flex justify-end gap-2 mt-1">
                                     <button onClick={() => setIsAddingContact(false)} className="text-xs text-slate-600">Cancelar</button>
-                                    <button onClick={handleSaveContact} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold">Salvar</button>
+                                    <button onClick={handleSaveContact} disabled={savingContact || !newContact.name.trim()} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold disabled:opacity-50">
+                                        {savingContact ? "Salvando..." : "Salvar"}
+                                    </button>
                                 </div>
                             </div>
                         )}
@@ -800,6 +834,30 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                             )}
 
                             {contacts.map((c: any) => (
+                                editingContactId === c.id ? (
+                                    /* MODO EDIÇÃO do contato */
+                                    <div key={c.id} className="bg-blue-50/50 p-2 rounded-md border border-blue-200 animate-in fade-in">
+                                        <input
+                                            placeholder="Nome"
+                                            aria-label="Editar nome do contato"
+                                            autoFocus
+                                            className="w-full text-xs p-1 mb-1 border border-slate-300 rounded placeholder:text-slate-500"
+                                            value={editContact.name}
+                                            onChange={e => setEditContact({ ...editContact, name: e.target.value })}
+                                        />
+                                        <input
+                                            placeholder="Telefone / WhatsApp"
+                                            aria-label="Editar telefone do contato"
+                                            className="w-full text-xs p-1 mb-1 border border-slate-300 rounded placeholder:text-slate-500"
+                                            value={editContact.phone}
+                                            onChange={e => setEditContact({ ...editContact, phone: e.target.value })}
+                                        />
+                                        <div className="flex justify-end gap-2 mt-1">
+                                            <button onClick={() => setEditingContactId(null)} className="text-xs text-slate-600">Cancelar</button>
+                                            <button onClick={() => handleUpdateContact(c.id)} disabled={!editContact.name.trim()} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold disabled:opacity-50">Salvar</button>
+                                        </div>
+                                    </div>
+                                ) : (
                                 <div key={c.id} className={`flex items-center gap-2 bg-white p-2 rounded-md border transition-colors group/item ${c.is_primary ? 'border-amber-200 bg-amber-50/30' : 'border-slate-100 hover:border-blue-100'}`}>
                                     <div className={`p-1.5 rounded-full ${c.is_primary ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-500'}`}>
                                         <User size={14} />
@@ -822,7 +880,16 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                     </button>
 
                                     <button
-                                        onClick={() => window.open(`https://wa.me/55${c.phone?.replace(/\D/g, "")}`, '_blank')}
+                                        onClick={() => startEditContact(c)}
+                                        className="text-slate-400 hover:text-blue-600 p-2 transition-colors opacity-0 group-hover/item:opacity-100"
+                                        title="Editar contato"
+                                        aria-label="Editar contato"
+                                    >
+                                        <Edit2 size={14} />
+                                    </button>
+
+                                    <button
+                                        onClick={() => window.open(`https://wa.me/${c.phone?.replace(/\D/g, "")}`, '_blank')}
                                         className="text-slate-400 hover:text-emerald-600 p-2 transition-colors"
                                         aria-label="Abrir WhatsApp"
                                     >
@@ -832,6 +899,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
+                                )
                             ))}
                         </div>
 

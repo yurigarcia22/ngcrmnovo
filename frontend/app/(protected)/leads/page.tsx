@@ -258,6 +258,13 @@ export default function LeadsPage() {
                     updatePayload.promoted_at = new Date().toISOString();
                 }
             }
+            // Arrastar para uma coluna de PERDA marca o deal como perdido (status),
+            // senao ele ficava "open" numa coluna de perdido (some do filtro Perdidas,
+            // conta errado no dashboard). Sincroniza em 1 update, na coluna escolhida.
+            if (newStage?.is_lost === true) {
+                updatePayload.status = 'lost';
+                updatePayload.closed_at = new Date().toISOString();
+            }
 
             // Atualiza no Supabase (Stage + promoted_at se aplicavel)
             const { data, error } = await supabase
@@ -297,9 +304,11 @@ export default function LeadsPage() {
 
                 // Marca como Ganho no Backend
                 await markAsWon(dealId);
+            } else if (newStage?.is_lost === true) {
+                // Status 'lost' + closed_at ja foram no updatePayload acima (1 update).
+                // Nada a fazer aqui — nao reabrir.
             } else {
-                // Se NÃO for a última etapa, mas o deal estava como 'won' ou 'lost', reverte para 'open'
-                // A gente não tem o status antigo fácil aqui sem buscar no 'deals' state antigo
+                // Coluna normal: se o deal vinha de won/lost, reabre para 'open'.
                 const oldDealStatus = oldDeals.find(d => String(d.id) === dealId)?.status;
                 if (oldDealStatus === 'won' || oldDealStatus === 'lost') {
                     console.log('Revertendo status para OPEN...');
@@ -494,10 +503,14 @@ export default function LeadsPage() {
         // 4. Filtro de Busca
         if (!searchTerm) return true;
         const lowerTerm = searchTerm.toLowerCase();
+        // Telefone: compara so os digitos, pra achar mesmo digitando com mascara
+        // ("(14) 99790" casa com "5514997900022").
+        const termDigits = searchTerm.replace(/\D/g, "");
+        const phoneDigits = String(deal.contacts?.phone || "").replace(/\D/g, "");
         return (
             deal.title?.toLowerCase().includes(lowerTerm) ||
             deal.contacts?.name?.toLowerCase().includes(lowerTerm) ||
-            deal.contacts?.phone?.includes(searchTerm)
+            (termDigits.length >= 3 && phoneDigits.includes(termDigits))
         );
     });
 
