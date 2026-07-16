@@ -292,6 +292,8 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     const [savingContact, setSavingContact] = useState(false);
     const [editingContactId, setEditingContactId] = useState<string | null>(null);
     const [editContact, setEditContact] = useState({ name: "", phone: "" });
+    const [editingLegacy, setEditingLegacy] = useState(false);
+    const [editLegacy, setEditLegacy] = useState({ name: "", phone: "" });
 
     // Meeting
     const [nextTask, setNextTask] = useState<any>(null);
@@ -357,6 +359,22 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             router.refresh();
         } else {
             toast.error("Erro ao editar contato", res.error);
+        }
+    }
+
+    // Edita o contato PRINCIPAL (contato "legado" do negocio, tabela contacts).
+    async function handleUpdateLegacyContact() {
+        if (!contact || !editLegacy.name.trim()) return;
+        const oldContact = contact;
+        setContact({ ...contact, name: editLegacy.name.trim(), phone: editLegacy.phone.trim() }); // Optimistic
+        setEditingLegacy(false);
+        const res = await updateContact(contact.id, { name: editLegacy.name.trim(), phone: editLegacy.phone.trim() });
+        if (res.success) {
+            await logSystemActivity(deal.id, `Editou o contato principal "${editLegacy.name.trim()}"`);
+            router.refresh();
+        } else {
+            setContact(oldContact); // Revert
+            toast.error("Erro ao editar contato principal", res.error);
         }
     }
 
@@ -809,9 +827,32 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                         )}
 
                         <div className="space-y-2">
-                            {/* Legacy Contact */}
+                            {/* Legacy Contact (principal) */}
                             {contact && (
-                                <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-md border border-slate-100">
+                                editingLegacy ? (
+                                    <div className="bg-blue-50/50 p-2 rounded-md border border-blue-200 animate-in fade-in">
+                                        <input
+                                            placeholder="Nome"
+                                            aria-label="Editar nome do contato principal"
+                                            autoFocus
+                                            className="w-full text-xs p-1 mb-1 border border-slate-300 rounded placeholder:text-slate-500"
+                                            value={editLegacy.name}
+                                            onChange={e => setEditLegacy({ ...editLegacy, name: e.target.value })}
+                                        />
+                                        <input
+                                            placeholder="Telefone / WhatsApp"
+                                            aria-label="Editar telefone do contato principal"
+                                            className="w-full text-xs p-1 mb-1 border border-slate-300 rounded placeholder:text-slate-500"
+                                            value={editLegacy.phone}
+                                            onChange={e => setEditLegacy({ ...editLegacy, phone: e.target.value })}
+                                        />
+                                        <div className="flex justify-end gap-2 mt-1">
+                                            <button onClick={() => setEditingLegacy(false)} className="text-xs text-slate-600">Cancelar</button>
+                                            <button onClick={handleUpdateLegacyContact} disabled={!editLegacy.name.trim()} className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-bold disabled:opacity-50">Salvar</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-md border border-slate-100 group/legacy">
                                     <div className="p-1.5 bg-white rounded-full border border-slate-100 text-slate-500">
                                         <User size={14} />
                                     </div>
@@ -823,6 +864,14 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         </div>
                                     </div>
                                     <button
+                                        onClick={() => { setEditLegacy({ name: contact.name || "", phone: contact.phone || "" }); setEditingLegacy(true); }}
+                                        className="text-slate-400 hover:text-blue-600 p-2 rounded transition-colors opacity-0 group-hover/legacy:opacity-100"
+                                        title="Editar contato"
+                                        aria-label="Editar contato principal"
+                                    >
+                                        <Edit2 size={14} />
+                                    </button>
+                                    <button
                                         onClick={() => window.open(`https://wa.me/${contact.phone?.replace(/\D/g, "")}`, '_blank')}
                                         className="text-emerald-600 hover:bg-emerald-50 p-2 rounded transition-colors"
                                         title="WhatsApp"
@@ -831,6 +880,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         <MessageCircle size={14} />
                                     </button>
                                 </div>
+                                )
                             )}
 
                             {contacts.map((c: any) => (
