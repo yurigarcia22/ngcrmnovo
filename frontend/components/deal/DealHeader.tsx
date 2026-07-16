@@ -191,7 +191,7 @@ export default function DealHeader({ deal, pipelines }: any) {
                                         value={title}
                                         onChange={(e) => setTitle(e.target.value)}
                                         aria-label="Título do negócio"
-                                        className="text-sm font-bold text-slate-900 px-2 py-1 rounded w-64 focus:outline-none"
+                                        className="text-sm font-bold text-slate-900 bg-white border border-slate-300 px-2 py-1 rounded w-64 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                                         autoFocus
                                     />
                                     <button onClick={handleSaveTitle} disabled={loading} aria-label="Salvar título" className="p-2 hover:bg-green-500/20 rounded text-green-400">
