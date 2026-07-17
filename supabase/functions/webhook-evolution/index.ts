@@ -1,304 +1,214 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
+// =====================================================================
+// Webhook Evolution -> CRM
+// Arquitetura "ingest-first": o evento bruto e gravado em webhook_events
+// ANTES de qualquer processamento. Se algo falhar no meio, o evento fica
+// status='error' e o cron /api/cron/webhook-retry reprocessa. A mensagem
+// e salva ANTES do download de midia (midia vira UPDATE depois), entao
+// midia lenta/quebrada nunca mais derruba a mensagem.
+// =====================================================================
+
 serve(async (req) => {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  )
+
+  // --- 0. Caixa-preta: registra o evento bruto ANTES de processar ---
+  let body: any = null;
+  try { body = await req.json(); } catch {
+    return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400 });
+  }
+
+  const instanceName = body?.instance;
+  const type = body?.type ?? body?.event;
+  const data = body?.data;
+  const evoMsgId = data?.key?.id ?? null;
+
+  // Replay do cron de retry: reaproveita a linha existente em vez de criar outra.
+  const replayId = req.headers.get('x-replay-event-id');
+  let eventId: number | null = replayId ? Number(replayId) : null;
+
+  if (!eventId) {
+    try {
+      const { data: ev } = await supabase
+        .from('webhook_events')
+        .insert({
+          instance_name: instanceName ?? null,
+          event_type: type ?? null,
+          evolution_message_id: evoMsgId,
+          payload: body,
+        })
+        .select('id')
+        .single();
+      eventId = ev?.id ?? null;
+    } catch (e) {
+      // Sem caixa-preta ainda processamos: melhor entregar do que travar.
+      console.error('webhook_events insert falhou:', e);
+    }
+  }
+
+  // Finaliza: atualiza a caixa-preta e responde.
+  async function finish(status: string, detail: string | null, httpStatus: number, extra?: Record<string, unknown>) {
+    if (eventId) {
+      try {
+        await supabase.from('webhook_events').update({
+          status, detail, processed_at: new Date().toISOString(),
+        }).eq('id', eventId);
+      } catch (e) { console.error('webhook_events update falhou:', e); }
+    }
+    return new Response(JSON.stringify({ status, detail, ...(extra ?? {}) }), {
+      status: httpStatus, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
-
-    const body = await req.json()
-    // console.log('WEBHOOK PAYLOAD:', JSON.stringify(body, null, 2))
-
-    const instanceName = body.instance;
-    const type = body.type;
-    const data = body.data;
-
-    // --- 0. Identificação da Instância (CRÍTICO) ---
-    // Busca tenant_id e user_id dono desta instância
-    let tenantId = null;
-    let instanceOwnerProfileId = null;
-    let instancePipelineId = null;
+    // --- 1. Identificacao da instancia ---
+    let tenantId: string | null = null;
+    let instanceOwnerProfileId: string | null = null;
+    let instancePipelineId: number | null = null;
 
     if (instanceName) {
-      const { data: instanceData, error } = await supabase
+      const { data: instanceData } = await supabase
         .from('whatsapp_instances')
         .select('tenant_id, owner_profile_id, pipeline_id')
         .eq('instance_name', instanceName)
         .maybeSingle();
-
       if (instanceData) {
         tenantId = instanceData.tenant_id;
         instanceOwnerProfileId = instanceData.owner_profile_id;
         instancePipelineId = instanceData.pipeline_id ?? null;
-        // console.log(`-> Instância ${instanceName} encontrada. Tenant: ${tenantId}, Owner: ${instanceOwnerProfileId || 'None'}`);
-      } else {
-        console.error(`ERRO: Instância ${instanceName} não encontrada no banco.`);
-        // Tenta fallback antigo apenas se necessário, mas idealmente aborta ou loga erro
       }
     }
 
     if (!tenantId) {
-      // Sem tenant identificado: aborta. (Fallback legacy via tenants.evolution_instance_name
-      // foi removido na migration de fase 0 — coluna nao existe mais.)
-      console.error(`IGNORANDO MENSAGEM: instancia ${instanceName} nao encontrada em whatsapp_instances.`);
-      return new Response(JSON.stringify({ message: 'Ignored: Unknown Tenant' }), { status: 200 });
+      // Instancia desconhecida: NAO e ignore silencioso — fica 'orphan' na
+      // caixa-preta (recuperavel apos cadastrar/corrigir a instancia).
+      console.error(`Instancia ${instanceName} nao encontrada em whatsapp_instances.`);
+      return await finish('orphan', `instancia ${instanceName} desconhecida`, 200);
     }
 
-    // --- 1. Tratamento de Status de Conexão ---
-    if (type === 'connection.update') {
-      const state = data.state; // open, close, connecting
+    if (eventId) {
+      // Preenche tenant na caixa-preta (ajuda debug/consulta)
+      supabase.from('webhook_events').update({ tenant_id: tenantId }).eq('id', eventId).then(() => {});
+    }
+
+    // --- 2. Status de conexao ---
+    if (type === 'connection.update' || type === 'CONNECTION_UPDATE') {
+      const state = data?.state;
       const status = state === 'open' ? 'connected' : state === 'close' ? 'disconnected' : 'connecting';
-
-      console.log(`Atualizando status da instância ${instanceName} para [${status}]`);
-
-      await supabase
-        .from('whatsapp_instances')
-        .update({ status: status })
-        .eq('instance_name', instanceName);
-
-      return new Response(JSON.stringify({ success: true, message: 'Status updated' }), { status: 200 });
+      await supabase.from('whatsapp_instances').update({ status }).eq('instance_name', instanceName);
+      return await finish('processed', `conexao -> ${status}`, 200);
     }
 
-    // --- 1.5 Status de Mensagem (entregue / lida) ---
-    // Atualiza o status das mensagens que ENVIAMOS (casadas por evolution_message_id).
-    // Depende da Evolution enviar o evento MESSAGES_UPDATE para este webhook.
+    // --- 3. Status de mensagem (entregue/lida) ---
     if (type === 'messages.update' || type === 'MESSAGES_UPDATE') {
-      try {
-        const updates = Array.isArray(data) ? data : [data];
-        for (const u of updates) {
-          const msgId = u?.key?.id || u?.keyId || u?.messageId;
-          const rawStatusVal = u?.update?.status ?? u?.status;
-          if (!msgId || rawStatusVal == null) continue;
-          const rawStatus = String(rawStatusVal).toUpperCase();
-
-          // A Evolution/Baileys manda o status como STRING (READ, DELIVERY_ACK...)
-          // OU como NUMERO (2=server ack, 3=delivery, 4=read, 5=played). Tratamos os dois.
-          const isRead = rawStatus.includes('READ') || rawStatus.includes('PLAYED') ||
-            rawStatus === '4' || rawStatus === '5';
-          const isDelivered = rawStatus.includes('DELIVERY') || rawStatus === 'DELIVERED' ||
-            rawStatus === '2' || rawStatus === '3';
-
-          if (isRead) {
-            await supabase.from('messages')
-              .update({ status: 'read' })
-              .eq('evolution_message_id', msgId)
-              .eq('tenant_id', tenantId);
-          } else if (isDelivered) {
-            // Nao rebaixa uma mensagem que ja foi lida.
-            await supabase.from('messages')
-              .update({ status: 'delivered' })
-              .eq('evolution_message_id', msgId)
-              .eq('tenant_id', tenantId)
-              .neq('status', 'read');
-          }
+      const updates = Array.isArray(data) ? data : [data];
+      for (const u of updates) {
+        const msgId = u?.key?.id || u?.keyId || u?.messageId;
+        const rawStatusVal = u?.update?.status ?? u?.status;
+        if (!msgId || rawStatusVal == null) continue;
+        const rawStatus = String(rawStatusVal).toUpperCase();
+        const isRead = rawStatus.includes('READ') || rawStatus.includes('PLAYED') || rawStatus === '4' || rawStatus === '5';
+        const isDelivered = rawStatus.includes('DELIVERY') || rawStatus === 'DELIVERED' || rawStatus === '2' || rawStatus === '3';
+        if (isRead) {
+          await supabase.from('messages').update({ status: 'read' })
+            .eq('evolution_message_id', msgId).eq('tenant_id', tenantId);
+        } else if (isDelivered) {
+          await supabase.from('messages').update({ status: 'delivered' })
+            .eq('evolution_message_id', msgId).eq('tenant_id', tenantId).neq('status', 'read');
         }
-      } catch (e) {
-        console.error('Erro ao atualizar status de mensagem:', e);
       }
-      return new Response(JSON.stringify({ success: true, message: 'Message status processed' }), { status: 200 });
+      return await finish('processed', 'status de mensagem', 200);
     }
 
-    // --- 2. Filtros de Mensagem ---
-    // Ignora eventos que nao sejam mensagens (sem key).
+    // --- 4. Filtros de mensagem ---
     if (!data || !data.key) {
-      return new Response(JSON.stringify({ message: 'Ignored: Not a message' }), { status: 200 });
+      return await finish('ignored', 'evento sem key (nao e mensagem)', 200);
     }
 
-    // fromMe = mensagem que SAIU deste numero (inclui o que voce manda pelo
-    // WhatsApp Web). Tratamos como outbound, mas SO para conversas que ja existem
-    // no CRM (nao criamos contato/deal novo a partir de fromMe). O que o proprio
-    // CRM envia tambem volta como fromMe, mas a idempotencia abaixo barra duplicata.
     const isFromMe = !!data.key.fromMe;
 
-    // Evita flood de historico: ao reconectar a instancia, o WhatsApp reenvia
-    // mensagens antigas fromMe. Mensagem real do WhatsApp Web chega em segundos,
-    // entao so processamos fromMe dos ultimos 10 minutos.
+    // Anti-flood de history sync: fromMe antigo (>10min) e replay de historico.
     if (isFromMe) {
       const ts = Number(data.messageTimestamp || 0) * 1000;
       if (ts && (Date.now() - ts) > 10 * 60 * 1000) {
-        return new Response(JSON.stringify({ message: 'Ignored: fromMe antigo (history sync)' }), { status: 200 });
+        return await finish('ignored', 'fromMe antigo (history sync)', 200);
       }
     }
 
-    // --- 2.1 Idempotencia: ignora mensagem ja salva ---
-    // A Evolution as vezes reenvia o mesmo evento (retry), o que duplicava a
-    // mensagem (e a notificacao). Casamos por evolution_message_id.
+    // Idempotencia: mensagem ja salva -> ignora.
     if (data.key.id) {
       const { data: existingMsg } = await supabase
-        .from('messages')
-        .select('id')
-        .eq('evolution_message_id', data.key.id)
-        .eq('tenant_id', tenantId)
-        .limit(1)
-        .maybeSingle();
+        .from('messages').select('id')
+        .eq('evolution_message_id', data.key.id).eq('tenant_id', tenantId)
+        .limit(1).maybeSingle();
       if (existingMsg) {
-        return new Response(JSON.stringify({ message: 'Ignored: duplicate message' }), { status: 200 });
+        return await finish('ignored', 'duplicata (ja salva)', 200);
       }
     }
 
-    // --- 3. Limpeza de Telefone ---
     let rawId = data.key.remoteJid || '';
-    if (rawId.includes('@lid') && data.key.senderPn) {
-      rawId = data.key.senderPn;
-    }
+    if (rawId.includes('@lid') && data.key.senderPn) rawId = data.key.senderPn;
 
-    // O CRM e 1:1 com o lead: grupos, broadcast e status nao viram conversa.
     if (rawId.includes('@g.us') || rawId.includes('broadcast') || rawId.includes('@newsletter')) {
-      return new Response(JSON.stringify({ message: 'Ignored: group/broadcast/newsletter' }), { status: 200 });
+      return await finish('ignored', 'grupo/broadcast/newsletter', 200);
     }
 
     const messageType = data.messageType;
-
-    // Reacoes (emoji), edicoes e eventos de protocolo (ex: apagar) nao geram
-    // mensagem nova no CRM — senao poluem a conversa e disparam notificacao falsa.
     if (messageType === 'reactionMessage' || messageType === 'protocolMessage' ||
         data.message?.reactionMessage || data.message?.protocolMessage) {
-      return new Response(JSON.stringify({ message: 'Ignored: reaction/protocol' }), { status: 200 });
+      return await finish('ignored', 'reacao/protocolo', 200);
     }
 
-    let phone = rawId.split('@')[0];
-    phone = phone.replace(/\D/g, '');
-
+    let phone = rawId.split('@')[0].replace(/\D/g, '');
     if (phone.length < 10 || phone.length > 15) {
-      return new Response(JSON.stringify({ message: 'Ignored invalid phone' }), { status: 200 });
+      return await finish('ignored', `telefone invalido (${phone})`, 200);
     }
 
     const pushName = data.pushName || phone;
 
-    // --- Helper: pega mídia DESCRIPTOGRAFADA da Evolution (base64) ---
-    // Mídia recebida via WhatsApp vem encriptada na URL crua do servidor da Meta.
-    // Sem este passo, as bytes salvas no Storage ficam ilegíveis (imagens/áudios quebram).
-    async function fetchDecryptedBase64(): Promise<{ base64: string; mimetype?: string } | null> {
-      // CAMINHO PRINCIPAL: com webhookBase64=true na instancia, a Evolution ja manda
-      // a midia DESCRIPTOGRAFADA (base64) dentro do proprio payload. E instantaneo e
-      // sem race de download (era a causa do "[Imagem nao baixada]" / spinner infinito).
-      const inlineB64 = data.message?.base64 ?? data.base64 ?? data.message?.mediaBase64;
-      if (inlineB64 && typeof inlineB64 === 'string' && inlineB64.length > 100) {
-        const mt = data.message?.imageMessage?.mimetype
-          ?? data.message?.videoMessage?.mimetype
-          ?? data.message?.audioMessage?.mimetype
-          ?? data.message?.documentMessage?.mimetype
-          ?? data.message?.stickerMessage?.mimetype;
-        return { base64: inlineB64, mimetype: mt };
-      }
-
-      const evoUrl = Deno.env.get('EVOLUTION_API_URL');
-      const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
-      if (!evoUrl || !evoToken || !instanceName) return null;
-
-      // Passamos SO a key: a Evolution carrega a mensagem completa (com mediaKey) do
-      // store DELA e descriptografa. Passar o data.message "fresco" do payload falhava
-      // porque vem sem a mediaKey. Retry da tempo de a Evolution baixar/persistir a midia.
-      const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
-      const backoffs = [0, 2000, 3000, 4000, 5000]; // 1a tentativa imediata, depois espera
-      for (let i = 0; i < backoffs.length; i++) {
-        if (backoffs[i] > 0) await sleep(backoffs[i]);
-        try {
-          const r = await fetch(
-            `${evoUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', apikey: evoToken },
-              body: JSON.stringify({ message: { key: data.key }, convertToMp4: false }),
-              signal: AbortSignal.timeout(20000),
-            },
-          );
-          if (r.ok) {
-            const j = await r.json();
-            const base64 = j?.base64 ?? j?.data?.base64 ?? j?.media?.base64;
-            const mimetype = j?.mimetype ?? j?.data?.mimetype ?? j?.media?.mimetype;
-            if (base64 && typeof base64 === 'string') return { base64, mimetype };
-            console.error(`getBase64 tentativa ${i + 1}: ok mas sem base64`);
-          } else {
-            console.error(`getBase64 tentativa ${i + 1}/${backoffs.length}: HTTP ${r.status}`);
-          }
-        } catch (e) {
-          console.error(`getBase64 tentativa ${i + 1}/${backoffs.length} erro:`, e);
-        }
-      }
-      return null;
-    }
-
-    // --- Helper Upload Mídia ---
-    // 1) Tenta o base64 já descriptografado da Evolution (caminho confiável).
-    // 2) Fallback: tenta a URL crua (pode estar encriptada, mas mantém referência).
-    async function uploadMedia(url: string | null, type: string, mimetype?: string): Promise<string | null> {
-      const decrypted = await fetchDecryptedBase64();
-      if (decrypted?.base64) {
-        try {
-          const finalMime =
-            type === 'audio' ? 'audio/ogg' :
-            (decrypted.mimetype || mimetype || 'application/octet-stream');
-          const binStr = atob(decrypted.base64);
-          const bytes = new Uint8Array(binStr.length);
-          for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
-          const ext = (finalMime.split('/')[1] || 'bin').split(';')[0] || 'bin';
-          const fileName = `${tenantId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-          const { error: upErr } = await supabase.storage
-            .from('crm-media')
-            .upload(fileName, bytes, { contentType: finalMime, upsert: false });
-          if (!upErr) {
-            const { data: publicUrlData } = supabase.storage
-              .from('crm-media')
-              .getPublicUrl(fileName);
-            return publicUrlData.publicUrl;
-          }
-          console.error('Falha ao salvar base64 da Evolution no Storage:', upErr);
-        } catch (e) {
-          console.error('Erro ao processar base64 da Evolution:', e);
-        }
-      }
-
-      // Sem base64 valido da Evolution nao ha midia utilizavel: a URL crua do
-      // WhatsApp e AES-encriptada (.enc) e nao abre no navegador. Retornamos null
-      // para o front mostrar um placeholder, em vez de gravar uma midia quebrada.
-      console.error(`uploadMedia: nao foi possivel obter midia ${type} descriptografada (instancia ${instanceName}).`);
-      return null;
-    }
-
-    // --- 4. Extração de Conteúdo ---
+    // --- 5. Conteudo (SEM baixar midia ainda) ---
+    // Midia inline (webhookBase64=true) e processada ja; fallback via API da
+    // Evolution acontece DEPOIS da mensagem salva (update), nunca antes.
     let contentType = 'text';
     let content = '';
-    let mediaUrl = null;
+    let pendingMediaMime: string | undefined;
+    let hasMedia = false;
     const textContent = data.message?.conversation || data.message?.extendedTextMessage?.text;
 
     if (messageType === 'imageMessage') {
-      contentType = 'image';
-      mediaUrl = await uploadMedia(data.message.imageMessage?.url, 'image', data.message.imageMessage?.mimetype);
-      // Legenda quando houver; se a midia falhou, marca como nao baixada.
-      content = data.message.imageMessage?.caption || (mediaUrl ? '' : '[Imagem não baixada]');
+      contentType = 'image'; hasMedia = true;
+      pendingMediaMime = data.message?.imageMessage?.mimetype;
+      content = data.message?.imageMessage?.caption || '';
     } else if (messageType === 'stickerMessage') {
-      // Figurinha: tratamos como imagem para tocar inline.
-      contentType = 'image';
-      mediaUrl = await uploadMedia(data.message.stickerMessage?.url, 'image', data.message.stickerMessage?.mimetype || 'image/webp');
-      content = mediaUrl ? '' : '[Figurinha]';
+      contentType = 'image'; hasMedia = true;
+      pendingMediaMime = data.message?.stickerMessage?.mimetype || 'image/webp';
+      content = '';
     } else if (messageType === 'audioMessage') {
-      contentType = 'audio';
-      mediaUrl = await uploadMedia(data.message.audioMessage?.url, 'audio', data.message.audioMessage?.mimetype);
-      content = mediaUrl ? "" : "[Áudio não baixado]";
+      contentType = 'audio'; hasMedia = true;
+      pendingMediaMime = data.message?.audioMessage?.mimetype;
     } else if (messageType === 'documentMessage' || messageType === 'documentWithCaptionMessage') {
-      const doc = data.message.documentMessage || data.message.documentWithCaptionMessage?.message?.documentMessage;
+      const doc = data.message?.documentMessage || data.message?.documentWithCaptionMessage?.message?.documentMessage;
       contentType = doc?.mimetype === 'application/pdf' ? 'pdf' : 'document';
-      mediaUrl = await uploadMedia(doc?.url, 'document', doc?.mimetype);
-      content = doc?.fileName || doc?.caption || "Documento";
+      hasMedia = true;
+      pendingMediaMime = doc?.mimetype;
+      content = doc?.fileName || doc?.caption || 'Documento';
     } else if (messageType === 'videoMessage') {
-      contentType = 'video';
-      mediaUrl = await uploadMedia(data.message.videoMessage?.url, 'video', data.message.videoMessage?.mimetype);
-      content = data.message.videoMessage?.caption || (mediaUrl ? '' : '[Vídeo não baixado]');
+      contentType = 'video'; hasMedia = true;
+      pendingMediaMime = data.message?.videoMessage?.mimetype;
+      content = data.message?.videoMessage?.caption || '';
     } else if (messageType === 'locationMessage') {
-      // Localizacao: salva como link de mapa (type location).
       contentType = 'location';
-      const loc = data.message.locationMessage;
-      const lat = loc?.degreesLatitude;
-      const lng = loc?.degreesLongitude;
+      const loc = data.message?.locationMessage;
+      const lat = loc?.degreesLatitude, lng = loc?.degreesLongitude;
       content = (lat != null && lng != null)
         ? `📍 Localização: https://www.google.com/maps?q=${lat},${lng}`
         : '📍 Localização recebida';
     } else if (messageType === 'contactMessage' || messageType === 'contactsArrayMessage') {
-      // Contato compartilhado: extrai nome (e telefone do vCard quando houver).
-      const c = data.message.contactMessage;
+      const c = data.message?.contactMessage;
       const display = c?.displayName || 'Contato';
       const phoneMatch = (c?.vcard || '').match(/waid=(\d+)/) || (c?.vcard || '').match(/TEL[^:]*:([+\d\s()-]+)/i);
       const num = phoneMatch ? phoneMatch[1].trim() : '';
@@ -307,29 +217,45 @@ serve(async (req) => {
       content = textContent || '[Mensagem não suportada]';
     }
 
-    // --- 5. Busca ou Cria Contato (Scoped by Tenant) ---
-    // Normaliza para canonico BR. SO adiciona o nono digito em CELULAR (1o digito
-    // do assinante 6-9). Fixo (2-5, ex: numero de loja no WhatsApp Business) tem 8
-    // digitos e NAO leva o 9 — adicionar quebrava o numero.
-    let canonicalPhone = phone;
-    if (phone.startsWith('55') && phone.length === 12 && /^[6-9]/.test(phone.substring(4))) {
-      // 55 + DDD + 8 digitos (celular sem o 9) -> insere o 9
-      canonicalPhone = phone.substring(0, 4) + '9' + phone.substring(4);
+    // Upload de bytes pro Storage (usado pelo inline e pelo fallback).
+    async function uploadBytes(b64: string, mime: string | undefined): Promise<string | null> {
+      try {
+        const finalMime = contentType === 'audio' ? 'audio/ogg' : (mime || 'application/octet-stream');
+        const binStr = atob(b64);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        const ext = (finalMime.split('/')[1] || 'bin').split(';')[0] || 'bin';
+        const fileName = `${tenantId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('crm-media').upload(fileName, bytes, { contentType: finalMime, upsert: false });
+        if (upErr) { console.error('Storage upload falhou:', upErr); return null; }
+        return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
+      } catch (e) { console.error('uploadBytes erro:', e); return null; }
     }
 
-    // Lookup tenta canonical primeiro, depois variacoes legacy.
+    // Caminho rapido: base64 inline no proprio payload (webhookBase64=true).
+    let mediaUrl: string | null = null;
+    if (hasMedia) {
+      const inlineB64 = data.message?.base64 ?? data.base64 ?? data.message?.mediaBase64;
+      if (inlineB64 && typeof inlineB64 === 'string' && inlineB64.length > 100) {
+        mediaUrl = await uploadBytes(inlineB64, pendingMediaMime);
+      }
+    }
+
+    // --- 6. Normalizacao de telefone + contato ---
+    let canonicalPhone = phone;
+    if (phone.startsWith('55') && phone.length === 12 && /^[6-9]/.test(phone.substring(4))) {
+      canonicalPhone = phone.substring(0, 4) + '9' + phone.substring(4);
+    }
     const searchPhones = [canonicalPhone];
     if (canonicalPhone !== phone) searchPhones.push(phone);
     if (canonicalPhone.length === 13 && canonicalPhone[4] === '9') {
       searchPhones.push(canonicalPhone.substring(0, 4) + canonicalPhone.substring(5));
     }
 
-    // Busca todos os matches e prioriza: (1) com foto, (2) canonical, (3) qualquer
     const { data: candidates } = await supabase
-      .from('contacts')
-      .select('id, phone, photo_url')
-      .in('phone', searchPhones)
-      .eq('tenant_id', tenantId);
+      .from('contacts').select('id, phone, photo_url')
+      .in('phone', searchPhones).eq('tenant_id', tenantId);
 
     let contact: { id: string; phone: string; photo_url: string | null } | null = null;
     if (candidates && candidates.length > 0) {
@@ -337,19 +263,10 @@ serve(async (req) => {
         candidates.find((c) => c.phone === canonicalPhone) ??
         candidates.find((c) => c.photo_url && c.photo_url.length > 0) ??
         candidates[0];
-
-      // Backfill: se o contact achado nao esta no formato canonico,
-      // atualiza para o canonico (mantem ID, apenas normaliza o phone).
       if (contact && contact.phone !== canonicalPhone) {
-        // So atualiza se nao houver conflito (canonical ja existir noutro contact)
-        const conflict = candidates.find(
-          (c) => c.id !== contact!.id && c.phone === canonicalPhone,
-        );
+        const conflict = candidates.find((c) => c.id !== contact!.id && c.phone === canonicalPhone);
         if (!conflict) {
-          await supabase
-            .from('contacts')
-            .update({ phone: canonicalPhone })
-            .eq('id', contact.id);
+          await supabase.from('contacts').update({ phone: canonicalPhone }).eq('id', contact.id);
         }
       }
     }
@@ -357,117 +274,84 @@ serve(async (req) => {
     let contactId: string | undefined = contact?.id;
     const hasPhoto = !!(contact?.photo_url && contact.photo_url.length > 0);
 
-    // fromMe (ex: mensagem mandada pelo WhatsApp Web): so puxa pra conversa que JA
-    // existe. Se nao ha contato pra esse numero, ignora (nao cria contato novo).
     if (isFromMe && !contactId) {
-      return new Response(JSON.stringify({ message: 'Ignored: fromMe sem contato existente' }), { status: 200 });
+      return await finish('ignored', 'fromMe sem contato existente', 200);
     }
 
-    // Helper: pega a foto de perfil do WhatsApp e SALVA no Storage (permanente).
-    // A URL crua da Meta (pps.whatsapp.net) expira em horas/dias -> o avatar
-    // quebrava. Baixamos a imagem e guardamos no bucket, retornando a URL publica.
     async function fetchProfilePictureUrl(): Promise<string | null> {
       try {
         const evoUrl = Deno.env.get('EVOLUTION_API_URL');
         const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
         if (!evoUrl || !evoToken || !instanceName) return null;
-
-        const r = await fetch(
-          `${evoUrl}/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: evoToken },
-            body: JSON.stringify({ number: phone }),
-            signal: AbortSignal.timeout(15000),
-          }
-        );
+        const r = await fetch(`${evoUrl}/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: evoToken },
+          body: JSON.stringify({ number: phone }),
+          signal: AbortSignal.timeout(10000),
+        });
         if (!r.ok) return null;
         const j = await r.json();
         const metaUrl = j?.profilePictureUrl;
         if (!metaUrl || typeof metaUrl !== 'string') return null;
-
-        // Baixa a imagem da URL volatil e persiste no Storage.
         try {
-          const imgResp = await fetch(metaUrl, { signal: AbortSignal.timeout(15000) });
+          const imgResp = await fetch(metaUrl, { signal: AbortSignal.timeout(10000) });
           if (imgResp.ok) {
             const bytes = new Uint8Array(await imgResp.arrayBuffer());
             if (bytes.length > 200) {
               const fileName = `${tenantId}/avatars/${canonicalPhone}.jpg`;
               const { error: upErr } = await supabase.storage
-                .from('crm-media')
-                .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: true });
-              if (!upErr) {
-                return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
-              }
+                .from('crm-media').upload(fileName, bytes, { contentType: 'image/jpeg', upsert: true });
+              if (!upErr) return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
             }
           }
-        } catch { /* se falhar o download/upload, cai no fallback abaixo */ }
-
-        // Fallback: ao menos guarda a URL volatil (melhor que nada).
+        } catch { /* fallback abaixo */ }
         return metaUrl;
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     }
 
     if (!contactId) {
-      // Contact novo: insere sempre no formato canonico
-      const photoUrl = await fetchProfilePictureUrl();
+      // Foto NAO bloqueia a criacao (era mais um fetch sincrono no caminho critico).
       const { data: newContact, error } = await supabase
         .from('contacts')
-        .insert({
-          name: pushName,
-          phone: canonicalPhone,
-          tenant_id: tenantId,
-          photo_url: photoUrl ?? '',
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      contactId = newContact.id;
-    } else if (!hasPhoto) {
-      // Contact existente sem foto: tenta puxar uma vez
-      const photoUrl = await fetchProfilePictureUrl();
-      if (photoUrl) {
-        await supabase
-          .from('contacts')
-          .update({ photo_url: photoUrl })
-          .eq('id', contactId);
+        .insert({ name: pushName, phone: canonicalPhone, tenant_id: tenantId, photo_url: '' })
+        .select().single();
+      if (error) {
+        // Race: outra mensagem do mesmo numero criou o contato no meio tempo.
+        const { data: retry } = await supabase
+          .from('contacts').select('id')
+          .eq('tenant_id', tenantId).in('phone', searchPhones)
+          .limit(1).maybeSingle();
+        if (retry?.id) contactId = retry.id;
+        else throw error;
+      } else {
+        contactId = newContact.id;
+        // Foto em melhor esforco, depois de garantir o contato.
+        fetchProfilePictureUrl().then((url) => {
+          if (url) supabase.from('contacts').update({ photo_url: url }).eq('id', contactId!).then(() => {});
+        }).catch(() => {});
       }
+    } else if (!hasPhoto) {
+      fetchProfilePictureUrl().then((url) => {
+        if (url) supabase.from('contacts').update({ photo_url: url }).eq('id', contactId!).then(() => {});
+      }).catch(() => {});
     }
 
-    // --- 6. Busca ou Cria Deal (Roteamento Multi-Agente) ---
-    let { data: deal } = await supabase
-      .from('deals')
-      .select('id, owner_id, resolved_at')
-      .eq('contact_id', contactId)
-      .eq('status', 'open')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // --- 7. Busca ou cria deal ---
+    const { data: deal } = await supabase
+      .from('deals').select('id, owner_id, resolved_at')
+      .eq('contact_id', contactId).eq('status', 'open').eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
 
     let dealId = deal?.id;
-    // A conversa estava resolvida e o lead mandou mensagem? -> reabriu (avisa diferente).
     const reopened = !isFromMe && !!deal?.resolved_at;
 
-    // fromMe sem conversa aberta: ignora (nao cria deal a partir de mensagem que saiu).
     if (isFromMe && !dealId) {
-      return new Response(JSON.stringify({ message: 'Ignored: fromMe sem conversa existente' }), { status: 200 });
+      return await finish('ignored', 'fromMe sem conversa existente', 200);
     }
 
-    // SE CRIAR NOVO DEAL
     if (!dealId) {
-      // Roteamento de funil POR INSTANCIA (numero): usa o pipeline configurado
-      // na conexao. Sem pipeline_id, cai no funil DEFAULT do tenant. Sempre
-      // filtrado por tenant (sem vazamento entre tenants). Retorna bigint.
       const { data: inboxStageRpc } = await supabase
-        .rpc('get_inbox_stage_for_instance', {
-          p_tenant_id: tenantId,
-          p_pipeline_id: instancePipelineId,
-        });
-
-      // Fallback final: se o funil da instancia nao resolveu, usa o padrao.
+        .rpc('get_inbox_stage_for_instance', { p_tenant_id: tenantId, p_pipeline_id: instancePipelineId });
       let inboxStageId = (inboxStageRpc as number | string | null);
       if (inboxStageId == null) {
         const { data: defaultStageRpc } = await supabase
@@ -475,91 +359,60 @@ serve(async (req) => {
         inboxStageId = (defaultStageRpc as number | string | null);
       }
 
-      const stage = inboxStageId != null ? { id: inboxStageId } : null;
-
-      if (!stage) {
-        console.error(`Tenant ${tenantId} nao tem stage de entrada configurada (pipeline default + is_inbox).`);
-        return new Response(JSON.stringify({ message: 'Ignored: no inbox stage' }), { status: 200 });
+      if (inboxStageId == null) {
+        // Tenant sem etapa de entrada: ERRO RECUPERAVEL (nao descarte silencioso).
+        // O cron reprocessa depois que o funil for corrigido.
+        console.error(`Tenant ${tenantId} sem stage de entrada (pipeline default + is_inbox).`);
+        return await finish('error', 'tenant sem etapa de entrada configurada', 200);
       }
 
-      if (stage) {
-        let ownerId = null;
-
-        // --- LÓGICA DE ROTEAMENTO ---
-        if (instanceOwnerProfileId) {
-          // Roteamento Direto (Instância com Dono)
-          ownerId = instanceOwnerProfileId;
-          console.log(`-> Roteamento: Deal atribuído ao Dono da Instância (${ownerId})`);
-        } else {
-          // Roteamento Roleta (Instância Compartilhada)
-          const { data: seller } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('is_online', true)
-            .eq('tenant_id', tenantId)
-            .limit(1)
-            .maybeSingle();
-
-          if (seller) {
-            ownerId = seller.id;
-          } else {
-            // Fallback qualquer um do tenant
-            const { data: anyUser } = await supabase.from('profiles').select('id').eq('tenant_id', tenantId).limit(1).single();
-            ownerId = anyUser?.id;
-          }
-          console.log(`-> Roteamento: Roleta/Fallback (${ownerId})`);
+      let ownerId: string | null = null;
+      if (instanceOwnerProfileId) {
+        ownerId = instanceOwnerProfileId;
+      } else {
+        const { data: seller } = await supabase
+          .from('profiles').select('id')
+          .eq('is_online', true).eq('tenant_id', tenantId).limit(1).maybeSingle();
+        if (seller) ownerId = seller.id;
+        else {
+          const { data: anyUser } = await supabase
+            .from('profiles').select('id').eq('tenant_id', tenantId).limit(1).maybeSingle();
+          ownerId = anyUser?.id ?? null;
         }
-
-        const { data: newDeal, error: insertErr } = await supabase
-          .from('deals')
-          .insert({
-            title: `Oportunidade: ${pushName}`,
-            contact_id: contactId,
-            stage_id: stage.id,
-            owner_id: ownerId,
-            status: 'open',
-            value: 0,
-            tenant_id: tenantId
-          })
-          .select()
-          .single();
-
-        if (insertErr || !newDeal) {
-          console.error('Erro ao criar deal:', insertErr);
-          return new Response(JSON.stringify({ error: insertErr?.message || 'Falha ao criar deal' }), { status: 500 });
-        }
-
-        dealId = newDeal.id;
       }
+
+      const { data: newDeal, error: insertErr } = await supabase
+        .from('deals')
+        .insert({
+          title: `Oportunidade: ${pushName}`,
+          contact_id: contactId,
+          stage_id: inboxStageId,
+          owner_id: ownerId,
+          status: 'open',
+          value: 0,
+          tenant_id: tenantId,
+        })
+        .select().single();
+
+      if (insertErr || !newDeal) {
+        console.error('Erro ao criar deal:', insertErr);
+        return await finish('error', `falha ao criar deal: ${insertErr?.message}`, 500);
+      }
+      dealId = newDeal.id;
     } else {
-      // Deal já existe
-      const updates: any = { updated_at: new Date() };
-
-      // Se o deal não tem dono E a instância tem dono -> Atribui
-      // (so para mensagens recebidas; fromMe nao deve reatribuir a conversa).
-      if (!isFromMe && !deal.owner_id && instanceOwnerProfileId) {
+      const updates: Record<string, unknown> = { updated_at: new Date() };
+      if (!isFromMe && !deal!.owner_id && instanceOwnerProfileId) {
         updates.owner_id = instanceOwnerProfileId;
-        console.log(`-> Roteamento: Deal Existente [${dealId}] atribuído ao Dono da Instância (${instanceOwnerProfileId})`);
       }
-
-      // Mensagem recebida do lead REABRE a conversa: limpa resolved_at e o snooze
-      // (uma conversa marcada como resolvida deve voltar ao inbox quando o cliente
-      // responde, senao some pra sempre mesmo recebendo mensagens novas).
       if (!isFromMe) {
         updates.resolved_at = null;
         updates.snoozed_until = null;
       }
-
       await supabase.from('deals').update(updates).eq('id', dealId);
     }
 
-    if (!dealId) {
-      return new Response(JSON.stringify({ error: 'Could not create or find deal' }), { status: 500 });
-    }
-
-    // --- 7. Salva Mensagem ---
-    // fromMe (ex: mandada pelo WhatsApp Web) -> outbound; recebida -> inbound.
-    const { error: msgError } = await supabase.from('messages').insert({
+    // --- 8. SALVA A MENSAGEM (antes de qualquer fallback de midia) ---
+    const { data: savedMsg, error: msgError } = await supabase.from('messages').insert({
       deal_id: dealId,
       contact_id: contactId,
       evolution_message_id: data.key.id,
@@ -569,64 +422,96 @@ serve(async (req) => {
       media_url: mediaUrl,
       status: isFromMe ? 'sent' : 'delivered',
       tenant_id: tenantId,
-      instance_name: instanceName
-    });
+      instance_name: instanceName,
+    }).select('id').maybeSingle();
 
     if (msgError) {
-      console.error("Erro ao salvar mensagem:", msgError);
-      // 23505 = violacao do indice unico (tenant_id, evolution_message_id): e uma
-      // duplicata de retry concorrente que passou pelo pre-check. E benigno -> 200.
-      // Qualquer outra falha (constraint/RLS/timeout) e REAL: respondemos 500 para
-      // a Evolution reentregar e a mensagem do lead nao se perder silenciosamente.
-      if ((msgError as any).code !== '23505') {
-        return new Response(
-          JSON.stringify({ error: 'Falha ao salvar mensagem', detail: msgError.message }),
-          { status: 500 },
-        );
+      if ((msgError as any).code === '23505') {
+        // Retry concorrente: outra execucao ja salvou. Benigno.
+        return await finish('ignored', 'duplicata (constraint unique)', 200);
+      }
+      console.error('Erro ao salvar mensagem:', msgError);
+      return await finish('error', `falha ao salvar mensagem: ${msgError.message}`, 500);
+    }
+
+    // --- 9. Fallback de midia (DEPOIS da mensagem salva; falha nao perde nada) ---
+    let mediaNote: string | null = null;
+    if (hasMedia && !mediaUrl && savedMsg?.id) {
+      const evoUrl = Deno.env.get('EVOLUTION_API_URL');
+      const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
+      if (evoUrl && evoToken && instanceName) {
+        const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+        const backoffs = [0, 2500, 4000];
+        for (let i = 0; i < backoffs.length && !mediaUrl; i++) {
+          if (backoffs[i] > 0) await sleep(backoffs[i]);
+          try {
+            const r = await fetch(`${evoUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: evoToken },
+              body: JSON.stringify({ message: { key: data.key }, convertToMp4: false }),
+              signal: AbortSignal.timeout(15000),
+            });
+            if (r.ok) {
+              const j = await r.json();
+              const b64 = j?.base64 ?? j?.data?.base64 ?? j?.media?.base64;
+              const mt = j?.mimetype ?? j?.data?.mimetype ?? j?.media?.mimetype;
+              if (b64 && typeof b64 === 'string') {
+                mediaUrl = await uploadBytes(b64, mt ?? pendingMediaMime);
+              }
+            }
+          } catch (e) { console.error(`getBase64 tentativa ${i + 1} erro:`, e); }
+        }
+      }
+
+      if (mediaUrl) {
+        await supabase.from('messages').update({ media_url: mediaUrl }).eq('id', savedMsg.id);
+      } else {
+        // Sem midia: marca o placeholder classico (so se nao ha legenda).
+        mediaNote = 'midia nao baixada';
+        if (!content) {
+          const placeholder =
+            contentType === 'audio' ? '[Áudio não baixado]' :
+            contentType === 'video' ? '[Vídeo não baixado]' :
+            contentType === 'image' ? '[Imagem não baixada]' : '[Mídia não baixada]';
+          await supabase.from('messages').update({ content: placeholder }).eq('id', savedMsg.id);
+        }
       }
     }
 
-    // --- 7.1 Notifica o responsavel sobre a nova mensagem do lead ---
+    // --- 10. Notificacao pro responsavel ---
     try {
-      const { data: dealRow } = await supabase
-        .from('deals').select('owner_id').eq('id', dealId).maybeSingle();
-      // So notifica se a mensagem foi REALMENTE inserida (msgError null) E for do
-      // lead (inbound). Mensagem que VOCE mandou (fromMe) nao gera notificacao.
-      const ownerId = (msgError || isFromMe) ? null : dealRow?.owner_id;
-      if (ownerId) {
-        const preview = content && content.length > 0
-          ? (content.length > 80 ? content.slice(0, 80) + '...' : content)
-          : contentType === 'audio' ? '[Áudio]'
-          : contentType === 'image' ? '[Imagem]'
-          : (contentType === 'pdf' || contentType === 'document') ? '[Documento]'
-          : contentType === 'video' ? '[Vídeo]'
-          : '[Mídia]';
-        const nowIso = new Date().toISOString();
-        // Se a conversa estava RESOLVIDA, o lead a reabriu -> aviso destacado.
-        const title = reopened
-          ? `🔄 ${pushName} reabriu a conversa`
-          : `Nova mensagem de ${pushName}`;
-        await supabase.from('notifications').insert({
-          user_id: ownerId,
-          related_lead_id: dealId,
-          kind: reopened ? 'reopened' : 'message',
-          title,
-          message: preview,
-          scheduled_for: nowIso,
-          sent_at: nowIso,
-          tenant_id: tenantId,
-        });
+      if (!isFromMe) {
+        const { data: dealRow } = await supabase
+          .from('deals').select('owner_id').eq('id', dealId).maybeSingle();
+        const ownerId = dealRow?.owner_id;
+        if (ownerId) {
+          const preview = content && content.length > 0
+            ? (content.length > 80 ? content.slice(0, 80) + '...' : content)
+            : contentType === 'audio' ? '[Áudio]'
+            : contentType === 'image' ? '[Imagem]'
+            : (contentType === 'pdf' || contentType === 'document') ? '[Documento]'
+            : contentType === 'video' ? '[Vídeo]'
+            : '[Mídia]';
+          const nowIso = new Date().toISOString();
+          const title = reopened ? `🔄 ${pushName} reabriu a conversa` : `Nova mensagem de ${pushName}`;
+          await supabase.from('notifications').insert({
+            user_id: ownerId,
+            related_lead_id: dealId,
+            kind: reopened ? 'reopened' : 'message',
+            title,
+            message: preview,
+            scheduled_for: nowIso,
+            sent_at: nowIso,
+            tenant_id: tenantId,
+          });
+        }
       }
-    } catch (e) {
-      console.error('Erro ao criar notificacao de mensagem:', e);
-    }
+    } catch (e) { console.error('Erro ao criar notificacao:', e); }
 
-    return new Response(JSON.stringify({ success: true, dealId }), {
-      headers: { "Content-Type": "application/json" }
-    });
+    return await finish('processed', mediaNote, 200, { dealId });
 
   } catch (error) {
-    console.error("Erro Geral Webhook:", error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    console.error('Erro Geral Webhook:', error);
+    return await finish('error', String((error as Error)?.message ?? error), 500);
   }
 })
