@@ -95,9 +95,35 @@ export async function deletePipeline(id: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        // Check for deals in this pipeline (indirectly via stages) ??
-        // Actually, assuming stages cascade delete or we block?
-        // Let's just try delete. Logic: If DB has FK constraints, it will fail if data exists.
+        const { data: pipe } = await supabase
+            .from("pipelines")
+            .select("id, name, kind, is_default")
+            .eq("id", id)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+        if (!pipe) return { success: false, error: "Funil não encontrado." };
+        if (pipe.is_default) {
+            return { success: false, error: "O funil padrão não pode ser excluído. Defina outro funil como padrão antes." };
+        }
+
+        // Funil com leads dentro nao pode ser excluido (a FK bloquearia com erro
+        // criptico; melhor explicar). Conta pelo tipo do funil.
+        const { data: stageRows } = await supabase
+            .from("stages").select("id").eq("pipeline_id", id);
+        const stageIds = (stageRows ?? []).map((s: any) => s.id);
+        if (stageIds.length > 0) {
+            const table = pipe.kind === "cold_call" ? "cold_leads" : "deals";
+            const { count } = await supabase
+                .from(table)
+                .select("id", { count: "exact", head: true })
+                .in("stage_id", stageIds);
+            if ((count ?? 0) > 0) {
+                return {
+                    success: false,
+                    error: `O funil "${pipe.name}" ainda tem ${count} lead(s). Mova-os para outro funil antes de excluir (no board, use Selecionar > mover em massa).`,
+                };
+            }
+        }
 
         const { error } = await supabase
             .from("pipelines")
