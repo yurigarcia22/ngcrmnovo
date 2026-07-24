@@ -158,9 +158,13 @@ export default function LeadsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Quando pipelines carregam pela primeira vez, escolhe um se nenhum esta selecionado
+    // Quando pipelines carregam, escolhe um valido. IMPORTANTE: se o funil salvo
+    // no localStorage foi EXCLUIDO, cai pro padrao — antes ficava preso no id
+    // morto e o board aparecia vazio ("sumiu tudo").
     useEffect(() => {
-        if (!pipelines.length || selectedPipelineId) return;
+        if (!pipelines.length) return;
+        const exists = pipelines.some((p: any) => String(p.id) === String(selectedPipelineId));
+        if (selectedPipelineId && exists) return;
         let initialPipeline: string | null = null;
         if (typeof window !== "undefined") {
             const params = new URLSearchParams(window.location.search);
@@ -174,7 +178,8 @@ export default function LeadsPage() {
                 }
             }
         }
-        setSelectedPipelineId(initialPipeline ?? String(pipelines[0].id));
+        const def = pipelines.find((p: any) => p.is_default) ?? pipelines[0];
+        setSelectedPipelineId(initialPipeline ?? String(def.id));
     }, [pipelines, selectedPipelineId]);
 
     // Persiste pipeline selecionado
