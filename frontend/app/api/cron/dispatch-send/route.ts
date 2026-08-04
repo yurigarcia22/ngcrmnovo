@@ -127,6 +127,13 @@ async function run(req: NextRequest) {
             continue;
         }
 
+        // Higiene: claims orfaos (cron morreu entre claim e resultado). Ambiguo se
+        // chegou ao lead -> marca failed SEM reenviar (duplicata e pior que 1 perda).
+        const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+        await supabase.from("dispatch_recipients")
+            .update({ status: "failed", error: "interrompido no meio do envio (nao reenviado por seguranca)" })
+            .eq("campaign_id", c.id).eq("status", "sending").lt("sent_at", fiveMinAgo);
+
         // Proximo destinatario pendente
         const { data: rec } = await supabase
             .from("dispatch_recipients")
@@ -138,8 +145,28 @@ async function run(req: NextRequest) {
             .maybeSingle();
 
         if (!rec) {
-            await supabase.from("dispatch_campaigns").update({ status: "done", updated_at: new Date().toISOString() }).eq("id", c.id);
-            results.push({ campaign: c.id, done: true });
+            // done so quando nao ha nem pendente nem em voo
+            const { count: inFlight } = await supabase.from("dispatch_recipients")
+                .select("id", { count: "exact", head: true })
+                .eq("campaign_id", c.id).eq("status", "sending");
+            if (!inFlight) {
+                await supabase.from("dispatch_campaigns").update({ status: "done", updated_at: new Date().toISOString() }).eq("id", c.id);
+                results.push({ campaign: c.id, done: true });
+            }
+            continue;
+        }
+
+        // CLAIM ATOMICO: so envia quem conseguir mudar pending->sending. Se outra
+        // rodada do cron (sobreposta) pegou o mesmo contato, esta perde o claim e
+        // pula — era a causa de mensagem DUPLICADA no lead.
+        const { data: claimed } = await supabase
+            .from("dispatch_recipients")
+            .update({ status: "sending", sent_at: new Date().toISOString() })
+            .eq("id", rec.id)
+            .eq("status", "pending")
+            .select("id");
+        if (!claimed || claimed.length === 0) {
+            results.push({ campaign: c.id, skipped: "claim perdido (rodada sobreposta)" });
             continue;
         }
 
