@@ -114,7 +114,7 @@ export async function getBoardData(pipelineId?: string) {
                     promoted_at, snoozed_until, resolved_at, closed_at,
                     lost_reason, lost_reason_id, lost_details,
                     contact_id, custom_values, stage_entered_at,
-                    acquisition_channel_id,
+                    acquisition_channel_id, touchpoints, last_touch_at,
                     created_at, updated_at,
                     contacts (name, phone, photo_url),
                     owner:owner_id (full_name, avatar_url),

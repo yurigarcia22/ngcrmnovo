@@ -1895,6 +1895,46 @@ export async function markAsLost(dealId: string, reason?: string, details?: stri
     }
 }
 
+// Cadencia do funil de vendas: +1 ponto de contato no deal (botao do card).
+// Alem do contador, grava nota no historico pra ficar auditavel na timeline.
+export async function registerTouchpoint(dealId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data: deal } = await supabase
+            .from('deals')
+            .select('id, touchpoints')
+            .eq('id', dealId)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (!deal) return { success: false, error: 'Negócio não encontrado.' };
+
+        const next = (deal.touchpoints ?? 0) + 1;
+        const nowIso = new Date().toISOString();
+        const { error } = await supabase
+            .from('deals')
+            .update({ touchpoints: next, last_touch_at: nowIso, updated_at: nowIso })
+            .eq('id', dealId)
+            .eq('tenant_id', tenantId);
+        if (error) throw error;
+
+        await supabase.from('notes').insert({
+            deal_id: dealId,
+            tenant_id: tenantId,
+            content: `📞 Ponto de contato registrado (nº ${next})`,
+        });
+
+        revalidatePath('/leads');
+        return { success: true, touchpoints: next };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
 export async function recoverDeal(dealId: string) {
     const tenantId = await getTenantId();
     const supabase = createClient(

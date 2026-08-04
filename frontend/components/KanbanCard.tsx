@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Draggable } from "@hello-pangea/dnd";
-import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2 } from "lucide-react";
+import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2, PhoneCall } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
     DropdownMenu,
@@ -9,7 +10,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { markAsWon, markAsLost, deleteDeal } from "@/app/actions";
+import { markAsWon, markAsLost, deleteDeal, registerTouchpoint } from "@/app/actions";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "@/lib/toast";
 import confetti from "canvas-confetti";
@@ -27,6 +28,25 @@ interface KanbanCardProps {
 export default function KanbanCard({ deal, index, fields, onClick, isSelectionMode, isSelected, onToggleSelection }: KanbanCardProps) {
     const router = useRouter();
     const confirm = useConfirm();
+
+    // Cadencia (pontos de contato): otimista local; o refetch do board confirma.
+    const [touchCount, setTouchCount] = useState<number>(deal.touchpoints ?? 0);
+    const [touchSaving, setTouchSaving] = useState(false);
+
+    const handleTouchpoint = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (touchSaving) return;
+        setTouchSaving(true);
+        setTouchCount((c) => c + 1); // otimista
+        const res = await registerTouchpoint(deal.id);
+        if (res?.success === false) {
+            setTouchCount((c) => Math.max(0, c - 1)); // reverte
+            toast.error("Erro ao registrar contato", res.error);
+        } else if (typeof (res as any)?.touchpoints === "number") {
+            setTouchCount((res as any).touchpoints);
+        }
+        setTouchSaving(false);
+    };
 
     const handleMarkAsWon = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -338,6 +358,23 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                                     {new Date(deal.created_at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
                                 </span>
                             </div>
+
+                            {/* Cadência: pontos de contato (clique = +1) */}
+                            <button
+                                onClick={handleTouchpoint}
+                                disabled={touchSaving}
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors disabled:opacity-50 ${
+                                    touchCount > 0
+                                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                                        : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
+                                }`}
+                                title={`Cadência: ${touchCount} ponto(s) de contato${deal.last_touch_at ? ` · último em ${new Date(deal.last_touch_at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}` : ''}. Clique para registrar +1.`}
+                                aria-label="Registrar ponto de contato"
+                            >
+                                <PhoneCall size={10} strokeWidth={3} />
+                                {touchCount}
+                                <span className="text-indigo-400 font-black">+</span>
+                            </button>
 
                             {/* Next Meeting Date (if any) */}
                             {(() => {
