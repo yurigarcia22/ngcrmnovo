@@ -31,6 +31,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
 
     // Cadencia (pontos de contato): otimista local; o refetch do board confirma.
     const [touchCount, setTouchCount] = useState<number>(deal.touchpoints ?? 0);
+    const [lastTouch, setLastTouch] = useState<string | null>(deal.last_touch_at ?? null);
     const [touchSaving, setTouchSaving] = useState(false);
 
     const handleTouchpoint = async (e: React.MouseEvent) => {
@@ -38,9 +39,11 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
         if (touchSaving) return;
         setTouchSaving(true);
         setTouchCount((c) => c + 1); // otimista
+        setLastTouch(new Date().toISOString());
         const res = await registerTouchpoint(deal.id);
         if (res?.success === false) {
             setTouchCount((c) => Math.max(0, c - 1)); // reverte
+            setLastTouch(deal.last_touch_at ?? null);
             toast.error("Erro ao registrar contato", res.error);
         } else if (typeof (res as any)?.touchpoints === "number") {
             setTouchCount((res as any).touchpoints);
@@ -368,13 +371,20 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
                                         : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
                                 }`}
-                                title={`Cadência: ${touchCount} ponto(s) de contato${deal.last_touch_at ? ` · último em ${new Date(deal.last_touch_at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}` : ''}. Clique para registrar +1.`}
+                                title={`Cadência: ${touchCount} ponto(s) de contato${lastTouch ? ` · último em ${new Date(lastTouch).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}` : ''}. Clique para registrar +1.`}
                                 aria-label="Registrar ponto de contato"
                             >
                                 <PhoneCall size={10} strokeWidth={3} />
                                 {touchCount}
                                 <span className="text-indigo-400 font-black">+</span>
                             </button>
+
+                            {/* Data do ultimo ponto de contato */}
+                            {touchCount > 0 && lastTouch && (
+                                <span className="text-[10px] text-gray-400 font-medium" title="Data do último contato">
+                                    {new Date(lastTouch).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
+                                </span>
+                            )}
 
                             {/* Next Meeting Date (if any) */}
                             {(() => {

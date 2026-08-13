@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle } from "lucide-react";
-import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember } from "@/app/actions";
+import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle, PhoneCall, CalendarPlus, BellPlus } from "lucide-react";
+import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember, createTask, registerTouchpoint } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -301,6 +301,61 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     const [newTaskDate, setNewTaskDate] = useState("");
     const [reschedulingTaskId, setReschedulingTaskId] = useState<string | null>(null);
 
+    // Agendamento rapido (reuniao / follow-up) direto no painel
+    const [schedType, setSchedType] = useState<null | 'reuniao' | 'followup'>(null);
+    const [schedDate, setSchedDate] = useState("");
+    const [schedSaving, setSchedSaving] = useState(false);
+
+    // Cadencia (pontos de contato) no painel
+    const [sideTouch, setSideTouch] = useState<{ count: number; at: string | null }>({
+        count: deal.touchpoints ?? 0, at: deal.last_touch_at ?? null,
+    });
+    const [sideTouchSaving, setSideTouchSaving] = useState(false);
+
+    function openSched(type: 'reuniao' | 'followup') {
+        // default: amanha 09:00
+        const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+        const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        setSchedDate(iso);
+        setSchedType(type);
+    }
+
+    async function handleSchedule() {
+        if (!schedType || !schedDate) { toast.warning("Escolha a data."); return; }
+        setSchedSaving(true);
+        const desc = schedType === 'reuniao' ? 'Reunião com o cliente' : 'Follow-up com o cliente';
+        const res: any = await createTask(deal.id, desc, new Date(schedDate).toISOString());
+        if (res.success) {
+            await logSystemActivity(deal.id, `Agendou ${schedType === 'reuniao' ? 'reunião' : 'follow-up'} para ${new Date(schedDate).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`);
+            // Atualiza o bloco na hora se virou a proxima pendencia
+            if (!nextTask || new Date(schedDate).getTime() < new Date(nextTask.due_date).getTime()) {
+                setNextTask({ id: res.taskId, description: desc, due_date: new Date(schedDate).toISOString(), is_completed: false });
+            }
+            toast.success(schedType === 'reuniao' ? "Reunião marcada!" : "Follow-up agendado!");
+            setSchedType(null);
+            router.refresh();
+        } else {
+            toast.error("Erro ao agendar", res.error);
+        }
+        setSchedSaving(false);
+    }
+
+    async function handleSideTouchpoint() {
+        if (sideTouchSaving) return;
+        setSideTouchSaving(true);
+        const prev = sideTouch;
+        setSideTouch({ count: prev.count + 1, at: new Date().toISOString() }); // otimista
+        const res: any = await registerTouchpoint(deal.id);
+        if (res?.success === false) {
+            setSideTouch(prev);
+            toast.error("Erro ao registrar contato", res.error);
+        } else if (typeof res?.touchpoints === 'number') {
+            setSideTouch({ count: res.touchpoints, at: new Date().toISOString() });
+            router.refresh();
+        }
+        setSideTouchSaving(false);
+    }
+
     // Calc Next Task on Mount
     useEffect(() => {
         if (deal.tasks && deal.tasks.length > 0) {
@@ -506,6 +561,64 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                             })() : (
                                 <div className="text-xs text-slate-500 italic py-1">Nenhuma reunião agendada</div>
                             )}
+
+                            {/* Agendamento rapido: marcar reuniao / follow-up */}
+                            {schedType ? (
+                                <div className="mt-2 flex items-center gap-1 animate-in fade-in slide-in-from-top-1">
+                                    <span className="text-[10px] font-bold text-slate-600 shrink-0">
+                                        {schedType === 'reuniao' ? '📅 Reunião' : '🔔 Follow-up'}
+                                    </span>
+                                    <input
+                                        type="datetime-local"
+                                        value={schedDate}
+                                        onChange={(e) => setSchedDate(e.target.value)}
+                                        aria-label="Data do agendamento"
+                                        autoFocus
+                                        className="flex-1 text-[11px] p-1 border border-slate-300 rounded min-w-0"
+                                    />
+                                    <button onClick={handleSchedule} disabled={schedSaving} aria-label="Confirmar agendamento" className="text-emerald-600 bg-white border border-slate-200 p-1 rounded hover:bg-emerald-50 disabled:opacity-50"><Check size={12} /></button>
+                                    <button onClick={() => setSchedType(null)} aria-label="Cancelar agendamento" className="text-rose-500 bg-white border border-slate-200 p-1 rounded hover:bg-rose-50"><X size={12} /></button>
+                                </div>
+                            ) : (
+                                <div className="mt-2 flex items-center gap-2">
+                                    {!nextTask && (
+                                        <button
+                                            onClick={() => openSched('reuniao')}
+                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded hover:bg-sky-100 transition-colors"
+                                        >
+                                            <CalendarPlus size={12} /> Marcar reunião
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => openSched('followup')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-100 transition-colors"
+                                    >
+                                        <BellPlus size={12} /> Follow-up
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* CADÊNCIA (pontos de contato) */}
+                    <div className="grid grid-cols-[140px_1fr] items-center gap-2 min-h-[30px]">
+                        <span className="text-sm font-semibold text-slate-700">Cadência</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                                <PhoneCall size={13} className="text-indigo-500" /> {sideTouch.count}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                                {sideTouch.count === 1 ? 'contato' : 'contatos'}
+                                {sideTouch.at ? ` · último em ${new Date(sideTouch.at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}` : ''}
+                            </span>
+                            <button
+                                onClick={handleSideTouchpoint}
+                                disabled={sideTouchSaving}
+                                className="px-2 py-0.5 rounded-full border border-indigo-200 text-indigo-700 text-[11px] font-bold hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                                title="Registrar +1 ponto de contato"
+                            >
+                                +1
+                            </button>
                         </div>
                     </div>
 

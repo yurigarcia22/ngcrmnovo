@@ -1508,7 +1508,7 @@ export async function createTask(dealId: string | null, description: string, due
             await scheduleTaskNotifications(newTask.id, user.id, dueDate, tenantId);
         }
 
-        return { success: true };
+        return { success: true, taskId: newTask?.id ?? null };
     } catch (error: any) {
         console.error("createTask Error:", error);
         return { success: false, error: error.message };
