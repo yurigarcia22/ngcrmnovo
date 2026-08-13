@@ -351,22 +351,14 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                     {/* Separator */}
                     <div className="h-px w-full bg-gray-100 mb-3" />
 
-                    {/* Footer: Date & Avatar */}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                        <div className="flex items-center gap-3">
-                            {/* Creation Date */}
-                            <div className="flex items-center gap-1.5 text-gray-400 group-hover:text-gray-500 transition-colors" title="Data de criação">
-                                <Calendar size={13} strokeWidth={2.5} />
-                                <span className="text-[11px] font-medium tracking-wide">
-                                    {new Date(deal.created_at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
-                                </span>
-                            </div>
-
-                            {/* Cadência: pontos de contato (clique = +1) */}
+                    {/* Footer em 2 linhas: atividade (cadência + reunião) e meta (criação + donos) */}
+                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                        {/* Linha 1: cadência + próxima reunião */}
+                        <div className="flex items-center justify-between gap-2">
                             <button
                                 onClick={handleTouchpoint}
                                 disabled={touchSaving}
-                                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors disabled:opacity-50 ${
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors disabled:opacity-50 shrink-0 ${
                                     touchCount > 0
                                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
                                         : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
@@ -376,22 +368,17 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                             >
                                 <PhoneCall size={10} strokeWidth={3} />
                                 {touchCount}
+                                {touchCount > 0 && lastTouch && (
+                                    <span className="font-semibold opacity-70">· {new Date(lastTouch).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span>
+                                )}
                                 <span className="text-indigo-400 font-black">+</span>
                             </button>
 
-                            {/* Data do ultimo ponto de contato */}
-                            {touchCount > 0 && lastTouch && (
-                                <span className="text-[10px] text-gray-400 font-medium" title="Data do último contato">
-                                    {new Date(lastTouch).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
-                                </span>
-                            )}
-
-                            {/* Next Meeting Date (if any) */}
+                            {/* Próxima reunião (se houver) */}
                             {(() => {
                                 const incompleteTasks = deal.tasks?.filter((t: any) => !t.is_completed && t.due_date) || [];
                                 if (incompleteTasks.length === 0) return null;
 
-                                // Sort by date ascending to find the next one
                                 incompleteTasks.sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
                                 const nextTask = incompleteTasks[0];
                                 const nextDate = new Date(nextTask.due_date);
@@ -400,17 +387,24 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
 
                                 return (
                                     <div
-                                        className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isLate ? 'bg-red-50 text-red-600 border-red-100' : isToday ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}
+                                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${isLate ? 'bg-red-50 text-red-600 border-red-100' : isToday ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}
                                         title={`Próxima reunião/tarefa: ${nextTask.description || 'Sem descrição'}`}
                                     >
                                         <Calendar size={10} strokeWidth={3} />
-                                        <span>
-                                            {nextDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
-                                        </span>
+                                        <span>Reunião {nextDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span>
                                     </div>
                                 );
                             })()}
                         </div>
+
+                        {/* Linha 2: data de criação + responsáveis */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-gray-400 group-hover:text-gray-500 transition-colors" title="Data de criação">
+                                <Calendar size={13} strokeWidth={2.5} />
+                                <span className="text-[11px] font-medium tracking-wide">
+                                    {new Date(deal.created_at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
+                                </span>
+                            </div>
 
                         {/* Owners / Responsibles */}
                         <div className="flex items-center -space-x-2 overflow-hidden pl-1">
@@ -462,6 +456,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                                     )
                                 }
                             })()}
+                        </div>
                         </div>
                     </div>
                 </div>
