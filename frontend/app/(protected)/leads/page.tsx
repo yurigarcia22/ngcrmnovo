@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/utils/supabase/client";
 import confetti from "canvas-confetti";
-import { markAsWon, recoverDeal, getTeamMembers, deleteDeals, updateDeals, addDealMember } from "@/app/actions";
+import { markAsWon, markAsLost, recoverDeal, getTeamMembers, deleteDeals, updateDeals, addDealMember } from "@/app/actions";
+import LossReasonDialog from "@/components/deal/LossReasonDialog";
 import { getPipelines, getBoardData } from "./actions";
 import { qk } from "@/lib/query-keys";
 import { GitPullRequest, CheckSquare, Square } from "lucide-react";
@@ -79,6 +80,36 @@ export default function LeadsPage() {
     const invalidateBoard = () => queryClient.invalidateQueries({ queryKey: qk.deals.board(selectedPipelineId) });
 
     const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
+
+    // Perda por arrasto: guarda o movimento pendente ate o usuario escolher o
+    // MOTIVO no modal (obrigatorio). Cancelou -> rollback do card.
+    const [pendingLost, setPendingLost] = useState<{ dealId: string; newStageId: number; snapshot: any[] } | null>(null);
+    const [losingDrag, setLosingDrag] = useState(false);
+
+    async function handleConfirmDragLost(payload: { lossReasonId?: string; reasonName?: string; details?: string }) {
+        if (!pendingLost) return;
+        setLosingDrag(true);
+        const res: any = await markAsLost(pendingLost.dealId, payload.reasonName, payload.details, payload.lossReasonId);
+        if (res?.success === false) {
+            toast.error("Erro ao marcar como perdido", res.error);
+            patchBoardDeals(() => pendingLost.snapshot); // rollback
+        } else {
+            // Respeita a coluna exata onde o card foi solto (markAsLost move pra
+            // primeira coluna de perda; se houver mais de uma, corrigimos aqui).
+            await supabase.from("deals").update({ stage_id: pendingLost.newStageId }).eq("id", pendingLost.dealId);
+            toast.success("Negócio marcado como perdido");
+            invalidateBoard();
+        }
+        setLosingDrag(false);
+        setPendingLost(null);
+    }
+
+    function handleCancelDragLost(open: boolean) {
+        if (!open && pendingLost && !losingDrag) {
+            patchBoardDeals(() => pendingLost.snapshot); // desfaz o movimento
+            setPendingLost(null);
+        }
+    }
 
     // Helpers pra persistir filtros no localStorage (sobrevivem F5, navegação e volta de deal)
     const readLs = (k: string, fallback: string) => {
@@ -251,6 +282,13 @@ export default function LeadsPage() {
             return deal;
         }));
 
+        // Coluna de PERDA: nao aplica direto — abre o modal de MOTIVO (obrigatorio).
+        // A confirmacao chama markAsLost com o motivo; cancelar desfaz o movimento.
+        if (newStage?.is_lost === true) {
+            setPendingLost({ dealId, newStageId, snapshot: oldDeals });
+            return;
+        }
+
         try {
             // Monta update payload
             const updatePayload: any = { stage_id: newStageId };
@@ -262,13 +300,6 @@ export default function LeadsPage() {
                 if (!currentDeal?.promoted_at) {
                     updatePayload.promoted_at = new Date().toISOString();
                 }
-            }
-            // Arrastar para uma coluna de PERDA marca o deal como perdido (status),
-            // senao ele ficava "open" numa coluna de perdido (some do filtro Perdidas,
-            // conta errado no dashboard). Sincroniza em 1 update, na coluna escolhida.
-            if (newStage?.is_lost === true) {
-                updatePayload.status = 'lost';
-                updatePayload.closed_at = new Date().toISOString();
             }
 
             // Atualiza no Supabase (Stage + promoted_at se aplicavel)
@@ -309,9 +340,6 @@ export default function LeadsPage() {
 
                 // Marca como Ganho no Backend
                 await markAsWon(dealId);
-            } else if (newStage?.is_lost === true) {
-                // Status 'lost' + closed_at ja foram no updatePayload acima (1 update).
-                // Nada a fazer aqui — nao reabrir.
             } else {
                 // Coluna normal: se o deal vinha de won/lost, reabre para 'open'.
                 const oldDealStatus = oldDeals.find(d => String(d.id) === dealId)?.status;
@@ -741,6 +769,14 @@ export default function LeadsPage() {
                 isOpen={isNewLeadModalOpen}
                 onClose={() => setIsNewLeadModalOpen(false)}
                 onSuccess={() => fetchData()} // Recarrega os dados ao criar
+            />
+
+            {/* MODAL MOTIVO DE PERDA (arrasto pra coluna de perda) */}
+            <LossReasonDialog
+                open={!!pendingLost}
+                onOpenChange={handleCancelDragLost}
+                onConfirm={handleConfirmDragLost}
+                saving={losingDrag}
             />
 
             {/* Floating Bulk Action Bar */}

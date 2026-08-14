@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle, PhoneCall, CalendarPlus, BellPlus } from "lucide-react";
-import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember, createTask, registerTouchpoint } from "@/app/actions";
+import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember, createTask, registerTouchpoint, unregisterTouchpoint } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -356,6 +356,23 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
         setSideTouchSaving(false);
     }
 
+    // -1: corrige clique acidental no + do card (so existe aqui no painel).
+    async function handleSideUntouch() {
+        if (sideTouchSaving || sideTouch.count <= 0) return;
+        setSideTouchSaving(true);
+        const prev = sideTouch;
+        setSideTouch({ count: prev.count - 1, at: prev.count - 1 === 0 ? null : prev.at }); // otimista
+        const res: any = await unregisterTouchpoint(deal.id);
+        if (res?.success === false) {
+            setSideTouch(prev);
+            toast.error("Erro ao remover contato", res.error);
+        } else if (typeof res?.touchpoints === 'number') {
+            setSideTouch((s) => ({ count: res.touchpoints, at: res.touchpoints === 0 ? null : s.at }));
+            router.refresh();
+        }
+        setSideTouchSaving(false);
+    }
+
     // Calc Next Task on Mount
     useEffect(() => {
         if (deal.tasks && deal.tasks.length > 0) {
@@ -618,6 +635,16 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                             >
                                 +1
                             </button>
+                            {sideTouch.count > 0 && (
+                                <button
+                                    onClick={handleSideUntouch}
+                                    disabled={sideTouchSaving}
+                                    className="px-2 py-0.5 rounded-full border border-slate-200 text-slate-500 text-[11px] font-bold hover:bg-slate-50 hover:text-slate-700 transition-colors disabled:opacity-50"
+                                    title="Remover 1 contato (corrige clique acidental no card)"
+                                >
+                                    −1
+                                </button>
+                            )}
                         </div>
                     </div>
 

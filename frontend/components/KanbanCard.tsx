@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2, PhoneCall } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { markAsWon, markAsLost, deleteDeal, registerTouchpoint } from "@/app/actions";
+import LossReasonDialog from "@/components/deal/LossReasonDialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "@/lib/toast";
 import confetti from "canvas-confetti";
@@ -33,6 +34,13 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
     const [touchCount, setTouchCount] = useState<number>(deal.touchpoints ?? 0);
     const [lastTouch, setLastTouch] = useState<string | null>(deal.last_touch_at ?? null);
     const [touchSaving, setTouchSaving] = useState(false);
+
+    // Sincroniza com o dado fresco do board: sem isso o card segurava o valor da
+    // primeira renderizacao (cache velho) e "0" virava "4" no primeiro clique.
+    useEffect(() => {
+        setTouchCount(deal.touchpoints ?? 0);
+        setLastTouch(deal.last_touch_at ?? null);
+    }, [deal.touchpoints, deal.last_touch_at]);
 
     const handleTouchpoint = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -79,21 +87,26 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
         }, 250);
     };
 
-    const handleMarkAsLost = async (e: React.MouseEvent) => {
+    // Perda exige MOTIVO (modal compartilhado com os motivos de Configuracoes).
+    const [showLostDialog, setShowLostDialog] = useState(false);
+    const [losing, setLosing] = useState(false);
+
+    const handleMarkAsLost = (e: React.MouseEvent) => {
         e.stopPropagation();
-        const ok = await confirm({
-            title: "Marcar lead como perdido?",
-            description: "O negocio sera movido para a coluna de perdidos.",
-            tone: "warning",
-            confirmText: "Marcar como perdido",
-        });
-        if (!ok) return;
-        const res = await markAsLost(deal.id);
+        setShowLostDialog(true);
+    };
+
+    const handleConfirmLost = async (payload: { lossReasonId?: string; reasonName?: string; details?: string }) => {
+        setLosing(true);
+        const res = await markAsLost(deal.id, payload.reasonName, payload.details, payload.lossReasonId);
         if (res?.success === false) {
             toast.error("Erro ao marcar como perdido", res.error);
         } else {
             toast.success("Negocio marcado como perdido");
+            setShowLostDialog(false);
+            router.refresh();
         }
+        setLosing(false);
     };
 
     const handleDelete = async (e: React.MouseEvent) => {
@@ -138,6 +151,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
     }
 
     return (
+        <>
         <Draggable draggableId={String(deal.id)} index={index}>
             {(provided, snapshot) => (
                 <div
@@ -465,5 +479,14 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                 </div>
             )}
         </Draggable>
+
+        {/* Modal de motivo de perda (portal; fora do card pra clique nao navegar) */}
+        <LossReasonDialog
+            open={showLostDialog}
+            onOpenChange={setShowLostDialog}
+            onConfirm={handleConfirmLost}
+            saving={losing}
+        />
+        </>
     );
 }

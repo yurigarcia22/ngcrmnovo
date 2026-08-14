@@ -1935,6 +1935,59 @@ export async function registerTouchpoint(dealId: string) {
     }
 }
 
+// Corrige clique acidental no +1: tira 1 ponto de contato (min 0) e apaga a
+// ultima nota "Ponto de contato registrado" do historico.
+export async function unregisterTouchpoint(dealId: string) {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const { data: deal } = await supabase
+            .from('deals')
+            .select('id, touchpoints')
+            .eq('id', dealId)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+        if (!deal) return { success: false, error: 'Negócio não encontrado.' };
+
+        const current = deal.touchpoints ?? 0;
+        if (current <= 0) return { success: true, touchpoints: 0 };
+
+        const next = current - 1;
+        const patch: any = { touchpoints: next, updated_at: new Date().toISOString() };
+        if (next === 0) patch.last_touch_at = null;
+
+        const { error } = await supabase
+            .from('deals')
+            .update(patch)
+            .eq('id', dealId)
+            .eq('tenant_id', tenantId);
+        if (error) throw error;
+
+        // Remove a nota mais recente do registro (mantem o historico coerente).
+        const { data: lastNote } = await supabase
+            .from('notes')
+            .select('id')
+            .eq('deal_id', dealId)
+            .eq('tenant_id', tenantId)
+            .like('content', '📞 Ponto de contato registrado%')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (lastNote?.id) {
+            await supabase.from('notes').delete().eq('id', lastNote.id);
+        }
+
+        revalidatePath('/leads');
+        return { success: true, touchpoints: next };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
 export async function recoverDeal(dealId: string) {
     const tenantId = await getTenantId();
     const supabase = createClient(

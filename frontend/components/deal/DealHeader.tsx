@@ -4,7 +4,7 @@ import { ArrowLeft, ChevronRight, Check, Pencil, Trash2, Save, X, Trophy, Frown,
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { updateDeal, logSystemActivity, deleteDeal, markAsWon, markAsLost, recoverDeal } from "@/app/actions";
-import { getLossReasons } from "@/app/(protected)/settings/loss-reasons/actions";
+import LossReasonDialog from "@/components/deal/LossReasonDialog";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -33,12 +33,8 @@ export default function DealHeader({ deal, pipelines }: any) {
     const [isEditing, setIsEditing] = useState(false);
     const [title, setTitle] = useState(deal.title);
 
-    // Lost reason modal
+    // Lost reason modal (componente compartilhado, motivo obrigatorio)
     const [showLostModal, setShowLostModal] = useState(false);
-    const [lossReasons, setLossReasons] = useState<any[]>([]);
-    const [selectedLossReasonId, setSelectedLossReasonId] = useState<string>("");
-    const [lossDetails, setLossDetails] = useState("");
-    const lostSelectRef = useRef<HTMLSelectElement>(null);
 
     // a11y: fechar no Esc e focar o primeiro campo ao abrir o modal de perda
     useEffect(() => {
@@ -130,21 +126,13 @@ export default function DealHeader({ deal, pipelines }: any) {
         setLoading(false);
     }
 
-    async function openLostModal() {
-        const res = await getLossReasons();
-        if (res.success) setLossReasons(res.data || []);
+    function openLostModal() {
         setShowLostModal(true);
     }
 
-    async function handleConfirmLost() {
-        const reason = lossReasons.find((r) => r.id === selectedLossReasonId);
+    async function handleConfirmLost(payload: { lossReasonId?: string; reasonName?: string; details?: string }) {
         setLoading(true);
-        const res = await markAsLost(
-            deal.id,
-            reason?.name,
-            lossDetails || undefined,
-            selectedLossReasonId || undefined,
-        );
+        const res = await markAsLost(deal.id, payload.reasonName, payload.details, payload.lossReasonId);
         if (res.success) {
             toast.success("Marcado como perdido.");
             setShowLostModal(false);
@@ -318,75 +306,13 @@ export default function DealHeader({ deal, pipelines }: any) {
                 </div>
             </header>
 
-            {/* Modal: Motivo de Perda */}
-            {showLostModal && (
-                <div
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Marcar como perdido"
-                    className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-                    onClick={() => setShowLostModal(false)}
-                >
-                    <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                <Frown className="text-rose-500" size={20} /> Marcar como perdido
-                            </h2>
-                            <button onClick={() => setShowLostModal(false)} aria-label="Fechar" className="p-2 -mr-2 text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-100 transition-colors">
-                                <X size={20} />
-                            </button>
-                        </div>
-
-                        <div className="mb-4">
-                            <label htmlFor="lost-reason-select" className="block text-xs font-semibold text-slate-600 mb-1.5">
-                                Motivo da perda
-                            </label>
-                            <select
-                                id="lost-reason-select"
-                                ref={lostSelectRef}
-                                value={selectedLossReasonId}
-                                onChange={(e) => setSelectedLossReasonId(e.target.value)}
-                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
-                            >
-                                <option value="">— Selecione —</option>
-                                {lossReasons.map((r) => (
-                                    <option key={r.id} value={r.id}>{r.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="mb-5">
-                            <label htmlFor="lost-details" className="block text-xs font-semibold text-slate-600 mb-1.5">
-                                Detalhes (opcional)
-                            </label>
-                            <textarea
-                                id="lost-details"
-                                value={lossDetails}
-                                onChange={(e) => setLossDetails(e.target.value)}
-                                rows={3}
-                                placeholder="O que aconteceu?"
-                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 resize-none placeholder:text-slate-500"
-                            />
-                        </div>
-
-                        <div className="flex justify-end gap-2">
-                            <button
-                                onClick={() => setShowLostModal(false)}
-                                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleConfirmLost}
-                                disabled={loading}
-                                className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg disabled:opacity-50"
-                            >
-                                Confirmar perda
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modal: Motivo de Perda (compartilhado, motivo obrigatorio) */}
+            <LossReasonDialog
+                open={showLostModal}
+                onOpenChange={setShowLostModal}
+                onConfirm={handleConfirmLost}
+                saving={loading}
+            />
         </>
     );
 }
