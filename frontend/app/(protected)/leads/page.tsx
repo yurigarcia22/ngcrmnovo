@@ -7,7 +7,7 @@ import { markAsWon, markAsLost, recoverDeal, getTeamMembers, deleteDeals, update
 import LossReasonDialog from "@/components/deal/LossReasonDialog";
 import { getPipelines, getBoardData } from "./actions";
 import { qk } from "@/lib/query-keys";
-import { GitPullRequest, CheckSquare, Square } from "lucide-react";
+import { GitPullRequest, CheckSquare, Square, PhoneMissed } from "lucide-react";
 
 import {
     MessageCircle,
@@ -142,6 +142,9 @@ export default function LeadsPage() {
     });
     const tags: any[] = tagsQuery.data ?? [];
     const [filterTag, setFilterTag] = useState(() => readLs("filter_tag", "all"));
+    // Modo "sem contato hoje": mostra so quem ainda NAO recebeu cadencia hoje.
+    // Ao registrar +1 num lead, ele some da visao na hora (virou contato de hoje).
+    const [filterNoTouchToday, setFilterNoTouchToday] = useState(() => readLs("filter_noTouchToday", "0") === "1");
     const [filterDate, setFilterDate] = useState(() => readLs("filter_date", "all"));
     const [filterDateStart, setFilterDateStart] = useState(() => readLs("filter_dateStart", ""));
     const [filterDateEnd, setFilterDateEnd] = useState(() => readLs("filter_dateEnd", ""));
@@ -164,6 +167,7 @@ export default function LeadsPage() {
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_searchTerm", searchTerm); }, [searchTerm]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_status", filterStatus); }, [filterStatus]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_tag", filterTag); }, [filterTag]);
+    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_noTouchToday", filterNoTouchToday ? "1" : "0"); }, [filterNoTouchToday]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_date", filterDate); }, [filterDate]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_dateStart", filterDateStart); }, [filterDateStart]);
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_dateEnd", filterDateEnd); }, [filterDateEnd]);
@@ -507,6 +511,14 @@ export default function LeadsPage() {
             if (deal.status !== 'lost') return false;
         }
 
+        // 1.5 Modo "sem contato hoje": esconde quem JA recebeu cadencia hoje.
+        if (filterNoTouchToday && deal.last_touch_at) {
+            const t = new Date(deal.last_touch_at);
+            const n = new Date();
+            const touchedToday = t.getFullYear() === n.getFullYear() && t.getMonth() === n.getMonth() && t.getDate() === n.getDate();
+            if (touchedToday) return false;
+        }
+
         // 2. Filtro de Tag (compara como string — select HTML sempre devolve string,
         //    mas tag.id no banco é number)
         if (filterTag !== 'all') {
@@ -634,6 +646,23 @@ export default function LeadsPage() {
                             ))}
                         </select>
                     </div>
+
+                    {/* Modo "sem contato hoje" (cadência) */}
+                    <button
+                        onClick={() => setFilterNoTouchToday(!filterNoTouchToday)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all text-sm font-bold ${
+                            filterNoTouchToday
+                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                        title={filterNoTouchToday
+                            ? "Mostrando só leads SEM contato hoje — registre a cadência e eles somem da fila. Clique para desligar."
+                            : "Mostrar só leads sem contato hoje (fila de cadência)"}
+                        aria-pressed={filterNoTouchToday}
+                    >
+                        <PhoneMissed size={15} strokeWidth={2.5} />
+                        Sem contato hoje
+                    </button>
 
                     {/* Status Filter Redesigned */}
                     <select

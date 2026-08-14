@@ -47,13 +47,20 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
         e.stopPropagation();
         if (touchSaving) return;
         setTouchSaving(true);
+        const nowIso = new Date().toISOString();
         setTouchCount((c) => c + 1); // otimista
-        setLastTouch(new Date().toISOString());
+        setLastTouch(nowIso);
+        // Patch no cache do board: com o filtro "Sem contato hoje" ligado, o card
+        // some da fila NA HORA (last_touch_at vira agora).
+        queryClient.setQueriesData({ queryKey: ["deals", "board"] }, (old: any) =>
+            old ? { ...old, deals: (old.deals ?? []).map((d: any) => d.id === deal.id ? { ...d, touchpoints: (d.touchpoints ?? 0) + 1, last_touch_at: nowIso } : d) } : old
+        );
+
         const res = await registerTouchpoint(deal.id);
         if (res?.success === false) {
-            setTouchCount((c) => Math.max(0, c - 1)); // reverte
-            setLastTouch(deal.last_touch_at ?? null);
             toast.error("Erro ao registrar contato", res.error);
+            // Restaura a verdade do servidor (desfaz o otimismo)
+            queryClient.invalidateQueries({ queryKey: ["deals", "board"] });
         } else if (typeof (res as any)?.touchpoints === "number") {
             setTouchCount((res as any).touchpoints);
         }
