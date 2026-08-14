@@ -54,7 +54,17 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
     const handleMarkAsWon = async (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // Confetti Effect
+        // Primeiro confirma no servidor; so comemora se deu certo (antes o confete
+        // disparava mesmo quando markAsWon falhava e o card nem se movia).
+        const res = await markAsWon(deal.id);
+        if (res?.success === false) {
+            toast.error("Erro ao marcar como ganho", res.error);
+            return;
+        }
+
+        toast.success("Negocio marcado como ganho!");
+        router.refresh();
+
         const duration = 3 * 1000;
         const animationEnd = Date.now() + duration;
         const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
@@ -67,13 +77,6 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
         }, 250);
-
-        const res = await markAsWon(deal.id);
-        if (res?.success === false) {
-            toast.error("Erro ao marcar como ganho", res.error);
-        } else {
-            toast.success("Negocio marcado como ganho!");
-        }
     };
 
     const handleMarkAsLost = async (e: React.MouseEvent) => {

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { KeyRound, Plus, Copy, Check, Trash2, Loader2, X, Webhook } from "lucide-react";
-import { createApiKey, revokeApiKey } from "./actions";
+import { createApiKey, revokeApiKey, listApiKeys } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -32,11 +32,13 @@ export default function ApiSettingsClient({ initialKeys }: { initialKeys: ApiKey
         const res = await createApiKey(name);
         setSaving(false);
         if (res.success && res.rawKey) {
+            // NUNCA recarregar a pagina aqui: o reload destruia o estado e a chave
+            // (que so aparece uma vez) sumia antes de o usuario copiar.
             setNewKey(res.rawKey);
             setName("");
             setCreating(false);
-            // recarrega a lista (a nova chave aparece como prefixo)
-            window.location.reload();
+            const l = await listApiKeys();
+            if (l.success) setKeys(l.keys as ApiKey[]);
         } else {
             toast.error(res.error ?? "Erro ao criar chave.");
         }

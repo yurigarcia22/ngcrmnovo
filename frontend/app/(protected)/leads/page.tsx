@@ -370,8 +370,9 @@ export default function LeadsPage() {
             } else {
                 toast.error("Erro ao excluir", res.error);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
+            toast.error("A ação falhou", err?.message || "Tente novamente.");
         }
     };
 
@@ -388,8 +389,9 @@ export default function LeadsPage() {
             } else {
                 toast.error("Erro ao alterar", res.error);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
+            toast.error("A ação falhou", err?.message || "Tente novamente.");
         }
     };
 
@@ -412,8 +414,9 @@ export default function LeadsPage() {
             setSelectedDeals([]);
             setIsSelectionMode(false);
             setShowBulkMemberSelect(false);
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
+            toast.error("A ação falhou", err?.message || "Tente novamente.");
         }
     };
 
@@ -442,8 +445,9 @@ export default function LeadsPage() {
             } else {
                 toast.error("Erro ao reabrir leads", res.error);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
+            toast.error("A ação falhou", err?.message || "Tente novamente.");
         }
     };
 

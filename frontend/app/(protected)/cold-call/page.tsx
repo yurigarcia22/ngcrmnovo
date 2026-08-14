@@ -66,6 +66,20 @@ export default function ColdCallPage() {
     });
     const followups: any[] = followupsQuery.data ?? [];
 
+    // Concluidos de HOJE em query separada: a lista principal so busca
+    // pendente/atrasado (senao o board mostraria concluidos), entao a metrica
+    // "concluidos hoje" sempre dava 0.
+    const concluidosHojeQuery = useQuery({
+        queryKey: [...qk.coldCall.followups(), 'concluidos-hoje'],
+        queryFn: async () => {
+            const res = await getColdCallFollowups({ status: 'concluido' });
+            const today = new Date().toISOString().split('T')[0];
+            return ((res.success && res.data) || []).filter((f: any) => f.data_agendada === today).length;
+        },
+        staleTime: 30_000,
+    });
+    const concluidosHoje: number = concluidosHojeQuery.data ?? 0;
+
     const teamQuery = useQuery({
         queryKey: qk.team.members(),
         queryFn: async () => {
@@ -482,7 +496,7 @@ export default function ColdCallPage() {
                     manha: followups.filter(f => f.periodo === 'manha' && f.status !== 'concluido' && f.status !== 'atrasado').length,
                     tarde: followups.filter(f => (f.periodo === 'tarde' || f.periodo === 'noite' || f.periodo === 'qualquer') && f.status !== 'concluido' && f.status !== 'atrasado').length,
                     atrasados: followups.filter(f => f.status === 'atrasado').length,
-                    concluidosHoje: followups.filter(f => f.status === 'concluido').length,
+                    concluidosHoje,
                     semFollowup: Math.max(0, activeTotal - followups.filter(f => f.status === 'pendente').length),
                 }}
             />

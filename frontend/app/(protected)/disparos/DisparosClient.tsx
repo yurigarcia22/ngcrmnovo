@@ -88,11 +88,20 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
         return () => { active = false; clearInterval(id); };
     }, [view, hasRunning]);
 
+    async function refreshCampaigns() {
+        const res = await getDispatchLive();
+        if (res.success) setCampaigns(res.campaigns as Campaign[]);
+    }
+
     async function toggle(c: Campaign) {
         const next = c.status === "running" ? "paused" : "running";
         setCampaigns((cs) => cs.map((x) => (x.id === c.id ? { ...x, status: next } : x)));
         const res = await setCampaignStatus(c.id, next as any);
-        if (!res.success) { toast.error(res.error ?? "Erro"); window.location.reload(); }
+        if (!res.success) {
+            // Rollback otimista (sem reload de pagina)
+            setCampaigns((cs) => cs.map((x) => (x.id === c.id ? { ...x, status: c.status } : x)));
+            toast.error(res.error ?? "Erro ao mudar o status");
+        }
         else toast.success(next === "running" ? "Disparo iniciado" : "Disparo pausado");
     }
 
@@ -100,7 +109,11 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
         const ok = await confirm({ title: "Excluir campanha?", description: "Os destinatários e o progresso serão apagados.", tone: "danger", confirmText: "Excluir" });
         if (!ok) return;
         setCampaigns((cs) => cs.filter((x) => x.id !== c.id));
-        await deleteCampaign(c.id);
+        const res = await deleteCampaign(c.id);
+        if (!res.success) {
+            toast.error(res.error ?? "Erro ao excluir");
+            await refreshCampaigns(); // restaura a lista real
+        }
     }
 
     return (
@@ -122,7 +135,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
             </div>
 
             {view === "new" ? (
-                <NewCampaign connected={connected} onCreated={() => window.location.reload()} />
+                <NewCampaign connected={connected} onCreated={async () => { setView("list"); await refreshCampaigns(); }} />
             ) : campaigns.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 px-6 py-16 text-center">
                     <Send className="mx-auto mb-3 text-slate-300" size={32} />

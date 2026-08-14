@@ -809,7 +809,10 @@ export default function ChatPage() {
             <div className="flex-1 bg-[#efeae2] relative flex flex-col min-w-0 lg:min-w-[480px] border-r border-gray-200 pattern-isometric pattern-gray-100 pattern-bg-white pattern-size-4 pattern-opacity-10">
                 {selectedDeal ? (
                     <div className="flex-1 flex flex-col h-full bg-[#efeae2] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-fixed">
-                        <ChatWindow deal={selectedDeal} theme="light" />
+                        {/* key por deal: remonta o ChatWindow ao trocar de conversa —
+                            sem isso as mensagens do contato ANTERIOR ficavam na tela
+                            ate o fetch resolver (parecia conversa de outro cliente). */}
+                        <ChatWindow key={selectedDeal.id} deal={selectedDeal} theme="light" />
                     </div>
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-6 bg-gray-50">

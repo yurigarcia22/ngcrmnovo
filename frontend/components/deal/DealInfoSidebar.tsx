@@ -485,11 +485,10 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
     return (
         <div className="bg-white h-full border-r border-slate-200 flex flex-col">
-            {/* TABS */}
+            {/* Cabecalho da secao (as abas "Estatísticas"/"Mídia" eram botoes mortos
+                sem handler — removidas ate existirem de verdade) */}
             <div className="flex border-b border-slate-100 px-4">
-                <button aria-current="page" className="px-4 py-3 text-sm font-bold text-slate-800 border-b-2 border-blue-600">Principal</button>
-                <button className="px-4 py-3 text-sm font-bold text-slate-500 hover:text-slate-700">Estatísticas</button>
-                <button className="px-4 py-3 text-sm font-bold text-slate-500 hover:text-slate-700">Mídia</button>
+                <span className="px-4 py-3 text-sm font-bold text-slate-800 border-b-2 border-indigo-600">Principal</span>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
@@ -984,14 +983,16 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                     >
                                         <Edit2 size={14} />
                                     </button>
+                                    {contact.phone && (
                                     <button
-                                        onClick={() => window.open(`https://wa.me/${contact.phone?.replace(/\D/g, "")}`, '_blank')}
+                                        onClick={() => window.open(`https://wa.me/${contact.phone.replace(/\D/g, "")}`, '_blank')}
                                         className="text-emerald-600 hover:bg-emerald-50 p-2 rounded transition-colors"
                                         title="WhatsApp"
                                         aria-label="Abrir WhatsApp"
                                     >
                                         <MessageCircle size={14} />
                                     </button>
+                                    )}
                                 </div>
                                 )
                             )}
@@ -1051,13 +1052,15 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         <Edit2 size={14} />
                                     </button>
 
+                                    {c.phone && (
                                     <button
-                                        onClick={() => window.open(`https://wa.me/${c.phone?.replace(/\D/g, "")}`, '_blank')}
+                                        onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, "")}`, '_blank')}
                                         className="text-slate-400 hover:text-emerald-600 p-2 transition-colors"
                                         aria-label="Abrir WhatsApp"
                                     >
                                         <MessageCircle size={14} />
                                     </button>
+                                    )}
                                     <button onClick={() => handleRemoveContact(c.id)} aria-label="Remover contato" className="text-slate-400 hover:text-rose-500 p-2 opacity-0 group-hover/item:opacity-100 transition-all">
                                         <Trash2 size={14} />
                                     </button>

@@ -128,32 +128,36 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
             return;
         }
         setLoading(true);
+        try {
+            const result = await createLead({
+                name: name.trim(),
+                phone: phone.trim(),
+                email: email.trim() || undefined,
+                value,
+                pipelineId: pipelineId || undefined,
+                stageId: stageId || undefined,
+                ownerId: ownerId || undefined,
+                notes: notes.trim() || undefined,
+                tagIds: tagIds.length > 0 ? tagIds : undefined,
+            });
 
-        const result = await createLead({
-            name: name.trim(),
-            phone: phone.trim(),
-            email: email.trim() || undefined,
-            value,
-            pipelineId: pipelineId || undefined,
-            stageId: stageId || undefined,
-            ownerId: ownerId || undefined,
-            notes: notes.trim() || undefined,
-            tagIds: tagIds.length > 0 ? tagIds : undefined,
-        });
-
-        setLoading(false);
-
-        if (result.success) {
-            if ((result as any).reused) {
-                toast.success("Lead ja existia — atualizado");
+            if (result.success) {
+                if ((result as any).reused) {
+                    toast.success("Lead ja existia — atualizado");
+                } else {
+                    toast.success("Lead criado");
+                }
+                onSuccess();
+                onClose();
+                resetForm();
             } else {
-                toast.success("Lead criado");
+                toast.error("Erro ao criar lead", result.error);
             }
-            onSuccess();
-            onClose();
-            resetForm();
-        } else {
-            toast.error("Erro ao criar lead", result.error);
+        } catch (e: any) {
+            // Sem isso, uma exception deixava o botao preso em "Salvando..." pra sempre.
+            toast.error("Erro ao criar lead", e?.message || "Falha inesperada");
+        } finally {
+            setLoading(false);
         }
     }
 
@@ -165,14 +169,20 @@ export default function NewLeadModal({ isOpen, onClose, onSuccess }: NewLeadModa
         setLoading(true);
         setImportResult(null);
 
-        const formData = new FormData();
-        formData.append('file', importFile);
+        try {
+            const formData = new FormData();
+            formData.append('file', importFile);
 
-        const { importLeadsFromExcel } = await import("@/app/actions");
-        const res = await importLeadsFromExcel(formData);
-
-        setLoading(false);
-        setImportResult(res);
+            const { importLeadsFromExcel } = await import("@/app/actions");
+            const res = await importLeadsFromExcel(formData);
+            setImportResult(res);
+            // Atualiza o board na hora (antes so aparecia depois de F5).
+            if (res?.success) onSuccess();
+        } catch (e: any) {
+            setImportResult({ success: false, error: e?.message || "Falha inesperada" });
+        } finally {
+            setLoading(false);
+        }
     }
 
     function toggleTag(id: number) {
