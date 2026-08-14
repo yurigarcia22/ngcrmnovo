@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Draggable } from "@hello-pangea/dnd";
 import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2, PhoneCall } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -89,7 +90,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
 
     // Perda exige MOTIVO (modal compartilhado com os motivos de Configuracoes).
     const [showLostDialog, setShowLostDialog] = useState(false);
-    const [losing, setLosing] = useState(false);
+    const queryClient = useQueryClient();
 
     const handleMarkAsLost = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -97,16 +98,21 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
     };
 
     const handleConfirmLost = async (payload: { lossReasonId?: string; reasonName?: string; details?: string }) => {
-        setLosing(true);
+        // OTIMISTA: fecha o modal e some da visao "Ativas" na hora; o servidor
+        // confirma em segundo plano (o invalidate final consolida a verdade).
+        setShowLostDialog(false);
+        queryClient.setQueriesData({ queryKey: ["deals", "board"] }, (old: any) =>
+            old ? { ...old, deals: (old.deals ?? []).map((d: any) => d.id === deal.id ? { ...d, status: "lost", closed_at: new Date().toISOString() } : d) } : old
+        );
+
         const res = await markAsLost(deal.id, payload.reasonName, payload.details, payload.lossReasonId);
         if (res?.success === false) {
             toast.error("Erro ao marcar como perdido", res.error);
         } else {
             toast.success("Negocio marcado como perdido");
-            setShowLostDialog(false);
-            router.refresh();
         }
-        setLosing(false);
+        // Em sucesso consolida; em erro restaura o estado real do servidor.
+        queryClient.invalidateQueries({ queryKey: ["deals", "board"] });
     };
 
     const handleDelete = async (e: React.MouseEvent) => {
@@ -485,7 +491,6 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
             open={showLostDialog}
             onOpenChange={setShowLostDialog}
             onConfirm={handleConfirmLost}
-            saving={losing}
         />
         </>
     );

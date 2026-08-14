@@ -131,11 +131,12 @@ export default function DealHeader({ deal, pipelines }: any) {
     }
 
     async function handleConfirmLost(payload: { lossReasonId?: string; reasonName?: string; details?: string }) {
+        // Fecha o modal NA HORA; o servidor confirma em segundo plano.
+        setShowLostModal(false);
         setLoading(true);
         const res = await markAsLost(deal.id, payload.reasonName, payload.details, payload.lossReasonId);
         if (res.success) {
             toast.success("Marcado como perdido.");
-            setShowLostModal(false);
             router.refresh();
         } else {
             toast.error("Erro: " + res.error);

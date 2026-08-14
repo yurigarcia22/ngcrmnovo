@@ -12,6 +12,9 @@ export interface LossConfirmPayload {
     details?: string;
 }
 
+// Cache de modulo dos motivos (evita 1 ida ao servidor a cada abertura do modal).
+let reasonsCache: any[] | null = null;
+
 /**
  * Modal UNICO de perda do cliente, usado em todo o app (botao "Perdi",
  * menu do card e arrastar pra coluna de perda). O motivo e OBRIGATORIO
@@ -28,7 +31,7 @@ export default function LossReasonDialog({
     onConfirm: (payload: LossConfirmPayload) => void | Promise<void>;
     saving?: boolean;
 }) {
-    const [reasons, setReasons] = useState<any[]>([]);
+    const [reasons, setReasons] = useState<any[]>(reasonsCache ?? []);
     const [loadingReasons, setLoadingReasons] = useState(false);
     const [reasonId, setReasonId] = useState("");
     const [details, setDetails] = useState("");
@@ -37,9 +40,20 @@ export default function LossReasonDialog({
         if (!open) return;
         setReasonId("");
         setDetails("");
-        setLoadingReasons(true);
+        // Cache de modulo: o modal abre INSTANTANEO nas proximas vezes; a lista
+        // atualiza em segundo plano (motivos quase nunca mudam durante o uso).
+        if (reasonsCache) {
+            setReasons(reasonsCache);
+        } else {
+            setLoadingReasons(true);
+        }
         getLossReasons()
-            .then((res) => setReasons(res.success ? (res.data ?? []) : []))
+            .then((res) => {
+                if (res.success) {
+                    reasonsCache = res.data ?? [];
+                    setReasons(reasonsCache);
+                }
+            })
             .finally(() => setLoadingReasons(false));
     }, [open]);
 

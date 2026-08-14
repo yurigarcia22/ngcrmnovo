@@ -84,28 +84,38 @@ export default function LeadsPage() {
     // Perda por arrasto: guarda o movimento pendente ate o usuario escolher o
     // MOTIVO no modal (obrigatorio). Cancelou -> rollback do card.
     const [pendingLost, setPendingLost] = useState<{ dealId: string; newStageId: number; snapshot: any[] } | null>(null);
-    const [losingDrag, setLosingDrag] = useState(false);
 
     async function handleConfirmDragLost(payload: { lossReasonId?: string; reasonName?: string; details?: string }) {
         if (!pendingLost) return;
-        setLosingDrag(true);
-        const res: any = await markAsLost(pendingLost.dealId, payload.reasonName, payload.details, payload.lossReasonId);
+        const { dealId, newStageId, snapshot } = pendingLost;
+
+        // OTIMISTA: o lead some da visao "Ativas" AGORA e o modal fecha na hora.
+        // O servidor confirma em segundo plano (antes eram 3 idas encadeadas ao
+        // servidor antes de qualquer feedback — ~5s de card parado na tela).
+        patchBoardDeals((curr) => curr.map((d: any) =>
+            String(d.id) === dealId ? { ...d, status: "lost", stage_id: newStageId, closed_at: new Date().toISOString() } : d
+        ));
+        setPendingLost(null);
+
+        const res: any = await markAsLost(dealId, payload.reasonName, payload.details, payload.lossReasonId);
         if (res?.success === false) {
             toast.error("Erro ao marcar como perdido", res.error);
-            patchBoardDeals(() => pendingLost.snapshot); // rollback
-        } else {
-            // Respeita a coluna exata onde o card foi solto (markAsLost move pra
-            // primeira coluna de perda; se houver mais de uma, corrigimos aqui).
-            await supabase.from("deals").update({ stage_id: pendingLost.newStageId }).eq("id", pendingLost.dealId);
-            toast.success("Negócio marcado como perdido");
-            invalidateBoard();
+            patchBoardDeals(() => snapshot); // rollback
+            return;
         }
-        setLosingDrag(false);
-        setPendingLost(null);
+
+        // Corrige a coluna SO se o funil tem mais de uma coluna de perda
+        // (markAsLost move pra primeira; se foi solta em outra, ajusta).
+        const firstLost = stages.find((s: any) => s.is_lost === true);
+        if (firstLost && Number(firstLost.id) !== Number(newStageId)) {
+            await supabase.from("deals").update({ stage_id: newStageId }).eq("id", dealId);
+        }
+        toast.success("Negócio marcado como perdido");
+        invalidateBoard(); // consolida em background
     }
 
     function handleCancelDragLost(open: boolean) {
-        if (!open && pendingLost && !losingDrag) {
+        if (!open && pendingLost) {
             patchBoardDeals(() => pendingLost.snapshot); // desfaz o movimento
             setPendingLost(null);
         }
@@ -776,7 +786,6 @@ export default function LeadsPage() {
                 open={!!pendingLost}
                 onOpenChange={handleCancelDragLost}
                 onConfirm={handleConfirmDragLost}
-                saving={losingDrag}
             />
 
             {/* Floating Bulk Action Bar */}
