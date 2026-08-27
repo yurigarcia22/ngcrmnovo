@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { ColdLead } from "@/types/cold-lead";
+import { dial } from "@/lib/dialer";
 
 interface UseAutoDialOptions {
     enabled: boolean;
@@ -17,21 +18,12 @@ export function useAutoDial({ enabled, lead }: UseAutoDialOptions) {
             return;
         }
 
-        const cleanPhone = contactLead.telefone.replace(/\D/g, "");
-        let sipPhone = cleanPhone;
-
-        if (cleanPhone.length === 10 || cleanPhone.length === 11) {
-            sipPhone = "+55" + cleanPhone;
-        } else if (!cleanPhone.startsWith("+") && cleanPhone.length > 11) {
-            sipPhone = "+" + cleanPhone;
-        }
-
-        try {
-            window.location.href = `sip:${sipPhone}`;
+        // Usa o discador configurado nesta maquina (MicroSIP/Windows, Smart SIP/Mac...)
+        const ok = dial(contactLead.telefone);
+        if (ok) {
             lastDialedLeadId.current = contactLead.id;
-        } catch (error) {
-            console.error("Auto dial error:", error);
-            toast.error("O navegador bloqueou a discagem. Tente clicar em 'Discar Agora'.");
+        } else {
+            toast.error("Nao foi possivel abrir o discador. Confira em 'Discador' na barra do cold-call.");
         }
     };
 

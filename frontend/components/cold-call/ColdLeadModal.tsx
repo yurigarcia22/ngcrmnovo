@@ -4,6 +4,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button, Input, Textarea, Badge } from "@/components/ui/simple-ui";
 import { ColdLead } from "@/types/cold-lead";
 import { toast } from "sonner";
+import { dial } from "@/lib/dialer";
 import { useRouter } from "next/navigation";
 import { Phone, CheckCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
 import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup, startConversationForPhone } from "@/app/actions";
@@ -618,18 +619,11 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    const cleanPhone = lead.telefone.replace(/\D/g, "");
-                                                    let sipPhone = cleanPhone;
-                                                    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
-                                                        sipPhone = "+55" + cleanPhone;
-                                                    } else if (!cleanPhone.startsWith("+") && cleanPhone.length > 11) {
-                                                        sipPhone = "+" + cleanPhone;
-                                                    }
-                                                    window.location.href = `sip:${sipPhone}`;
+                                                    dial(lead.telefone);
                                                 }}
                                                 className="h-9 w-9 flex items-center justify-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors"
-                                                title="Ligar com MicroSIP"
-                                                aria-label="Ligar com MicroSIP"
+                                                title="Ligar (discador configurado)"
+                                                aria-label="Ligar para o lead"
                                             >
                                                 <Phone className="h-4 w-4" />
                                             </button>

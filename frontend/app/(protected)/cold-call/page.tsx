@@ -19,6 +19,8 @@ import { qk } from '@/lib/query-keys';
 
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { AutoDialToggle } from '@/components/cold-call/AutoDialToggle';
+import { DialerSettingsButton } from '@/components/cold-call/DialerSettings';
+import { dial } from '@/lib/dialer';
 import { useAutoDial } from '@/hooks/useAutoDial';
 import { FollowUpMetrics } from '@/components/cold-call/FollowUpMetrics';
 import { FollowUpBoard } from '@/components/cold-call/FollowUpBoard';
@@ -474,6 +476,7 @@ export default function ColdCallPage() {
                 </div>
                 <div className="flex gap-2 items-center">
                     <AutoDialToggle enabled={isAutoDialEnabled} onChange={handleAutoDialToggle} />
+                    <DialerSettingsButton />
                     <NotificationBell />
                     <Button onClick={() => setIsAddModalOpen(true)} className="bg-slate-900 text-white hover:bg-slate-800">
                         <Plus className="mr-2 h-4 w-4" />
@@ -696,10 +699,7 @@ export default function ColdCallPage() {
                                 // Find lead and trigger SIP call
                                 const followup = followups.find(f => f.id === id);
                                 if (followup?.cold_leads?.telefone) {
-                                    const cleanPhone = followup.cold_leads.telefone.replace(/\D/g, "");
-                                    let sipPhone = cleanPhone;
-                                    if (cleanPhone.length === 10 || cleanPhone.length === 11) sipPhone = "+55" + cleanPhone;
-                                    window.location.href = `sip:${sipPhone}`;
+                                    dial(followup.cold_leads.telefone);
                                 }
                                 // Also open the modal
                                 if (followup?.cold_lead_id) {
