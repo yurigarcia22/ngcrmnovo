@@ -106,10 +106,28 @@ export function DialerSettings({ open, onOpenChange }: { open: boolean; onOpenCh
                     </div>
                     <p className="text-[11px] font-mono text-slate-500 mt-2 break-all">{preview}</p>
                     <p className="text-[11px] text-slate-500 mt-1">
-                        Se o programa certo não abrir, tente outra opção acima. No Mac, o app precisa estar instalado e
-                        aberto ao menos uma vez para o sistema reconhecê-lo.
+                        Se o programa certo não abrir, tente outra opção acima. O app precisa estar instalado e aberto
+                        ao menos uma vez para o sistema reconhecê-lo.
                     </p>
                 </div>
+
+                {/* Dica de macOS: o sistema entrega tel: para o Telefone.app da Apple. */}
+                <details className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <summary className="text-xs font-semibold text-amber-900 cursor-pointer">
+                        No Mac abriu o "Telefone.app" da Apple em vez do meu softphone?
+                    </summary>
+                    <div className="text-[12px] text-amber-900/90 mt-2 space-y-1.5">
+                        <p>É o macOS entregando o link para o app nativo. Resolva assim:</p>
+                        <p><b>1.</b> Aqui no CRM, escolha a opção <b>SIP</b> (primeira da lista) — softphones registram <code className="bg-white/70 px-1 rounded">sip:</code>.</p>
+                        <p><b>2.</b> Abra o <b>Smart SIP Phone</b> uma vez e faça uma ligação manual, para o macOS registrá-lo.</p>
+                        <p><b>3.</b> Se o navegador continuar mandando para o app errado, limpe a permissão salva:
+                            no Chrome, ícone de cadeado na barra de endereço → <b>Configurações do site</b> → em
+                            "Manipuladores"/"Abrir aplicativos externos", remova a permissão e teste de novo (marque
+                            "Sempre permitir" só quando abrir o app certo).</p>
+                        <p><b>4.</b> Persistindo, use <b>Personalizado</b> com o esquema próprio do app (consulte o
+                            fabricante) — ex.: <code className="bg-white/70 px-1 rounded">smartsipphone://call?number=&#123;digits&#125;</code>.</p>
+                    </div>
+                </details>
 
                 <div className="mt-4 flex justify-end gap-2">
                     <button onClick={() => onOpenChange(false)} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">

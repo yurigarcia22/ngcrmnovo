@@ -19,8 +19,8 @@ export interface DialerConfig {
 const LS_KEY = "dialer:config";
 
 export const DIALER_PRESETS: { id: DialerId; label: string; hint: string; scheme: string }[] = [
-    { id: "sip", label: "MicroSIP / padrão SIP", hint: "Windows — MicroSIP, Zoiper, Linphone", scheme: "sip:{phone}" },
-    { id: "tel", label: "Smart SIP Phone (Mac) / discador do sistema", hint: "macOS — apps da App Store costumam registrar tel:", scheme: "tel:{phone}" },
+    { id: "sip", label: "SIP — MicroSIP, Smart SIP Phone, Zoiper", hint: "Windows e Mac. No Mac, veja a dica abaixo se abrir o app errado.", scheme: "sip:{phone}" },
+    { id: "tel", label: "Discador do sistema (tel:)", hint: "Atenção no Mac: o macOS costuma mandar tel: para o Telefone.app da Apple, não para o softphone.", scheme: "tel:{phone}" },
     { id: "callto", label: "Callto (Skype e similares)", hint: "Alternativa quando os outros não abrem", scheme: "callto:{phone}" },
     { id: "custom", label: "Personalizado", hint: "Cole o formato do seu softphone", scheme: "" },
 ];
