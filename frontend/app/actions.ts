@@ -225,10 +225,28 @@ export async function getConversationNumberInfo(dealId: string) {
  * (deixando a Evolution validar).
  */
 function normalizeBrazilPhone(raw: string): string {
+    // Endereco LID (<id>@lid): a Evolution encaminha direto, nao e telefone
+    // brasileiro e nao pode passar pela normalizacao (perderia o sufixo).
+    if (typeof raw === "string" && raw.includes("@lid")) return raw;
     const d = (raw || "").replace(/\D/g, "");
     if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
     if (d.length === 10 || d.length === 11) return "55" + d;
     return d;
+}
+
+/**
+ * Destino do envio no WhatsApp. Contatos vindos da sincronizacao de historico
+ * costumam ter so o LID (a Meta nao expoe o telefone): nesses casos o envio vai
+ * para "<lid>@lid", que a Evolution sabe endereçar. Quando ha telefone, ele
+ * continua sendo o destino.
+ */
+async function resolveWaTarget(client: any, phone: string, contactId?: string): Promise<string> {
+    const digits = (phone || "").replace(/\D/g, "");
+    if (digits.length >= 10) return phone;
+    if (typeof phone === "string" && phone.includes("@lid")) return phone;
+    if (!contactId) return phone;
+    const { data } = await client.from("contacts").select("wa_lid").eq("id", contactId).maybeSingle();
+    return data?.wa_lid ? `${data.wa_lid}@lid` : phone;
 }
 
 // --- ACTIONS ---
@@ -332,7 +350,10 @@ export async function sendMessage(phone: string, text: string, context: { dealId
         // 6. Preparar Envio
         // Sem presence "composing": broadcastar "digitando/online" marca o numero
         // como ativo no WhatsApp e pode suprimir a notificacao no celular do operador.
-        const cleanPhone = normalizeBrazilPhone(phone);
+        // Contato so com LID (historico): envia para <lid>@lid.
+        const cleanPhone = normalizeBrazilPhone(
+            await resolveWaTarget(adminClient, phone, context.contactId)
+        );
         const body = {
             number: cleanPhone,
             text: text,
@@ -1051,7 +1072,8 @@ export async function sendMedia(formData: FormData) {
         const mediaUrl = publicUrlData.publicUrl;
 
         // 3. Enviar via Evolution API
-        const cleanPhone = normalizeBrazilPhone(phone);
+        // Contato so com LID (historico): envia para <lid>@lid.
+        const cleanPhone = normalizeBrazilPhone(await resolveWaTarget(supabase, phone, contactId));
         const mediaType = file.type.startsWith('image/') ? 'image'
             : file.type.startsWith('video/') ? 'video'
             : file.type.startsWith('audio/') ? 'audio'
@@ -1751,7 +1773,10 @@ export async function sendStoredMedia(opts: {
             }
         }
 
-        const cleanPhone = normalizeBrazilPhone(opts.phone);
+        // Contato so com LID (historico): envia para <lid>@lid.
+        const cleanPhone = normalizeBrazilPhone(
+            await resolveWaTarget(supabase, opts.phone, (opts as any).contactId)
+        );
         const mt = opts.mediaType;
 
         // Baixa a midia do Storage e manda em BASE64 (URL nao entrega de verdade).

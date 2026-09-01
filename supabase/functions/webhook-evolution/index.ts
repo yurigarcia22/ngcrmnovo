@@ -151,21 +151,17 @@ serve(async (req) => {
     }
 
     let rawId = data.key.remoteJid || '';
-    // LID (WhatsApp "linked id"): identificador opaco que a Meta usa no lugar do
-    // telefone. Quando vem resolvido (senderPn/remoteJidAlt) usamos o numero real.
+    // LID (WhatsApp "linked id"): identificador que a Meta usa no lugar do
+    // telefone. Quando vem resolvido (senderPn/remoteJidAlt) usamos o numero
+    // real; quando NAO vem (tipico da sincronizacao de historico, ~2/3 das
+    // conversas), o LID vira a identidade do contato em campo proprio (wa_lid)
+    // — nunca no campo telefone, que precisa continuar sendo um numero de
+    // verdade para ligacao, wa.me e casamento com o contato real.
+    let waLid: string | null = null;
     if (rawId.includes('@lid')) {
+      waLid = rawId.split('@')[0].replace(/\D/g, '') || null;
       const resolved = data.key.senderPn || data.key.remoteJidAlt || '';
-      if (resolved && !resolved.includes('@lid')) {
-        rawId = resolved;
-      } else {
-        // Sem resolucao possivel. Isso so acontece nos lotes de sincronizacao de
-        // HISTORICO — conversa ao vivo sempre traz o telefone. Salvar assim criava
-        // "contatos" com o LID no campo telefone (ex: 126946398728264): impossivel
-        // de responder, de ligar, de identificar, e ainda poluia o funil com deals
-        // falsos. O payload fica guardado na caixa-preta: se a Evolution passar a
-        // resolver LID no futuro, e so reprocessar.
-        return await finish('ignored', `lid nao resolvido (${rawId.split('@')[0]})`, 200);
-      }
+      if (resolved && !resolved.includes('@lid')) rawId = resolved;
     }
 
     if (rawId.includes('@g.us') || rawId.includes('broadcast') || rawId.includes('@newsletter')) {
@@ -179,11 +175,22 @@ serve(async (req) => {
     }
 
     let phone = rawId.split('@')[0].replace(/\D/g, '');
-    if (phone.length < 10 || phone.length > 15) {
+    // Conversa identificada so por LID: segue sem telefone (o contato existe
+    // pelo wa_lid). Sem LID e sem telefone valido, ai sim nao da pra usar.
+    const lidOnly = !!waLid && rawId.includes('@lid');
+    if (!lidOnly && (phone.length < 10 || phone.length > 15)) {
       return await finish('ignored', `telefone invalido (${phone})`, 200);
     }
+    if (lidOnly) phone = '';
 
-    const pushName = data.pushName || phone;
+    // pushName do LID costuma repetir o proprio numero do LID: nesse caso usa
+    // um rotulo legivel em vez de um numero que nao significa nada pro usuario.
+    const rawPushName = data.pushName || '';
+    // Sufixo com os 4 ultimos digitos do LID: sem isso a lista fica com dezenas
+    // de "Contato do WhatsApp" identicos, impossivel de distinguir.
+    const pushName = (rawPushName && rawPushName !== waLid)
+      ? rawPushName
+      : (lidOnly ? `Contato WhatsApp ·${waLid!.slice(-4)}` : phone);
 
     // --- 5. Conteudo (SEM baixar midia ainda) ---
     // Midia inline (webhookBase64=true) e processada ja; fallback via API da
@@ -268,22 +275,52 @@ serve(async (req) => {
       searchPhones.push(canonicalPhone.substring(0, 4) + canonicalPhone.substring(5));
     }
 
-    const { data: candidates } = await supabase
-      .from('contacts').select('id, phone, photo_url')
-      .in('phone', searchPhones).eq('tenant_id', tenantId);
+    let contact: { id: string; phone: string | null; photo_url: string | null } | null = null;
 
-    let contact: { id: string; phone: string; photo_url: string | null } | null = null;
-    if (candidates && candidates.length > 0) {
-      contact =
-        candidates.find((c) => c.phone === canonicalPhone) ??
-        candidates.find((c) => c.photo_url && c.photo_url.length > 0) ??
-        candidates[0];
-      if (contact && contact.phone !== canonicalPhone) {
-        const conflict = candidates.find((c) => c.id !== contact!.id && c.phone === canonicalPhone);
-        if (!conflict) {
-          await supabase.from('contacts').update({ phone: canonicalPhone }).eq('id', contact.id);
+    // 6a. Se a mensagem traz LID, ele e a chave mais confiavel: um LID sempre
+    // aponta pra mesma pessoa, mesmo quando o telefone ainda nao apareceu.
+    if (waLid) {
+      const { data: byLid } = await supabase
+        .from('contacts').select('id, phone, photo_url')
+        .eq('tenant_id', tenantId).eq('wa_lid', waLid).limit(1).maybeSingle();
+      if (byLid) contact = byLid as typeof contact;
+    }
+
+    // 6b. Busca por telefone (quando ha telefone).
+    if (!contact && phone) {
+      const { data: candidates } = await supabase
+        .from('contacts').select('id, phone, photo_url')
+        .in('phone', searchPhones).eq('tenant_id', tenantId);
+
+      if (candidates && candidates.length > 0) {
+        contact =
+          candidates.find((c) => c.phone === canonicalPhone) ??
+          candidates.find((c) => c.photo_url && c.photo_url.length > 0) ??
+          candidates[0];
+        if (contact && contact.phone !== canonicalPhone) {
+          const conflict = candidates.find((c) => c.id !== contact!.id && c.phone === canonicalPhone);
+          if (!conflict) {
+            await supabase.from('contacts').update({ phone: canonicalPhone }).eq('id', contact.id);
+          }
         }
       }
+    }
+
+    // 6c. MERGE: a mensagem veio com LID *e* telefone. Completa o cadastro em
+    // vez de criar um segundo contato pra mesma pessoa.
+    if (contact && waLid) {
+      const patch: Record<string, unknown> = {};
+      if (!contact.phone && canonicalPhone) patch.phone = canonicalPhone;
+      if (Object.keys(patch).length > 0) {
+        const { error: mergeErr } = await supabase.from('contacts').update(patch).eq('id', contact.id);
+        // Telefone ja pertence a outro contato: mantem os dois, o operador decide.
+        if (!mergeErr && patch.phone) contact.phone = canonicalPhone;
+      }
+    }
+    // Contato ja existia so por telefone e agora chegou o LID: guarda o vinculo.
+    if (contact && waLid) {
+      await supabase.from('contacts').update({ wa_lid: waLid })
+        .eq('id', contact.id).is('wa_lid', null);
     }
 
     let contactId: string | undefined = contact?.id;
@@ -301,7 +338,7 @@ serve(async (req) => {
         const r = await fetch(`${evoUrl}/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', apikey: evoToken },
-          body: JSON.stringify({ number: phone }),
+          body: JSON.stringify({ number: waLid ? `${waLid}@lid` : phone }),
           signal: AbortSignal.timeout(10000),
         });
         if (!r.ok) return null;
@@ -313,7 +350,7 @@ serve(async (req) => {
           if (imgResp.ok) {
             const bytes = new Uint8Array(await imgResp.arrayBuffer());
             if (bytes.length > 200) {
-              const fileName = `${tenantId}/avatars/${canonicalPhone}.jpg`;
+              const fileName = `${tenantId}/avatars/${canonicalPhone || `lid-${waLid}`}.jpg`;
               const { error: upErr } = await supabase.storage
                 .from('crm-media').upload(fileName, bytes, { contentType: 'image/jpeg', upsert: true });
               if (!upErr) return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
@@ -328,14 +365,21 @@ serve(async (req) => {
       // Foto NAO bloqueia a criacao (era mais um fetch sincrono no caminho critico).
       const { data: newContact, error } = await supabase
         .from('contacts')
-        .insert({ name: pushName, phone: canonicalPhone, tenant_id: tenantId, photo_url: '' })
+        .insert({
+          name: pushName,
+          phone: canonicalPhone || null,
+          wa_lid: waLid,
+          tenant_id: tenantId,
+          photo_url: '',
+        })
         .select().single();
       if (error) {
         // Race: outra mensagem do mesmo numero criou o contato no meio tempo.
-        const { data: retry } = await supabase
-          .from('contacts').select('id')
-          .eq('tenant_id', tenantId).in('phone', searchPhones)
-          .limit(1).maybeSingle();
+        let retryQuery = supabase.from('contacts').select('id').eq('tenant_id', tenantId);
+        retryQuery = waLid && !canonicalPhone
+          ? retryQuery.eq('wa_lid', waLid)
+          : retryQuery.in('phone', searchPhones);
+        const { data: retry } = await retryQuery.limit(1).maybeSingle();
         if (retry?.id) contactId = retry.id;
         else throw error;
       } else {
