@@ -151,7 +151,22 @@ serve(async (req) => {
     }
 
     let rawId = data.key.remoteJid || '';
-    if (rawId.includes('@lid') && data.key.senderPn) rawId = data.key.senderPn;
+    // LID (WhatsApp "linked id"): identificador opaco que a Meta usa no lugar do
+    // telefone. Quando vem resolvido (senderPn/remoteJidAlt) usamos o numero real.
+    if (rawId.includes('@lid')) {
+      const resolved = data.key.senderPn || data.key.remoteJidAlt || '';
+      if (resolved && !resolved.includes('@lid')) {
+        rawId = resolved;
+      } else {
+        // Sem resolucao possivel. Isso so acontece nos lotes de sincronizacao de
+        // HISTORICO — conversa ao vivo sempre traz o telefone. Salvar assim criava
+        // "contatos" com o LID no campo telefone (ex: 126946398728264): impossivel
+        // de responder, de ligar, de identificar, e ainda poluia o funil com deals
+        // falsos. O payload fica guardado na caixa-preta: se a Evolution passar a
+        // resolver LID no futuro, e so reprocessar.
+        return await finish('ignored', `lid nao resolvido (${rawId.split('@')[0]})`, 200);
+      }
+    }
 
     if (rawId.includes('@g.us') || rawId.includes('broadcast') || rawId.includes('@newsletter')) {
       return await finish('ignored', 'grupo/broadcast/newsletter', 200);
