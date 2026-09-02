@@ -118,7 +118,9 @@ export default function InteligenciaPage() {
             if (customTo) { to = new Date(customTo + "T23:59:59"); }
         }
         return (row: any) => {
-            const d = new Date(row.updated_at ?? 0);
+            // Periodo = data da ultima MENSAGEM da conversa (last_analyzed_message_at),
+            // nao da analise: a re-analise em massa re-toca updated_at e mentiria.
+            const d = new Date(row.last_analyzed_message_at ?? row.updated_at ?? 0);
             if (from && d < from) return false;
             if (to && d > to) return false;
             return true;
@@ -250,7 +252,7 @@ export default function InteligenciaPage() {
                         </div>
                     )}
                     <span className="ml-auto text-[11px] text-slate-400">
-                        Filtra pela última atividade analisada de cada conversa
+                        Filtra pela última mensagem de cada conversa
                     </span>
                 </div>
 
@@ -611,7 +613,11 @@ function ConfigDialog({ settings, onClose, onSaved }: { settings: any; onClose: 
             alerts_enabled: alertsEnabled, daily_digest: dailyDigest,
         });
         setSaving(false);
-        if (r.success) { toast.success("Configuração salva"); onSaved(); }
+        if (r.success) {
+            const moved = (r as any).movedNow ?? 0;
+            toast.success("Configuração salva", moved > 0 ? `Piloto organizou ${moved} lead(s) no funil agora.` : undefined);
+            onSaved();
+        }
         else toast.error("Erro ao salvar", r.error);
     }
 

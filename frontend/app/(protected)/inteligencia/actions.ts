@@ -37,7 +37,7 @@ export async function getAiPageData() {
                 .select(`
                     deal_id, funnel_stage, intent_score, service_interest, waiting_on,
                     waiting_since, appointment, price, summary, next_action,
-                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at,
+                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at,
                     deal:deals!deal_ai_state_deal_id_fkey (
                         id, title, status, origin,
                         contact:contacts ( name, phone, photo_url )
@@ -120,7 +120,15 @@ export async function updateAiSettings(patch: {
         const { error } = await admin.from("ai_settings")
             .upsert({ tenant_id: tenantId, ...safe }, { onConflict: "tenant_id" });
         if (error) throw error;
-        return { success: true };
+
+        // Ativou o Piloto? Sincroniza o funil JA (senao ele so agiria em
+        // mudancas futuras de estado e pareceria que "nao funciona").
+        let movedNow = 0;
+        if (safe.mode === "pilot") {
+            const { data: moved } = await admin.rpc("ai_pilot_sync", { p_tenant: tenantId });
+            movedNow = Number(moved ?? 0);
+        }
+        return { success: true, movedNow };
     } catch (e: any) {
         return { success: false, error: e.message };
     }
