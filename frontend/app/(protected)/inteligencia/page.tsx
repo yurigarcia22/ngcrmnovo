@@ -472,8 +472,8 @@ function ConversationDetail({ row, onClose }: { row: any; onClose: () => void })
                                         ? "bg-white border border-slate-200 text-slate-700"
                                         : "bg-indigo-600 text-white ml-auto"
                                 }`}>
-                                    {m.content_type && m.content_type !== "text" && !m.content
-                                        ? <em className="opacity-70">[{m.content_type}]</em>
+                                    {m.type && m.type !== "text" && !m.content
+                                        ? <em className="opacity-70">[{m.type}]</em>
                                         : m.content}
                                     <div className={`text-[9px] mt-0.5 ${m.direction === "inbound" ? "text-slate-400" : "text-indigo-200"}`}>{fmtDate(m.created_at)}</div>
                                 </div>

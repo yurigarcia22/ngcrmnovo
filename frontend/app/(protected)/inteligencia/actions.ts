@@ -64,7 +64,7 @@ export async function getAiConversationDetail(dealId: string) {
         const { admin, tenantId } = await getAuth();
         const [msgsRes, eventsRes, analysisRes] = await Promise.all([
             admin.from("messages")
-                .select("id, direction, content, content_type, created_at")
+                .select("id, direction, content, type, created_at")
                 .eq("deal_id", dealId).eq("tenant_id", tenantId)
                 .order("created_at", { ascending: false }).limit(40),
             admin.from("crm_events")

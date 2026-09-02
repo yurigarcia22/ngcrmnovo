@@ -244,7 +244,10 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
     try {
       const alerts: { rule: string; title: string; message: string; cooldownH: number }[] = [];
       const hot = Number(settings.hot_intent_threshold ?? 80);
-      if ((out.commercial_intent_score ?? 0) >= hot && out.waiting_for === 'BUSINESS') {
+      // So alerta "aguardando resposta" se a conversa e FRESCA (<24h): analise
+      // de historico antigo nao pode disparar alerta de urgencia falso.
+      const fresh = Date.now() - new Date(lastMsgAt).getTime() < 24 * 3600_000;
+      if (fresh && (out.commercial_intent_score ?? 0) >= hot && out.waiting_for === 'BUSINESS') {
         alerts.push({ rule: 'hot_waiting', cooldownH: 4,
           title: '🔥 Lead quente aguardando resposta',
           message: `Intenção ${out.commercial_intent_score}/100 — ${String(out.summary ?? '').slice(0, 150)}` });
