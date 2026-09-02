@@ -10,6 +10,28 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // midia lenta/quebrada nunca mais derruba a mensagem.
 // =====================================================================
 
+// Procura externalAdReply em qualquer profundidade do payload.
+// O Baileys encaixa o contextInfo em lugares diferentes conforme o tipo de
+// mensagem (interactiveMessage, extendedTextMessage, ...) e muda o encaixe
+// entre versoes. Varrer e mais confiavel do que manter lista fixa de caminhos.
+function findExternalAdReply(node: any, depth = 0): any | null {
+  if (!node || typeof node !== 'object' || depth > 10) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findExternalAdReply(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const direct = node.externalAdReply;
+  if (direct && typeof direct === 'object') return direct;
+  for (const value of Object.values(node)) {
+    const found = findExternalAdReply(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 serve(async (req) => {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -483,11 +505,43 @@ serve(async (req) => {
     // facebook), sourceUrl e ctwaClid. Gravamos UMA vez (primeira atribuicao vale).
     if (!isFromMe && dealId) {
       try {
-        const ctxInfo = data.contextInfo
-          ?? data.message?.extendedTextMessage?.contextInfo
-          ?? data.message?.imageMessage?.contextInfo
-          ?? data.message?.videoMessage?.contextInfo;
-        const adReply = ctxInfo?.externalAdReply;
+        // interactiveMessage era o caminho que faltava: e onde o CTWA cai
+        // quando o card do anuncio vem junto da primeira mensagem, que e o
+        // caso mais comum. Sem ele, todo lead de anuncio ficava sem origem.
+        const adReply = data.contextInfo?.externalAdReply
+          ?? data.message?.extendedTextMessage?.contextInfo?.externalAdReply
+          ?? data.message?.interactiveMessage?.contextInfo?.externalAdReply
+          ?? data.message?.imageMessage?.contextInfo?.externalAdReply
+          ?? data.message?.videoMessage?.contextInfo?.externalAdReply
+          ?? findExternalAdReply(data);
+        // Carimbo do PROPRIO WhatsApp de como a conversa comecou
+        // (entryPointConversionSource): "ctwa*" = clique em anuncio Meta;
+        // "global_search_new_chat" = pessoa buscou o numero (organico).
+        try {
+          const epcs = String(data.contextInfo?.entryPointConversionSource ?? '');
+          if (epcs) {
+            const { data: dEp } = await supabase
+              .from('deals').select('origin').eq('id', dealId).maybeSingle();
+            if (dEp && !dEp.origin) {
+              if (epcs.includes('ctwa')) {
+                await supabase.from('deals').update({
+                  origin: 'meta_ads',
+                  origin_detail: { metodo: 'entry_point_whatsapp', entry_point: epcs },
+                }).eq('id', dealId);
+                await supabase.from('crm_events').insert({
+                  tenant_id: tenantId, deal_id: dealId, source: 'system',
+                  event_type: 'origin_detected', new_value: 'meta_ads (entry point ctwa)', confidence: 1,
+                });
+              } else if (epcs === 'global_search_new_chat') {
+                await supabase.from('deals').update({
+                  origin: 'organico',
+                  origin_detail: { metodo: 'entry_point_whatsapp', entry_point: epcs, nota: 'pessoa buscou o numero no WhatsApp' },
+                }).eq('id', dealId);
+              }
+            }
+          }
+        } catch (e) { console.error('entry point (nao critico):', e); }
+
         // Deteccao por FRASE DO ANUNCIO (fallback): quando a assinatura tecnica
         // (externalAdReply) nao vem, a mensagem inicial configurada no botao do
         // anuncio identifica a origem. Frases por tenant em ai_settings.ctwa_greetings.
