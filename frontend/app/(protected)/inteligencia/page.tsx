@@ -82,23 +82,47 @@ export default function InteligenciaPage() {
     const [search, setSearch] = useState("");
     const [stageFilter, setStageFilter] = useState("all");
     const [onlyHot, setOnlyHot] = useState(false);
+    // Periodo: filtra pela ULTIMA ATIVIDADE analisada (updated_at do estado IA)
+    const [period, setPeriod] = useState<"hoje" | "7d" | "30d" | "all" | "custom">("7d");
+    const [customFrom, setCustomFrom] = useState("");
+    const [customTo, setCustomTo] = useState("");
     const [detailDeal, setDetailDeal] = useState<any | null>(null);
     const [showConfig, setShowConfig] = useState(false);
 
-    const open = states.filter((s) => s.deal?.status === "open");
+    const inPeriod = useMemo(() => {
+        const now = new Date();
+        let from: Date | null = null;
+        let to: Date | null = null;
+        if (period === "hoje") { from = new Date(now); from.setHours(0, 0, 0, 0); }
+        else if (period === "7d") from = new Date(now.getTime() - 7 * 86400_000);
+        else if (period === "30d") from = new Date(now.getTime() - 30 * 86400_000);
+        else if (period === "custom") {
+            if (customFrom) from = new Date(customFrom + "T00:00:00");
+            if (customTo) { to = new Date(customTo + "T23:59:59"); }
+        }
+        return (row: any) => {
+            const d = new Date(row.updated_at ?? 0);
+            if (from && d < from) return false;
+            if (to && d > to) return false;
+            return true;
+        };
+    }, [period, customFrom, customTo]);
+
+    const periodStates = useMemo(() => states.filter(inPeriod), [states, inPeriod]);
+    const open = periodStates.filter((s) => s.deal?.status === "open");
     const overview = useMemo(() => ({
-        analisadas: states.length,
+        analisadas: periodStates.length,
         altaIntencao: open.filter((s) => (s.intent_score ?? 0) >= 70 && stageMeta(s.funnel_stage).group === "aberto").length,
         aguardandoClinica: open.filter((s) => s.waiting_on === "BUSINESS").length,
-        agendamentos: states.filter((s) => s.appointment?.confirmed).length,
+        agendamentos: periodStates.filter((s) => s.appointment?.confirmed).length,
         perdasSugeridas: open.filter((s) => !!s.lost_suggestion).length,
-    }), [states]);
+    }), [periodStates]);
 
     const pipeline = useMemo(() => {
         const map = new Map<string, number>();
         for (const s of open) map.set(s.funnel_stage ?? "—", (map.get(s.funnel_stage ?? "—") ?? 0) + 1);
         return [...map.entries()].sort((a, b) => b[1] - a[1]);
-    }, [states]);
+    }, [periodStates]);
 
     const list = useMemo(() => {
         let rows = [...open];
@@ -112,7 +136,7 @@ export default function InteligenciaPage() {
                 (r.service_interest ?? []).join(" ").toLowerCase().includes(q));
         }
         return rows.sort((a, b) => (b.intent_score ?? 0) - (a.intent_score ?? 0));
-    }, [states, stageFilter, onlyHot, search]);
+    }, [periodStates, stageFilter, onlyHot, search]);
 
     // ---------- estados de carregamento / desativado ----------
     if (pageQuery.isLoading) {
@@ -182,6 +206,37 @@ export default function InteligenciaPage() {
                     </div>
                 ) : (
                 <>
+                {/* Filtro de período */}
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                        {([["hoje", "Hoje"], ["7d", "7 dias"], ["30d", "30 dias"], ["all", "Tudo"], ["custom", "Período"]] as const).map(([k, l]) => (
+                            <button
+                                key={k}
+                                onClick={() => setPeriod(k)}
+                                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                                    period === k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"
+                                }`}
+                            >
+                                {l}
+                            </button>
+                        ))}
+                    </div>
+                    {period === "custom" && (
+                        <div className="flex items-center gap-1.5">
+                            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                                aria-label="Data inicial"
+                                className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-700 bg-white" />
+                            <span className="text-xs text-slate-400">até</span>
+                            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                                aria-label="Data final"
+                                className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-700 bg-white" />
+                        </div>
+                    )}
+                    <span className="ml-auto text-[11px] text-slate-400">
+                        Filtra pela última atividade analisada de cada conversa
+                    </span>
+                </div>
+
                 {/* Visão geral */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                     {[
