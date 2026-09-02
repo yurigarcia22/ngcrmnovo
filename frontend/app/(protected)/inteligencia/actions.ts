@@ -37,7 +37,7 @@ export async function getAiPageData() {
                 .select(`
                     deal_id, funnel_stage, intent_score, service_interest, waiting_on,
                     waiting_since, appointment, price, summary, next_action,
-                    lost_suggestion, origin_guess, confidence, updated_at,
+                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at,
                     deal:deals!deal_ai_state_deal_id_fkey (
                         id, title, status, origin,
                         contact:contacts ( name, phone, photo_url )
@@ -171,6 +171,71 @@ export async function saveAiStageMappings(pipelineId: number, rows: { ai_stage: 
             const { error } = await admin.from("ai_stage_mapping").insert(inserts);
             if (error) throw error;
         }
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Transforma o funil de vendas default no FUNIL PADRAO DE CLINICA
+// (Novo contato -> Em conversa -> Quer agendar -> Agendado -> Atendido / Perdido)
+// e ja configura o mapeamento da IA. So aplica em funis com a estrutura
+// generica padrao — funil muito customizado exige ajuste manual.
+export async function applyClinicFunnel() {
+    try {
+        const { admin, tenantId, role } = await getAuth();
+        if (role !== "admin") return { success: false, error: "Apenas administradores" };
+
+        const { data: pipeline } = await admin.from("pipelines")
+            .select("id, name").eq("tenant_id", tenantId).eq("kind", "deals").eq("is_default", true)
+            .limit(1).maybeSingle();
+        if (!pipeline) return { success: false, error: "Nenhum funil de vendas padrão." };
+
+        const { data: stages } = await admin.from("stages")
+            .select("id, name, position, is_inbox, is_won, is_lost")
+            .eq("pipeline_id", pipeline.id).order("position");
+        const all = stages ?? [];
+        const inbox = all.filter((s) => s.is_inbox);
+        const won = all.filter((s) => s.is_won);
+        const lost = all.filter((s) => s.is_lost);
+        const mid = all.filter((s) => !s.is_inbox && !s.is_won && !s.is_lost);
+
+        if (inbox.length !== 1 || won.length !== 1 || lost.length !== 1 || mid.length < 2 || mid.length > 3) {
+            return { success: false, error: `Funil "${pipeline.name}" tem estrutura customizada (${all.length} etapas) — ajuste manualmente ou me chame.` };
+        }
+
+        // Renomeia mantendo os IDs (os cards ficam onde estão)
+        const upd = async (id: number, patch: Record<string, unknown>) =>
+            admin.from("stages").update(patch).eq("id", id).eq("tenant_id", tenantId);
+        await upd(inbox[0].id, { name: "Novo contato", color: "#6366f1", position: 0 });
+        await upd(mid[0].id, { name: "Em conversa", color: "#3b82f6", position: 1 });
+        await upd(mid[1].id, { name: "Quer agendar", color: "#f59e0b", position: 2 });
+        let agendadoId: number;
+        if (mid[2]) {
+            await upd(mid[2].id, { name: "Agendado", color: "#10b981", position: 3 });
+            agendadoId = mid[2].id;
+        } else {
+            const { data: novo, error } = await admin.from("stages")
+                .insert({ pipeline_id: pipeline.id, tenant_id: tenantId, name: "Agendado", color: "#10b981", position: 3, is_inbox: false, is_won: false, is_lost: false })
+                .select("id").single();
+            if (error) throw error;
+            agendadoId = novo.id;
+        }
+        await upd(won[0].id, { name: "Atendido", color: "#059669", position: 4 });
+        await upd(lost[0].id, { color: "#ef4444", position: 5 });
+
+        // Mapeamento IA -> funil (deixa o Piloto pronto pra ligar)
+        await admin.from("ai_stage_mapping").delete().eq("tenant_id", tenantId).eq("pipeline_id", pipeline.id);
+        const mapRows = [
+            { ai_stage: "NEW_LEAD", stage_id: inbox[0].id },
+            { ai_stage: "QUALIFYING", stage_id: mid[0].id },
+            { ai_stage: "QUALIFIED", stage_id: mid[0].id },
+            { ai_stage: "SCHEDULING", stage_id: mid[1].id },
+            { ai_stage: "SCHEDULED", stage_id: agendadoId },
+        ].map((r) => ({ ...r, tenant_id: tenantId, pipeline_id: pipeline.id }));
+        const { error: mapErr } = await admin.from("ai_stage_mapping").insert(mapRows);
+        if (mapErr) throw mapErr;
+
         return { success: true };
     } catch (e: any) {
         return { success: false, error: e.message };

@@ -146,8 +146,18 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
 
   // 5. Estado corrente (waiting_since e calculo do BACKEND, nao da IA)
   const waitingChanged = prevState?.waiting_on !== out.waiting_for;
+  // Primeiro contato REAL = mensagem mais antiga do deal (nao o created_at,
+  // que mente para conversas vindas do sync de historico)
+  let firstContactAt: string | null = prevState?.first_contact_at ?? null;
+  if (!firstContactAt) {
+    const { data: firstMsg } = await supabase
+      .from('messages').select('created_at').eq('deal_id', dealId)
+      .order('created_at', { ascending: true }).limit(1).maybeSingle();
+    firstContactAt = firstMsg?.created_at ?? null;
+  }
   await supabase.from('deal_ai_state').upsert({
     deal_id: dealId, tenant_id: tenantId,
+    first_contact_at: firstContactAt,
     funnel_stage: out.funnel_stage,
     intent_score: out.commercial_intent_score,
     service_interest: out.service_interest,

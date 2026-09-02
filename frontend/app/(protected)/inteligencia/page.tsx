@@ -8,7 +8,7 @@ import {
     BrainCircuit, Sparkles, Settings2, Search, Clock, CalendarCheck2, AlertTriangle,
     Flame, MessageSquareText, RefreshCw, ChevronRight, Loader2, PhoneIncoming,
 } from "lucide-react";
-import { getAiPageData, getAiConversationDetail, updateAiSettings, getAiMappingData, saveAiStageMappings } from "./actions";
+import { getAiPageData, getAiConversationDetail, updateAiSettings, getAiMappingData, saveAiStageMappings, applyClinicFunnel } from "./actions";
 
 // ---------- vocabulario dos estados da IA ----------
 const STAGE_META: Record<string, { label: string; cls: string; group: string }> = {
@@ -54,6 +54,23 @@ function waitingText(row: any): string | null {
     if (min < 60) return `há ${min} min`;
     if (min < 60 * 24) return `há ${Math.round(min / 60)} h`;
     return `há ${Math.round(min / 1440)} d`;
+}
+
+const ORIGIN_LABEL: Record<string, string> = {
+    meta_ads: "Meta Ads", google: "Google", site: "Site", indicacao: "Indicação",
+    instagram: "Instagram", organico: "Orgânico", outro: "Outro",
+};
+function originOf(row: any): { label: string; cls: string } | null {
+    const o = row.deal?.origin ?? row.origin_guess;
+    if (!o || o === "desconhecido") return null;
+    const label = ORIGIN_LABEL[o] ?? o;
+    const cls = o === "meta_ads" ? "bg-blue-100 text-blue-700" : "bg-violet-50 text-violet-700";
+    return { label, cls };
+}
+
+function fmtDay(d?: string | null) {
+    if (!d) return null;
+    return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
 function fmtDate(d?: string | null) {
@@ -287,6 +304,32 @@ export default function InteligenciaPage() {
                     )}
                 </div>
 
+                {/* Origem dos contatos */}
+                <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6">
+                    <h2 className="text-sm font-bold text-slate-700 mb-3">Origem dos contatos <span className="font-normal text-slate-400">(no período)</span></h2>
+                    <div className="flex flex-wrap gap-2">
+                        {(() => {
+                            const counts = new Map<string, number>();
+                            for (const r of periodStates) {
+                                const o = (r as any).deal?.origin ?? (r as any).origin_guess ?? "nao_identificada";
+                                counts.set(o, (counts.get(o) ?? 0) + 1);
+                            }
+                            const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+                            return entries.map(([o, n]) => (
+                                <span key={o} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                                    o === "meta_ads" ? "bg-blue-100 text-blue-700"
+                                    : o === "nao_identificada" ? "bg-slate-100 text-slate-500"
+                                    : "bg-violet-50 text-violet-700"}`}>
+                                    {o === "nao_identificada" ? "Não identificada" : (ORIGIN_LABEL[o] ?? o)} · {n}
+                                </span>
+                            ));
+                        })()}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2">
+                        Meta Ads vem do próprio anúncio clicado; as demais são declaradas pelo cliente na conversa.
+                    </p>
+                </div>
+
                 {/* Lista de conversas */}
                 <div className="bg-white border border-slate-200 rounded-xl">
                     <div className="p-4 border-b border-slate-100 flex flex-wrap items-center gap-2">
@@ -346,8 +389,14 @@ export default function InteligenciaPage() {
                                                     <Clock size={10} /> clínica {wait}
                                                 </span>
                                             )}
+                                            {(() => { const o = originOf(row); return o ? (
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${o.cls}`}>{o.label}</span>
+                                            ) : null; })()}
                                         </div>
-                                        <p className="text-xs text-slate-500 truncate mt-0.5">{row.summary ?? "Sem resumo ainda."}</p>
+                                        <p className="text-xs text-slate-500 truncate mt-0.5">
+                                            {row.first_contact_at && <span className="text-slate-400">1º contato {fmtDay(row.first_contact_at)} · </span>}
+                                            {row.summary ?? "Sem resumo ainda."}
+                                        </p>
                                     </div>
                                     <div className={`shrink-0 h-9 w-9 rounded-lg flex items-center justify-center text-sm font-bold ${scoreCls(row.intent_score)}`}
                                         title={`Intenção comercial: ${row.intent_score ?? "?"}/100`}>
@@ -403,6 +452,7 @@ function ConversationDetail({ row, onClose }: { row: any; onClose: () => void })
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.cls}`}>{meta.label}</span>
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${scoreCls(row.intent_score)}`}>intenção {row.intent_score ?? "?"}/100</span>
                             {row.deal?.origin === "meta_ads" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">Meta Ads</span>}
+                            {row.first_contact_at && <span className="text-slate-400">1º contato em {fmtDay(row.first_contact_at)}</span>}
                         </DialogDescription>
                     </div>
                     <a href={`/deals/${row.deal_id}`} className="text-xs font-semibold text-indigo-600 hover:underline shrink-0">
@@ -635,6 +685,9 @@ function ConfigDialog({ settings, onClose, onSaved }: { settings: any; onClose: 
                     </div>
                 )}
 
+                {/* Funil padrao de clinica */}
+                <ClinicFunnelButton onApplied={() => mappingQuery.refetch()} />
+
                 {/* Alertas / resumo diario */}
                 <div className="mt-3 grid grid-cols-2 gap-2">
                     <label className="flex items-center justify-between rounded-lg border border-slate-200 p-3 cursor-pointer">
@@ -678,5 +731,33 @@ function ConfigDialog({ settings, onClose, onSaved }: { settings: any; onClose: 
                 </div>
             </DialogContent>
         </Dialog>
+    );
+}
+
+function ClinicFunnelButton({ onApplied }: { onApplied: () => void }) {
+    const [arm, setArm] = useState(false);
+    const [busy, setBusy] = useState(false);
+    async function run() {
+        if (!arm) { setArm(true); setTimeout(() => setArm(false), 4000); return; }
+        setBusy(true);
+        const r = await applyClinicFunnel();
+        setBusy(false); setArm(false);
+        if (r.success) { toast.success("Funil de clínica aplicado", "Etapas renomeadas e mapeamento da IA configurado."); onApplied(); }
+        else toast.error("Não foi possível aplicar", r.error);
+    }
+    return (
+        <div className="mt-3 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-3">
+            <p className="text-xs text-slate-600 mb-2">
+                <b>Funil padrão de clínica:</b> transforma o funil de vendas em
+                <b> Novo contato → Em conversa → Quer agendar → Agendado → Atendido / Perdido</b> e
+                já configura o mapeamento da IA. Os cards existentes ficam onde estão.
+            </p>
+            <button onClick={run} disabled={busy}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 ${
+                    arm ? "bg-amber-500 text-white" : "bg-indigo-600 text-white hover:bg-indigo-700"} disabled:opacity-50`}>
+                {busy && <Loader2 size={12} className="animate-spin" />}
+                {arm ? "Clique de novo para confirmar" : "Aplicar funil de clínica"}
+            </button>
+        </div>
     );
 }
