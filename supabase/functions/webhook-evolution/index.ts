@@ -549,9 +549,16 @@ serve(async (req) => {
           try {
             const { data: aiCfg } = await supabase
               .from('ai_settings').select('ctwa_greetings').eq('tenant_id', tenantId).maybeSingle();
-            const frases: string[] = Array.isArray(aiCfg?.ctwa_greetings) ? aiCfg.ctwa_greetings : [];
+            // Aceita string ("frase") ou objeto {frase, campanha} — o "UTM do
+            // WhatsApp": cada anuncio/conjunto usa uma frase levemente diferente
+            // e o CRM identifica de qual campanha o lead veio.
+            const rawG: unknown[] = Array.isArray(aiCfg?.ctwa_greetings) ? aiCfg.ctwa_greetings : [];
             const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
-            if (frases.some((f) => norm(String(f)) === norm(content))) {
+            const frases = rawG.map((g) => typeof g === 'string'
+              ? { frase: g, campanha: null as string | null }
+              : { frase: String((g as Record<string, unknown>)?.frase ?? ''), campanha: ((g as Record<string, unknown>)?.campanha as string) ?? null });
+            const hit = frases.find((f) => f.frase && norm(f.frase) === norm(content));
+            if (hit) {
               const { data: dOr } = await supabase
                 .from('deals').select('origin, acquisition_channel_id').eq('id', dealId).maybeSingle();
               const { count: msgCount } = await supabase
@@ -560,7 +567,7 @@ serve(async (req) => {
               if (dOr && !dOr.origin && (msgCount ?? 0) === 0) {
                 const patch: Record<string, unknown> = {
                   origin: 'meta_ads',
-                  origin_detail: { metodo: 'mensagem_padrao_anuncio', frase: content },
+                  origin_detail: { metodo: 'mensagem_padrao_anuncio', frase: content, campanha: hit.campanha },
                 };
                 if (!dOr.acquisition_channel_id) {
                   let { data: ch } = await supabase.from('acquisition_channels').select('id')
