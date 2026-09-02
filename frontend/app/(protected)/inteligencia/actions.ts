@@ -64,7 +64,7 @@ export async function getAiConversationDetail(dealId: string) {
         const { admin, tenantId } = await getAuth();
         const [msgsRes, eventsRes, analysisRes] = await Promise.all([
             admin.from("messages")
-                .select("id, direction, content, type, created_at")
+                .select("id, direction, content, type, transcription, media_url, created_at")
                 .eq("deal_id", dealId).eq("tenant_id", tenantId)
                 .order("created_at", { ascending: false }).limit(40),
             admin.from("crm_events")
@@ -76,6 +76,9 @@ export async function getAiConversationDetail(dealId: string) {
                 .eq("deal_id", dealId).eq("tenant_id", tenantId)
                 .order("created_at", { ascending: false }).limit(1).maybeSingle(),
         ]);
+        // Erro em qualquer consulta NAO pode virar painel vazio silencioso
+        if (msgsRes.error) throw msgsRes.error;
+        if (eventsRes.error) throw eventsRes.error;
         return {
             success: true,
             messages: (msgsRes.data ?? []).reverse(),

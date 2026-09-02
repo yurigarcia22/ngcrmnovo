@@ -103,6 +103,8 @@ export default function InteligenciaPage() {
     const [period, setPeriod] = useState<"hoje" | "7d" | "30d" | "all" | "custom">("7d");
     const [customFrom, setCustomFrom] = useState("");
     const [customTo, setCustomTo] = useState("");
+    const [originFilter, setOriginFilter] = useState<string | null>(null);
+    const [onlyNew, setOnlyNew] = useState(false);
     const [detailDeal, setDetailDeal] = useState<any | null>(null);
     const [showConfig, setShowConfig] = useState(false);
 
@@ -127,6 +129,15 @@ export default function InteligenciaPage() {
         };
     }, [period, customFrom, customTo]);
 
+    const periodFrom = useMemo(() => {
+        const now = new Date();
+        if (period === "hoje") { const d = new Date(now); d.setHours(0,0,0,0); return d; }
+        if (period === "7d") return new Date(now.getTime() - 7 * 86400_000);
+        if (period === "30d") return new Date(now.getTime() - 30 * 86400_000);
+        if (period === "custom" && customFrom) return new Date(customFrom + "T00:00:00");
+        return null; // "Tudo": novo = 1o contato em setembro (corte da contabilidade)
+    }, [period, customFrom]);
+
     const periodStates = useMemo(() => states.filter(inPeriod), [states, inPeriod]);
     const open = periodStates.filter((s) => s.deal?.status === "open");
     const overview = useMemo(() => ({
@@ -143,10 +154,16 @@ export default function InteligenciaPage() {
         return [...map.entries()].sort((a, b) => b[1] - a[1]);
     }, [periodStates]);
 
+    const rowOrigin = (r: any) => r.deal?.origin ?? r.origin_guess ?? "nao_identificada";
     const list = useMemo(() => {
         let rows = [...open];
         if (stageFilter !== "all") rows = rows.filter((r) => r.funnel_stage === stageFilter);
         if (onlyHot) rows = rows.filter((r) => (r.intent_score ?? 0) >= 70);
+        if (originFilter) rows = rows.filter((r) => rowOrigin(r) === originFilter);
+        if (onlyNew) {
+            const cut = periodFrom ?? new Date("2026-09-01T00:00:00");
+            rows = rows.filter((r) => r.first_contact_at && new Date(r.first_contact_at) >= cut);
+        }
         if (search.trim()) {
             const q = search.trim().toLowerCase();
             rows = rows.filter((r) =>
@@ -155,7 +172,7 @@ export default function InteligenciaPage() {
                 (r.service_interest ?? []).join(" ").toLowerCase().includes(q));
         }
         return rows.sort((a, b) => (b.intent_score ?? 0) - (a.intent_score ?? 0));
-    }, [periodStates, stageFilter, onlyHot, search]);
+    }, [periodStates, stageFilter, onlyHot, search, originFilter, onlyNew, periodFrom]);
 
     // ---------- estados de carregamento / desativado ----------
     if (pageQuery.isLoading) {
@@ -318,12 +335,15 @@ export default function InteligenciaPage() {
                             }
                             const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
                             return entries.map(([o, n]) => (
-                                <span key={o} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                                <button key={o}
+                                    onClick={() => setOriginFilter(originFilter === o ? null : o)}
+                                    title="Clique para filtrar a lista por esta origem"
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-shadow ${
                                     o === "meta_ads" ? "bg-blue-100 text-blue-700"
                                     : o === "nao_identificada" ? "bg-slate-100 text-slate-500"
-                                    : "bg-violet-50 text-violet-700"}`}>
+                                    : "bg-violet-50 text-violet-700"} ${originFilter === o ? "ring-2 ring-indigo-400" : "hover:ring-1 hover:ring-slate-300"}`}>
                                     {o === "nao_identificada" ? "Não identificada" : (ORIGIN_LABEL[o] ?? o)} · {n}
-                                </span>
+                                </button>
                             ));
                         })()}
                     </div>
@@ -349,6 +369,18 @@ export default function InteligenciaPage() {
                         >
                             <Flame size={14} /> Alta intenção
                         </button>
+                        <button
+                            onClick={() => setOnlyNew(!onlyNew)}
+                            title="Só leads cujo PRIMEIRO contato aconteceu no período selecionado"
+                            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-bold transition-colors ${onlyNew ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                        >
+                            🆕 Leads novos
+                        </button>
+                        {originFilter && (
+                            <button onClick={() => setOriginFilter(null)} className="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100">
+                                {originFilter === "nao_identificada" ? "Não identificada" : (ORIGIN_LABEL[originFilter] ?? originFilter)} ✕
+                            </button>
+                        )}
                         {stageFilter !== "all" && (
                             <button onClick={() => setStageFilter("all")} className="px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100">
                                 {stageMeta(stageFilter).label} ✕
@@ -467,19 +499,29 @@ function ConversationDetail({ row, onClose }: { row: any; onClose: () => void })
                     <div className="border-r border-slate-100 overflow-y-auto p-4 bg-slate-50/60">
                         <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-2">Conversa (últimas mensagens)</h3>
                         {detail.isLoading && <p className="text-sm text-slate-400">Carregando...</p>}
+                        {detail.isError && <p className="text-sm text-rose-500">Erro ao carregar a conversa: {(detail.error as Error)?.message}</p>}
+                        {!detail.isLoading && !detail.isError && (detail.data?.messages ?? []).length === 0 && (
+                            <p className="text-sm text-slate-400">Nenhuma mensagem nesta conversa.</p>
+                        )}
                         <div className="space-y-1.5">
-                            {(detail.data?.messages ?? []).map((m: any) => (
+                            {(detail.data?.messages ?? []).map((m: any) => {
+                                const isAudio = m.type === "audio";
+                                const body = isAudio && m.transcription && !String(m.transcription).startsWith("[áudio")
+                                    ? <span><span className="opacity-70">🎙 </span>{m.transcription}</span>
+                                    : (m.type && m.type !== "text" && (!m.content || m.content.startsWith("["))
+                                        ? <em className="opacity-70">[{m.type === "image" ? "imagem" : m.type === "video" ? "vídeo" : m.type === "audio" ? "áudio" : m.type}]</em>
+                                        : m.content);
+                                return (
                                 <div key={m.id} className={`max-w-[85%] px-3 py-1.5 rounded-lg text-[13px] leading-snug ${
                                     m.direction === "inbound"
                                         ? "bg-white border border-slate-200 text-slate-700"
                                         : "bg-indigo-600 text-white ml-auto"
                                 }`}>
-                                    {m.type && m.type !== "text" && !m.content
-                                        ? <em className="opacity-70">[{m.type}]</em>
-                                        : m.content}
+                                    {body}
                                     <div className={`text-[9px] mt-0.5 ${m.direction === "inbound" ? "text-slate-400" : "text-indigo-200"}`}>{fmtDate(m.created_at)}</div>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
 
