@@ -86,16 +86,26 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
   // 1. Conversa (ate 80 msgs mais recentes com conteudo; rotulada, sem PII)
   const { data: msgs } = await supabase
     .from('messages')
-    .select('id, direction, content, created_at')
+    .select('id, direction, content, transcription, type, created_at')
     .eq('deal_id', dealId)
-    .neq('content', '')
     .order('created_at', { ascending: false })
     .limit(80);
-  const ordered = (msgs ?? []).reverse();
+  // Texto efetivo: transcricao do audio > conteudo > placeholder de midia.
+  // Clinica conversa MUITO por audio — sem transcricao o motor ficava cego.
+  const PLACEHOLDERS = ['[Imagem]', '[Vídeo]', '[Áudio]', '[Documento]', '[Figurinha]', '[Localização]'];
+  const withText = (msgs ?? []).map((m) => ({
+    ...m,
+    text: (m.transcription && !String(m.transcription).startsWith('[áudio sem'))
+      ? `(áudio) ${m.transcription}`
+      : (m.content && !PLACEHOLDERS.includes(m.content))
+        ? m.content
+        : (m.type && m.type !== 'text' ? `[${m.type}]` : ''),
+  })).filter((m) => m.text !== '');
+  const ordered = withText.reverse();
   if (ordered.length === 0) return { skipped: 'sem mensagens de texto' };
 
   const convo = ordered
-    .map((m) => `[${m.direction === 'inbound' ? 'CLIENTE' : 'CLINICA'} ${String(m.created_at).slice(0, 16)}] ${String(m.content).slice(0, 400)}`)
+    .map((m) => `[${m.direction === 'inbound' ? 'CLIENTE' : 'CLINICA'} ${String(m.created_at).slice(0, 16)}] ${String(m.text).slice(0, 400)}`)
     .join('\n');
 
   // 2. Estado anterior (analise incremental)
