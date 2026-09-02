@@ -132,7 +132,8 @@ serve(async (req) => {
     const isFromMe = !!data.key.fromMe;
 
     // Anti-flood de history sync: fromMe antigo (>10min) e replay de historico.
-    if (isFromMe) {
+    // Excecao: REPLAY manual (x-replay-event-id) e reprocesso intencional.
+    if (isFromMe && !replayId) {
       const ts = Number(data.messageTimestamp || 0) * 1000;
       if (ts && (Date.now() - ts) > 10 * 60 * 1000) {
         return await finish('ignored', 'fromMe antigo (history sync)', 200);
@@ -186,9 +187,9 @@ serve(async (req) => {
     // pushName do LID costuma repetir o proprio numero do LID: nesse caso usa
     // um rotulo legivel em vez de um numero que nao significa nada pro usuario.
     const rawPushName = data.pushName || '';
-    // Sufixo com os 4 ultimos digitos do LID: sem isso a lista fica com dezenas
-    // de "Contato do WhatsApp" identicos, impossivel de distinguir.
-    const pushName = (rawPushName && rawPushName !== waLid)
+    const isFromMeMsg = data.key.fromMe === true;
+    // Em fromMe o pushName e o da PROPRIA clinica — nunca vira nome do contato.
+    const pushName = (!isFromMeMsg && rawPushName && rawPushName !== waLid)
       ? rawPushName
       : (lidOnly ? `Contato WhatsApp ·${waLid!.slice(-4)}` : phone);
 
@@ -323,12 +324,20 @@ serve(async (req) => {
         .eq('id', contact.id).is('wa_lid', null);
     }
 
+    // Contato com nome generico (telefone / "Contato WhatsApp") ganha o nome
+    // real quando o cliente responde com pushName de verdade.
+    if (contact && !isFromMeMsg && rawPushName && rawPushName !== waLid
+        && !/^[0-9+ ()\-]+$/.test(rawPushName)) {
+      await supabase.from('contacts').update({ name: rawPushName })
+        .eq('id', contact.id)
+        .or(`name.eq.${phone},name.like.Contato WhatsApp%`);
+    }
+
     let contactId: string | undefined = contact?.id;
     const hasPhoto = !!(contact?.photo_url && contact.photo_url.length > 0);
 
-    if (isFromMe && !contactId) {
-      return await finish('ignored', 'fromMe sem contato existente', 200);
-    }
+    // fromMe sem contato NAO e mais descartado: a clinica iniciando conversa
+    // (confirmacao de consulta etc.) cria contato+deal normalmente.
 
     async function fetchProfilePictureUrl(): Promise<string | null> {
       try {
@@ -404,9 +413,7 @@ serve(async (req) => {
     let dealId = deal?.id;
     const reopened = !isFromMe && !!deal?.resolved_at;
 
-    if (isFromMe && !dealId) {
-      return await finish('ignored', 'fromMe sem conversa existente', 200);
-    }
+    // fromMe sem deal: cria o deal normalmente (fluxo abaixo).
 
     if (!dealId) {
       const { data: inboxStageRpc } = await supabase
