@@ -11,7 +11,7 @@
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const PROMPT_VERSION = 'crm-core-v0.1';
+const PROMPT_VERSION = 'crm-core-v0.2';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -64,6 +64,7 @@ function systemPrompt(vertical: string, services: unknown): string {
 Sua função NÃO é responder ao cliente. Sua função é observar a conversa, identificar fatos e transformar mensagens não estruturadas em dados para o CRM.
 
 REGRAS CRÍTICAS
+- IDIOMA: escreva TODOS os textos (summary, facts, next_best_action, service_interest) SEMPRE em português brasileiro, sem exceção — nunca em inglês, independente do idioma da conversa.
 - Nunca invente informações. Diferencie fato explícito de inferência provável (use confidence menor).
 - Não marque agendamento como confirmado sem confirmação explícita do cliente ("pode marcar", "confirmo") — horário oferecido não é agendamento.
 - Pergunta de preço ("quanto custa?") é solicitação, NÃO objeção. Objeção exige sinal explícito ("tá caro").
