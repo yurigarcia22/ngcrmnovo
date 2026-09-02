@@ -470,6 +470,55 @@ serve(async (req) => {
       await supabase.from('deals').update(updates).eq('id', dealId);
     }
 
+    // --- 7.5 ORIGEM DO LEAD (atribuicao automatica) ---
+    // Clique em anuncio Meta (CTWA) chega com contextInfo.externalAdReply:
+    // titulo/corpo do anuncio, sourceId (id do anuncio), sourceApp (instagram/
+    // facebook), sourceUrl e ctwaClid. Gravamos UMA vez (primeira atribuicao vale).
+    if (!isFromMe && dealId) {
+      try {
+        const ctxInfo = data.contextInfo
+          ?? data.message?.extendedTextMessage?.contextInfo
+          ?? data.message?.imageMessage?.contextInfo
+          ?? data.message?.videoMessage?.contextInfo;
+        const adReply = ctxInfo?.externalAdReply;
+        if (adReply && (adReply.ctwaClid || adReply.sourceId || adReply.sourceUrl)) {
+          const { data: dOrigin } = await supabase
+            .from('deals').select('origin, acquisition_channel_id').eq('id', dealId).maybeSingle();
+          if (dOrigin && !dOrigin.origin) {
+            // thumbnail e um blob gigante de bytes: fora do banco
+            const { thumbnail: _t, thumbnailUrl: _tu, ...adClean } = adReply;
+            const patch: Record<string, unknown> = {
+              origin: 'meta_ads',
+              origin_detail: adClean,
+              ctwa_clid: adReply.ctwaClid ?? null,
+            };
+            // Canal de aquisicao "Meta Ads" automatico (cria por tenant se faltar)
+            if (!dOrigin.acquisition_channel_id) {
+              let { data: ch } = await supabase
+                .from('acquisition_channels').select('id')
+                .eq('tenant_id', tenantId).ilike('name', '%meta%').limit(1).maybeSingle();
+              if (!ch) {
+                const { data: newCh } = await supabase
+                  .from('acquisition_channels')
+                  .insert({ tenant_id: tenantId, name: 'Meta Ads', color: '#1877F2' })
+                  .select('id').maybeSingle();
+                ch = newCh;
+              }
+              if (ch?.id) patch.acquisition_channel_id = ch.id;
+            }
+            await supabase.from('deals').update(patch).eq('id', dealId);
+            await supabase.from('crm_events').insert({
+              tenant_id: tenantId, deal_id: dealId, source: 'system',
+              event_type: 'origin_detected', new_value: 'meta_ads',
+              previous_value: null, confidence: 1,
+            });
+          }
+        }
+      } catch (e) {
+        console.error('origem CTWA (nao critico):', e);
+      }
+    }
+
     // --- 8. SALVA A MENSAGEM (antes de qualquer fallback de midia) ---
     const { data: savedMsg, error: msgError } = await supabase.from('messages').insert({
       deal_id: dealId,
