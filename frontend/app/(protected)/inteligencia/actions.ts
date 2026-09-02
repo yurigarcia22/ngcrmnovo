@@ -91,21 +91,86 @@ export async function updateAiSettings(patch: {
     enabled?: boolean;
     vertical?: string;
     analyze_from?: string | null;
+    mode?: string;
+    alerts_enabled?: boolean;
+    daily_digest?: boolean;
 }) {
     try {
         const { admin, tenantId, role } = await getAuth();
         if (role !== "admin") return { success: false, error: "Apenas administradores" };
 
-        // Whitelist rigida: modo 'pilot' NAO e aceito aqui (Fase 3; hoje o motor
-        // e somente observador e a UI nao deve prometer o que nao existe).
         const safe: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (typeof patch.enabled === "boolean") safe.enabled = patch.enabled;
         if (patch.vertical && ["veterinary", "dentistry", "generic"].includes(patch.vertical)) safe.vertical = patch.vertical;
         if (patch.analyze_from !== undefined) safe.analyze_from = patch.analyze_from;
+        if (typeof patch.alerts_enabled === "boolean") safe.alerts_enabled = patch.alerts_enabled;
+        if (typeof patch.daily_digest === "boolean") safe.daily_digest = patch.daily_digest;
+
+        // Piloto so liga com mapeamento configurado — senao nao ha o que mover
+        // e o usuario acharia que "nao funciona".
+        if (patch.mode && ["observer", "pilot"].includes(patch.mode)) {
+            if (patch.mode === "pilot") {
+                const { count } = await admin.from("ai_stage_mapping")
+                    .select("id", { count: "exact", head: true }).eq("tenant_id", tenantId);
+                if (!count) return { success: false, error: "Configure o mapeamento de etapas antes de ativar o Piloto." };
+            }
+            safe.mode = patch.mode;
+        }
 
         const { error } = await admin.from("ai_settings")
             .upsert({ tenant_id: tenantId, ...safe }, { onConflict: "tenant_id" });
         if (error) throw error;
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Etapas do funil de vendas default + mapeamentos atuais (para a tela do Piloto)
+export async function getAiMappingData() {
+    try {
+        const { admin, tenantId } = await getAuth();
+        const { data: pipeline } = await admin.from("pipelines")
+            .select("id, name").eq("tenant_id", tenantId).eq("kind", "deals").eq("is_default", true)
+            .limit(1).maybeSingle();
+        if (!pipeline) return { success: false, error: "Nenhum funil de vendas padrão." };
+
+        const [stagesRes, mapsRes] = await Promise.all([
+            // Ganho/perda ficam FORA de proposito: fechar negócio é decisão humana.
+            admin.from("stages").select("id, name, position, is_inbox")
+                .eq("pipeline_id", pipeline.id).eq("is_won", false).eq("is_lost", false)
+                .order("position"),
+            admin.from("ai_stage_mapping").select("ai_stage, stage_id")
+                .eq("tenant_id", tenantId).eq("pipeline_id", pipeline.id),
+        ]);
+        return { success: true, pipeline, stages: stagesRes.data ?? [], mappings: mapsRes.data ?? [] };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+export async function saveAiStageMappings(pipelineId: number, rows: { ai_stage: string; stage_id: number | null }[]) {
+    try {
+        const { admin, tenantId, role } = await getAuth();
+        if (role !== "admin") return { success: false, error: "Apenas administradores" };
+
+        // Valida que todas as etapas pertencem ao tenant e nao sao ganho/perda
+        const ids = rows.filter((r) => r.stage_id != null).map((r) => r.stage_id);
+        if (ids.length > 0) {
+            const { data: valid } = await admin.from("stages").select("id")
+                .in("id", ids).eq("tenant_id", tenantId).eq("is_won", false).eq("is_lost", false);
+            if ((valid ?? []).length !== new Set(ids).size) {
+                return { success: false, error: "Etapa inválida no mapeamento." };
+            }
+        }
+        await admin.from("ai_stage_mapping").delete()
+            .eq("tenant_id", tenantId).eq("pipeline_id", pipelineId);
+        const inserts = rows.filter((r) => r.stage_id != null)
+            .map((r) => ({ tenant_id: tenantId, pipeline_id: pipelineId, ai_stage: r.ai_stage, stage_id: r.stage_id }));
+        if (inserts.length > 0) {
+            const { error } = await admin.from("ai_stage_mapping").insert(inserts);
+            if (error) throw error;
+        }
         return { success: true };
     } catch (e: any) {
         return { success: false, error: e.message };

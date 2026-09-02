@@ -8,7 +8,7 @@ import {
     BrainCircuit, Sparkles, Settings2, Search, Clock, CalendarCheck2, AlertTriangle,
     Flame, MessageSquareText, RefreshCw, ChevronRight, Loader2, PhoneIncoming,
 } from "lucide-react";
-import { getAiPageData, getAiConversationDetail, updateAiSettings } from "./actions";
+import { getAiPageData, getAiConversationDetail, updateAiSettings, getAiMappingData, saveAiStageMappings } from "./actions";
 
 // ---------- vocabulario dos estados da IA ----------
 const STAGE_META: Record<string, { label: string; cls: string; group: string }> = {
@@ -454,15 +454,56 @@ function ConversationDetail({ row, onClose }: { row: any; onClose: () => void })
 // =====================================================================
 function ConfigDialog({ settings, onClose, onSaved }: { settings: any; onClose: () => void; onSaved: () => void }) {
     const [enabled, setEnabled] = useState(!!settings?.enabled);
+    const [mode, setMode] = useState<string>(settings?.mode ?? "observer");
     const [vertical, setVertical] = useState(settings?.vertical ?? "generic");
     const [analyzeFrom, setAnalyzeFrom] = useState((settings?.analyze_from ?? "").slice(0, 10));
+    const [alertsEnabled, setAlertsEnabled] = useState(settings?.alerts_enabled !== false);
+    const [dailyDigest, setDailyDigest] = useState(settings?.daily_digest !== false);
     const [saving, setSaving] = useState(false);
+
+    // Mapeamento estado IA -> etapa do funil (Piloto)
+    const AI_STAGES = [
+        { key: "NEW_LEAD", label: "Novo lead" },
+        { key: "QUALIFYING", label: "Qualificando" },
+        { key: "QUALIFIED", label: "Qualificado" },
+        { key: "SCHEDULING", label: "Agendando" },
+        { key: "SCHEDULED", label: "Agendado" },
+    ];
+    const mappingQuery = useQuery({
+        queryKey: ["ai", "mapping"],
+        queryFn: async () => {
+            const r = await getAiMappingData();
+            if (!r.success) throw new Error(r.error);
+            return r;
+        },
+    });
+    const [mapping, setMapping] = useState<Record<string, string>>({});
+    const stages: any[] = (mappingQuery.data?.stages as any[]) ?? [];
+    const pipeline: any = mappingQuery.data?.pipeline;
+    const savedMappings = mappingQuery.data?.mappings as any[] | undefined;
+    const hydrated = useMemo(() => {
+        const base: Record<string, string> = {};
+        for (const m of savedMappings ?? []) base[m.ai_stage] = String(m.stage_id);
+        return base;
+    }, [savedMappings]);
+    const effective: Record<string, string> = { ...hydrated, ...mapping };
 
     async function save() {
         setSaving(true);
+        // 1. mapeamento primeiro (o piloto exige mapeamento existente)
+        if (pipeline && (mode === "pilot" || Object.keys(mapping).length > 0)) {
+            const rows = AI_STAGES.map((a) => ({
+                ai_stage: a.key,
+                stage_id: effective[a.key] ? Number(effective[a.key]) : null,
+            }));
+            const rm = await saveAiStageMappings(pipeline.id, rows);
+            if (!rm.success) { toast.error("Erro no mapeamento", rm.error); setSaving(false); return; }
+        }
+        // 2. settings
         const r = await updateAiSettings({
-            enabled, vertical,
+            enabled, vertical, mode,
             analyze_from: analyzeFrom ? new Date(analyzeFrom).toISOString() : null,
+            alerts_enabled: alertsEnabled, daily_digest: dailyDigest,
         });
         setSaving(false);
         if (r.success) { toast.success("Configuração salva"); onSaved(); }
@@ -471,18 +512,88 @@ function ConfigDialog({ settings, onClose, onSaved }: { settings: any; onClose: 
 
     return (
         <Dialog open onOpenChange={(o) => !o && onClose()}>
-            <DialogContent className="max-w-md bg-white p-6">
+            <DialogContent className="max-w-lg bg-white p-6 max-h-[88vh] overflow-y-auto">
                 <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <Settings2 className="text-indigo-600" size={18} /> IA Inteligência
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500">
-                    A IA apenas observa e analisa. Ela nunca envia mensagem a nenhum contato.
+                    A IA nunca envia mensagem a nenhum contato — ela observa, analisa e (no modo Piloto) organiza o funil.
                 </DialogDescription>
 
                 <label className="mt-4 flex items-center justify-between rounded-lg border border-slate-200 p-3 cursor-pointer">
                     <span className="text-sm font-semibold text-slate-700">Análise ativada</span>
                     <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="h-4 w-4 accent-indigo-600" />
                 </label>
+
+                {/* Modo */}
+                <div className="mt-3 space-y-2">
+                    <label className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${mode === "observer" ? "border-indigo-300 bg-indigo-50/50" : "border-slate-200"}`}>
+                        <input type="radio" name="ai-mode" checked={mode === "observer"} onChange={() => setMode("observer")} className="mt-0.5" />
+                        <span>
+                            <span className="block text-sm font-semibold text-slate-800">👁 Observador</span>
+                            <span className="block text-xs text-slate-500">Analisa e mostra tudo aqui. Não toca no funil.</span>
+                        </span>
+                    </label>
+                    <label className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${mode === "pilot" ? "border-indigo-300 bg-indigo-50/50" : "border-slate-200"}`}>
+                        <input type="radio" name="ai-mode" checked={mode === "pilot"} onChange={() => setMode("pilot")} className="mt-0.5" />
+                        <span>
+                            <span className="block text-sm font-semibold text-slate-800">🚀 Piloto</span>
+                            <span className="block text-xs text-slate-500">
+                                Tudo do Observador + move os cards no funil conforme o mapeamento abaixo.
+                                Nunca marca ganho nem perda (isso continua humano), nunca volta card pra trás
+                                e só age com confiança ≥ {Math.round((settings?.min_confidence_move ?? 0.85) * 100)}%.
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
+                {/* Mapeamento (Piloto) */}
+                {mode === "pilot" && (
+                    <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                        <h3 className="text-xs font-bold text-slate-600 mb-2">
+                            Mapeamento de etapas {pipeline ? <span className="font-normal text-slate-400">· funil {pipeline.name}</span> : null}
+                        </h3>
+                        {mappingQuery.isLoading ? (
+                            <p className="text-xs text-slate-400">Carregando funil...</p>
+                        ) : (
+                            <div className="space-y-2">
+                                {AI_STAGES.map((a) => (
+                                    <div key={a.key} className="flex items-center gap-2">
+                                        <span className="w-32 shrink-0 text-xs font-semibold text-slate-600">{a.label}</span>
+                                        <span className="text-slate-300">→</span>
+                                        <select
+                                            value={effective[a.key] ?? ""}
+                                            onChange={(e) => setMapping((m) => ({ ...m, [a.key]: e.target.value }))}
+                                            aria-label={`Etapa para ${a.label}`}
+                                            className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-800"
+                                        >
+                                            <option value="">— não mover —</option>
+                                            {stages.map((st) => (
+                                                <option key={st.id} value={String(st.id)}>{st.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ))}
+                                <p className="text-[11px] text-slate-400">Etapas de ganho e perda não aparecem: fechar negócio é sempre decisão humana.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Alertas / resumo diario */}
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                    <label className="flex items-center justify-between rounded-lg border border-slate-200 p-3 cursor-pointer">
+                        <span className="text-xs font-semibold text-slate-700">🔔 Alertas</span>
+                        <input type="checkbox" checked={alertsEnabled} onChange={(e) => setAlertsEnabled(e.target.checked)} className="h-4 w-4 accent-indigo-600" />
+                    </label>
+                    <label className="flex items-center justify-between rounded-lg border border-slate-200 p-3 cursor-pointer">
+                        <span className="text-xs font-semibold text-slate-700">🧠 Resumo diário</span>
+                        <input type="checkbox" checked={dailyDigest} onChange={(e) => setDailyDigest(e.target.checked)} className="h-4 w-4 accent-indigo-600" />
+                    </label>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                    Alertas chegam no sininho dos administradores: lead quente aguardando resposta, possível perda e agendamento detectado.
+                </p>
 
                 <div className="mt-3">
                     <label htmlFor="ai-vertical" className="block text-xs font-semibold text-slate-600 mb-1.5">Segmento</label>
@@ -501,11 +612,6 @@ function ConfigDialog({ settings, onClose, onSaved }: { settings: any; onClose: 
                     <input id="ai-from" type="date" value={analyzeFrom} onChange={(e) => setAnalyzeFrom(e.target.value)}
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg text-slate-800" />
                     <p className="text-[11px] text-slate-400 mt-1">Conversas mais antigas que essa data não são analisadas (evita custo com histórico morto).</p>
-                </div>
-
-                <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[12px] text-slate-500">
-                    Modo atual: <b className="text-slate-700">Observador</b> — a IA analisa e mostra aqui, sem mexer no funil.
-                    O modo Piloto (mover cards automaticamente) chega na próxima fase.
                 </div>
 
                 <div className="mt-4 flex justify-end gap-2">

@@ -180,7 +180,101 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
     await supabase.from('crm_events').insert(events.map((e) => ({ ...e, tenant_id: tenantId, deal_id: dealId, source: 'ai' })));
   }
 
-  return { ok: true, stage: out.funnel_stage, intent: out.commercial_intent_score, tokens: usage.total_tokens };
+  // ============ FASE 3: PILOTO — mover o card no funil real ============
+  // Guard-rails duros: so quando o ESTADO MUDOU nesta analise (respeita
+  // movimentos humanos), so deal aberto, confianca >= limiar, mapeamento
+  // explicito do tenant, NUNCA etapa de ganho/perda, NUNCA regressao.
+  let moved: string | null = null;
+  const stageChanged = prevState?.funnel_stage !== out.funnel_stage;
+  if (settings.mode === 'pilot' && stageChanged && (out.confidence ?? 0) >= Number(settings.min_confidence_move ?? 0.85)) {
+    try {
+      const { data: dealRow } = await supabase
+        .from('deals').select('id, status, stage_id, promoted_at')
+        .eq('id', dealId).maybeSingle();
+      if (dealRow?.status === 'open' && dealRow.stage_id != null) {
+        const { data: cur } = await supabase
+          .from('stages').select('id, position, pipeline_id')
+          .eq('id', dealRow.stage_id).maybeSingle();
+        const { data: map } = cur ? await supabase
+          .from('ai_stage_mapping').select('stage_id')
+          .eq('tenant_id', tenantId).eq('pipeline_id', cur.pipeline_id).eq('ai_stage', out.funnel_stage)
+          .maybeSingle() : { data: null };
+        if (cur && map?.stage_id && Number(map.stage_id) !== Number(dealRow.stage_id)) {
+          const { data: target } = await supabase
+            .from('stages').select('id, name, position, is_won, is_lost, is_inbox')
+            .eq('id', map.stage_id).eq('tenant_id', tenantId).maybeSingle();
+          if (target && !target.is_won && !target.is_lost && target.position > cur.position) {
+            const patch: Record<string, unknown> = {
+              stage_id: target.id,
+              stage_entered_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            if (!dealRow.promoted_at && !target.is_inbox) patch.promoted_at = new Date().toISOString();
+            const { error: mvErr } = await supabase
+              .from('deals').update(patch).eq('id', dealId).eq('status', 'open');
+            if (!mvErr) {
+              moved = target.name;
+              await supabase.from('crm_events').insert({
+                tenant_id: tenantId, deal_id: dealId, source: 'ai',
+                event_type: 'stage_moved_by_ai',
+                previous_value: String(dealRow.stage_id), new_value: String(target.id),
+                confidence: out.confidence,
+              });
+            }
+          }
+        }
+      }
+    } catch (e) { console.error('piloto (nao critico):', e); }
+  }
+
+  // ============ FASE 4: ALERTAS in-app para os admins do tenant ============
+  // Entregues pelo sininho do CRM (tabela notifications). Cooldown por
+  // deal+regra evita spam quando a conversa continua ativa.
+  if (settings.alerts_enabled !== false) {
+    try {
+      const alerts: { rule: string; title: string; message: string; cooldownH: number }[] = [];
+      const hot = Number(settings.hot_intent_threshold ?? 80);
+      if ((out.commercial_intent_score ?? 0) >= hot && out.waiting_for === 'BUSINESS') {
+        alerts.push({ rule: 'hot_waiting', cooldownH: 4,
+          title: '🔥 Lead quente aguardando resposta',
+          message: `Intenção ${out.commercial_intent_score}/100 — ${String(out.summary ?? '').slice(0, 150)}` });
+      }
+      if (out.lost_opportunity?.detected && (out.lost_opportunity.confidence ?? 0) >= 0.8) {
+        alerts.push({ rule: 'lost_suggested', cooldownH: 24,
+          title: '⚠️ Possível oportunidade perdida',
+          message: String(out.summary ?? '').slice(0, 170) });
+      }
+      if (out.appointment?.confirmed && !(prevState?.appointment as Record<string, unknown> | null)?.confirmed) {
+        alerts.push({ rule: 'appointment', cooldownH: 24,
+          title: '📅 Agendamento confirmado na conversa',
+          message: String(out.summary ?? '').slice(0, 170) });
+      }
+      if (alerts.length > 0) {
+        const { data: admins } = await supabase
+          .from('profiles').select('id')
+          .eq('tenant_id', tenantId).eq('role', 'admin').eq('is_active', true);
+        for (const a of alerts) {
+          const since = new Date(Date.now() - a.cooldownH * 3600_000).toISOString();
+          const { data: dup } = await supabase
+            .from('notifications').select('id')
+            .eq('related_lead_id', dealId).eq('kind', 'ai_alert')
+            .eq('meta_json->>rule', a.rule)
+            .gte('created_at', since).limit(1).maybeSingle();
+          if (dup) continue;
+          const rows = (admins ?? []).map((p) => ({
+            user_id: p.id, tenant_id: tenantId, related_lead_id: dealId,
+            kind: 'ai_alert', title: a.title, message: a.message,
+            channel: 'in_app',
+            scheduled_for: new Date().toISOString(), sent_at: new Date().toISOString(),
+            meta_json: { rule: a.rule, intent: out.commercial_intent_score, stage: out.funnel_stage },
+          }));
+          if (rows.length > 0) await supabase.from('notifications').insert(rows);
+        }
+      }
+    } catch (e) { console.error('alertas (nao critico):', e); }
+  }
+
+  return { ok: true, stage: out.funnel_stage, intent: out.commercial_intent_score, moved, tokens: usage.total_tokens };
 }
 
 Deno.serve(async (req) => {
