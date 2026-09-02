@@ -66,3 +66,7 @@ BEGIN
     AND (st.first_contact_at IS NULL OR m.fc < st.first_contact_at);
   RETURN n;
 END $$;
+
+-- Frases de saudacao configuradas nos anuncios CTWA (deteccao de origem por
+-- mensagem inicial quando a assinatura tecnica do anuncio nao vem)
+ALTER TABLE public.ai_settings ADD COLUMN IF NOT EXISTS ctwa_greetings jsonb;

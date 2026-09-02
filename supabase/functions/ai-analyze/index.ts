@@ -11,7 +11,7 @@
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const PROMPT_VERSION = 'crm-core-v0.2';
+const PROMPT_VERSION = 'crm-core-v0.3';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -72,6 +72,7 @@ REGRAS CRÍTICAS
 - Não classifique silêncio momentâneo como perda. Oportunidade perdida exige evidência observável.
 - Não copie telefone/documentos/endereços para o resumo.
 - origin_guess: só quando o cliente DECLARA de onde veio ("vi no Google", "fulano indicou"). Senão null.
+- PACIENTE EXISTENTE: se a CLÍNICA inicia a conversa confirmando/remarcando consulta, cobrando retorno, ou trata de procedimento em andamento (ex.: "posso confirmar seu horário?", "finalizar o canal", "seu retorno"), classifique contact_classification=EXISTING_PATIENT — NÃO é NEW_LEAD, mesmo sem histórico anterior na conversa.
 - Pontuação de intenção (0-100): 0-20 sem intenção; 21-40 interesse inicial; 41-60 interesse claro em serviço; 61-80 buscando preço/disponibilidade/próximos passos; 81-100 intenção explícita de agendar/comprar/comparecer. Quantidade de mensagens não aumenta a pontuação.
 - Resumo: objetivo, para um gestor entender em segundos.
 - next_best_action é uma ação operacional interna ("Responder cliente", "Oferecer horários"...). NUNCA escreva a mensagem a ser enviada.

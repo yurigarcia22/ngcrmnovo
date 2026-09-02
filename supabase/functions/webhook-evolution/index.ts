@@ -488,6 +488,47 @@ serve(async (req) => {
           ?? data.message?.imageMessage?.contextInfo
           ?? data.message?.videoMessage?.contextInfo;
         const adReply = ctxInfo?.externalAdReply;
+        // Deteccao por FRASE DO ANUNCIO (fallback): quando a assinatura tecnica
+        // (externalAdReply) nao vem, a mensagem inicial configurada no botao do
+        // anuncio identifica a origem. Frases por tenant em ai_settings.ctwa_greetings.
+        if (!isFromMe && content) {
+          try {
+            const { data: aiCfg } = await supabase
+              .from('ai_settings').select('ctwa_greetings').eq('tenant_id', tenantId).maybeSingle();
+            const frases: string[] = Array.isArray(aiCfg?.ctwa_greetings) ? aiCfg.ctwa_greetings : [];
+            const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (frases.some((f) => norm(String(f)) === norm(content))) {
+              const { data: dOr } = await supabase
+                .from('deals').select('origin, acquisition_channel_id').eq('id', dealId).maybeSingle();
+              const { count: msgCount } = await supabase
+                .from('messages').select('id', { count: 'exact', head: true }).eq('deal_id', dealId);
+              // so na PRIMEIRA mensagem da conversa e sem origem previa
+              if (dOr && !dOr.origin && (msgCount ?? 0) === 0) {
+                const patch: Record<string, unknown> = {
+                  origin: 'meta_ads',
+                  origin_detail: { metodo: 'mensagem_padrao_anuncio', frase: content },
+                };
+                if (!dOr.acquisition_channel_id) {
+                  let { data: ch } = await supabase.from('acquisition_channels').select('id')
+                    .eq('tenant_id', tenantId).ilike('name', '%meta%').limit(1).maybeSingle();
+                  if (!ch) {
+                    const { data: nc } = await supabase.from('acquisition_channels')
+                      .insert({ tenant_id: tenantId, name: 'Meta Ads', color: '#1877F2' })
+                      .select('id').maybeSingle();
+                    ch = nc;
+                  }
+                  if (ch?.id) patch.acquisition_channel_id = ch.id;
+                }
+                await supabase.from('deals').update(patch).eq('id', dealId);
+                await supabase.from('crm_events').insert({
+                  tenant_id: tenantId, deal_id: dealId, source: 'system',
+                  event_type: 'origin_detected', new_value: 'meta_ads (frase do anuncio)', confidence: 0.9,
+                });
+              }
+            }
+          } catch (e) { console.error('origem por frase (nao critico):', e); }
+        }
+
         if (adReply && (adReply.ctwaClid || adReply.sourceId || adReply.sourceUrl)) {
           const { data: dOrigin } = await supabase
             .from('deals').select('origin, acquisition_channel_id').eq('id', dealId).maybeSingle();
