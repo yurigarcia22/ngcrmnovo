@@ -22,7 +22,7 @@ import {
     CalendarDays,
     Send,
     Sparkles
-} from "lucide-react";
+, BrainCircuit } from "lucide-react";
 import { logout } from "@/app/login/actions";
 import { getUnreadCount } from "@/app/actions";
 import { createClient } from "@/utils/supabase/client";
@@ -236,6 +236,13 @@ export default function Sidebar({
                         open={open}
                     />
                 )}
+                <Option
+                    Icon={BrainCircuit}
+                    title="Inteligência"
+                    href="/inteligencia"
+                    isActive={pathname.startsWith("/inteligencia")}
+                    open={open}
+                />
 
                 {modules.veterinaria && open && (
                     <div className="mt-6 mb-2 ml-2 text-sm font-semibold text-slate-700">
