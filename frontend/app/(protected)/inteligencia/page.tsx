@@ -73,6 +73,19 @@ function fmtDay(d?: string | null) {
     return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
+// Rotulo honesto do 1o contato: pra LEAD NOVO a data e confiavel; pra
+// PACIENTE EXISTENTE cuja conversa "renasceu" depois do corte, a data seria
+// a do renascimento (mentirosa) — nesse caso nao mostra nada.
+function firstContactLabel(row: any, cutoffIso?: string | null): string | null {
+    if (!row.first_contact_at) return null;
+    const cls = row.contact_classification;
+    if (cls === "NON_COMMERCIAL") return null;
+    const isExisting = cls === "EXISTING_PATIENT";
+    if (isExisting && cutoffIso && new Date(row.first_contact_at) >= new Date(cutoffIso)) return null;
+    const d = fmtDay(row.first_contact_at);
+    return isExisting ? `cliente desde ${d}` : `1º contato ${d}`;
+}
+
 function fmtDate(d?: string | null) {
     if (!d) return "—";
     return new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -433,7 +446,7 @@ export default function InteligenciaPage() {
                                             ) : null; })()}
                                         </div>
                                         <p className="text-xs text-slate-500 truncate mt-0.5">
-                                            {row.first_contact_at && <span className="text-slate-400">1º contato {fmtDay(row.first_contact_at)} · </span>}
+                                            {(() => { const l = firstContactLabel(row, settings?.analyze_from); return l ? <span className="text-slate-400">{l} · </span> : null; })()}
                                             {row.summary ?? "Sem resumo ainda."}
                                         </p>
                                     </div>
@@ -452,7 +465,7 @@ export default function InteligenciaPage() {
             </div>
 
             {detailDeal && (
-                <ConversationDetail row={detailDeal} onClose={() => setDetailDeal(null)} />
+                <ConversationDetail row={detailDeal} cutoff={settings?.analyze_from ?? null} onClose={() => setDetailDeal(null)} />
             )}
             {showConfig && (
                 <ConfigDialog
@@ -466,7 +479,7 @@ export default function InteligenciaPage() {
 }
 
 // =====================================================================
-function ConversationDetail({ row, onClose }: { row: any; onClose: () => void }) {
+function ConversationDetail({ row, cutoff, onClose }: { row: any; cutoff: string | null; onClose: () => void }) {
     const detail = useQuery({
         queryKey: ["ai", "detail", row.deal_id],
         queryFn: async () => {
@@ -491,7 +504,7 @@ function ConversationDetail({ row, onClose }: { row: any; onClose: () => void })
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${meta.cls}`}>{meta.label}</span>
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${scoreCls(row.intent_score)}`}>intenção {row.intent_score ?? "?"}/100</span>
                             {row.deal?.origin === "meta_ads" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">Meta Ads</span>}
-                            {row.first_contact_at && <span className="text-slate-400">1º contato em {fmtDay(row.first_contact_at)}</span>}
+                            {(() => { const l = firstContactLabel(row, cutoff); return l ? <span className="text-slate-400">{l}</span> : null; })()}
                         </DialogDescription>
                     </div>
                     <a href={`/deals/${row.deal_id}`} className="text-xs font-semibold text-indigo-600 hover:underline shrink-0">
