@@ -113,10 +113,12 @@ export default function InteligenciaPage() {
     const [stageFilter, setStageFilter] = useState("all");
     const [onlyHot, setOnlyHot] = useState(false);
     // Periodo: filtra pela ULTIMA ATIVIDADE analisada (updated_at do estado IA)
-    const [period, setPeriod] = useState<"hoje" | "7d" | "30d" | "all" | "custom">("7d");
+    const [period, setPeriod] = useState<"hoje" | "7d" | "30d" | "all" | "custom">("hoje");
     const [customFrom, setCustomFrom] = useState("");
     const [customTo, setCustomTo] = useState("");
     const [originFilter, setOriginFilter] = useState<string | null>(null);
+    // Filtro rapido acionado pelos CARDS da visao geral
+    const [quickFilter, setQuickFilter] = useState<null | "hot" | "waiting" | "scheduled" | "lost">(null);
     const [onlyNew, setOnlyNew] = useState(false);
     const [detailDeal, setDetailDeal] = useState<any | null>(null);
     const [showConfig, setShowConfig] = useState(false);
@@ -173,6 +175,10 @@ export default function InteligenciaPage() {
         if (stageFilter !== "all") rows = rows.filter((r) => r.funnel_stage === stageFilter);
         if (onlyHot) rows = rows.filter((r) => (r.intent_score ?? 0) >= 70);
         if (originFilter) rows = rows.filter((r) => rowOrigin(r) === originFilter);
+        if (quickFilter === "hot") rows = rows.filter((r) => (r.intent_score ?? 0) >= 70 && stageMeta(r.funnel_stage).group === "aberto");
+        if (quickFilter === "waiting") rows = rows.filter((r) => r.waiting_on === "BUSINESS");
+        if (quickFilter === "scheduled") rows = rows.filter((r) => r.appointment?.confirmed);
+        if (quickFilter === "lost") rows = rows.filter((r) => !!r.lost_suggestion);
         if (onlyNew) {
             const cut = periodFrom ?? new Date("2026-09-01T00:00:00");
             // Lead novo = 1o contato no periodo E a IA nao classificou como
@@ -190,7 +196,7 @@ export default function InteligenciaPage() {
                 (r.service_interest ?? []).join(" ").toLowerCase().includes(q));
         }
         return rows.sort((a, b) => (b.intent_score ?? 0) - (a.intent_score ?? 0));
-    }, [periodStates, stageFilter, onlyHot, search, originFilter, onlyNew, periodFrom]);
+    }, [periodStates, stageFilter, onlyHot, search, originFilter, onlyNew, periodFrom, quickFilter]);
 
     // ---------- estados de carregamento / desativado ----------
     if (pageQuery.isLoading) {
@@ -293,21 +299,39 @@ export default function InteligenciaPage() {
 
                 {/* Visão geral */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-                    {[
-                        { label: "Conversas analisadas", value: overview.analisadas, Icon: MessageSquareText, cls: "text-indigo-600" },
-                        { label: "Alta intenção abertas", value: overview.altaIntencao, Icon: Flame, cls: "text-amber-600" },
-                        { label: "Aguardando clínica", value: overview.aguardandoClinica, Icon: PhoneIncoming, cls: "text-rose-600" },
-                        { label: "Agendamentos detectados", value: overview.agendamentos, Icon: CalendarCheck2, cls: "text-emerald-600" },
-                        { label: "Perdas sugeridas", value: overview.perdasSugeridas, Icon: AlertTriangle, cls: "text-rose-500" },
-                    ].map((c) => (
-                        <div key={c.label} className="bg-white border border-slate-200 rounded-xl p-4">
+                    {([
+                        { label: "Conversas analisadas", value: overview.analisadas, Icon: MessageSquareText, cls: "text-indigo-600", qf: null },
+                        { label: "Alta intenção abertas", value: overview.altaIntencao, Icon: Flame, cls: "text-amber-600", qf: "hot" },
+                        { label: "Aguardando clínica", value: overview.aguardandoClinica, Icon: PhoneIncoming, cls: "text-rose-600", qf: "waiting" },
+                        { label: "Agendamentos detectados", value: overview.agendamentos, Icon: CalendarCheck2, cls: "text-emerald-600", qf: "scheduled" },
+                        { label: "Perdas sugeridas", value: overview.perdasSugeridas, Icon: AlertTriangle, cls: "text-rose-500", qf: "lost" },
+                    ] as const).map((c) => {
+                        const active = c.qf !== null && quickFilter === c.qf;
+                        return (
+                        <button
+                            key={c.label}
+                            onClick={() => {
+                                if (c.qf === null) {
+                                    // "Conversas analisadas" = limpar todos os filtros da lista
+                                    setQuickFilter(null); setStageFilter("all"); setOriginFilter(null);
+                                    setOnlyHot(false); setOnlyNew(false); setSearch("");
+                                } else {
+                                    setQuickFilter(quickFilter === c.qf ? null : c.qf);
+                                }
+                            }}
+                            title={c.qf === null ? "Limpar filtros da lista" : "Clique para filtrar a lista"}
+                            className={`text-left bg-white border rounded-xl p-4 transition-all cursor-pointer hover:shadow-sm ${
+                                active ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+                            }`}
+                        >
                             <div className="flex items-center justify-between mb-1">
                                 <c.Icon size={16} className={c.cls} />
                             </div>
                             <div className="text-2xl font-bold text-slate-800">{c.value}</div>
                             <div className="text-[11px] text-slate-500 font-medium">{c.label}</div>
-                        </div>
-                    ))}
+                        </button>
+                        );
+                    })}
                 </div>
 
                 {/* Pipeline IA */}
@@ -397,6 +421,11 @@ export default function InteligenciaPage() {
                         {originFilter && (
                             <button onClick={() => setOriginFilter(null)} className="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100">
                                 {originFilter === "nao_identificada" ? "Não identificada" : (ORIGIN_LABEL[originFilter] ?? originFilter)} ✕
+                            </button>
+                        )}
+                        {quickFilter && (
+                            <button onClick={() => setQuickFilter(null)} className="px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100">
+                                {quickFilter === "hot" ? "🔥 Alta intenção" : quickFilter === "waiting" ? "Aguardando clínica" : quickFilter === "scheduled" ? "Agendados" : "Perdas sugeridas"} ✕
                             </button>
                         )}
                         {stageFilter !== "all" && (
