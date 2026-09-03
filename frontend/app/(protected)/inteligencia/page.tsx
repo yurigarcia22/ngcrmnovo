@@ -162,7 +162,12 @@ export default function InteligenciaPage() {
         if (originFilter) rows = rows.filter((r) => rowOrigin(r) === originFilter);
         if (onlyNew) {
             const cut = periodFrom ?? new Date("2026-09-01T00:00:00");
-            rows = rows.filter((r) => r.first_contact_at && new Date(r.first_contact_at) >= cut);
+            // Lead novo = 1o contato no periodo E a IA nao classificou como
+            // paciente existente/nao-comercial (ex.: "finalizar o canal" =
+            // tratamento em andamento, nao e lead novo).
+            rows = rows.filter((r) => r.first_contact_at && new Date(r.first_contact_at) >= cut
+                && r.contact_classification !== "EXISTING_PATIENT"
+                && r.contact_classification !== "NON_COMMERCIAL");
         }
         if (search.trim()) {
             const q = search.trim().toLowerCase();

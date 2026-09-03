@@ -37,7 +37,7 @@ export async function getAiPageData() {
                 .select(`
                     deal_id, funnel_stage, intent_score, service_interest, waiting_on,
                     waiting_since, appointment, price, summary, next_action,
-                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at,
+                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at, contact_classification,
                     deal:deals!deal_ai_state_deal_id_fkey (
                         id, title, status, origin,
                         contact:contacts ( name, phone, photo_url )
