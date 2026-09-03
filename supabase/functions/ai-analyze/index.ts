@@ -252,7 +252,11 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
   // ============ FASE 4: ALERTAS in-app para os admins do tenant ============
   // Entregues pelo sininho do CRM (tabela notifications). Cooldown por
   // deal+regra evita spam quando a conversa continua ativa.
-  if (settings.alerts_enabled !== false) {
+  // Re-analise em massa (reset de last_analyzed_message_at) NAO dispara
+  // alertas: alertar vale para MENSAGEM NOVA, nao para reprocessamento —
+  // um reset geral gerava dezenas de notificacoes repetidas no sininho.
+  const isBulkReanalysis = !!prevState && prevState.last_analyzed_message_at === null;
+  if (settings.alerts_enabled !== false && !isBulkReanalysis) {
     try {
       const alerts: { rule: string; title: string; message: string; cooldownH: number }[] = [];
       const hot = Number(settings.hot_intent_threshold ?? 80);
