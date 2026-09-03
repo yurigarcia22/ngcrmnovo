@@ -1930,31 +1930,22 @@ export async function registerTouchpoint(dealId: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const { data: deal } = await supabase
-            .from('deals')
-            .select('id, touchpoints')
-            .eq('id', dealId)
-            .eq('tenant_id', tenantId)
-            .maybeSingle();
-        if (!deal) return { success: false, error: 'Negócio não encontrado.' };
-
-        const next = (deal.touchpoints ?? 0) + 1;
-        const nowIso = new Date().toISOString();
-        const { error } = await supabase
-            .from('deals')
-            .update({ touchpoints: next, last_touch_at: nowIso, updated_at: nowIso })
-            .eq('id', dealId)
-            .eq('tenant_id', tenantId);
+        // Incremento ATOMICO no banco (deal_touch): dois cliques rapidos somam
+        // dois — o read-modify-write antigo podia perder um incremento.
+        const { data: touched, error } = await supabase
+            .rpc('deal_touch', { p_deal: dealId, p_tenant: tenantId, p_delta: 1 });
         if (error) throw error;
+        const row = Array.isArray(touched) ? touched[0] : touched;
+        if (!row) return { success: false, error: 'Negócio não encontrado.' };
 
         await supabase.from('notes').insert({
             deal_id: dealId,
             tenant_id: tenantId,
-            content: `📞 Ponto de contato registrado (nº ${next})`,
+            content: `📞 Ponto de contato registrado (nº ${row.touchpoints})`,
         });
 
         revalidatePath('/leads');
-        return { success: true, touchpoints: next };
+        return { success: true, touchpoints: row.touchpoints, last_touch_at: row.last_touch_at };
     } catch (e: any) {
         return { success: false, error: e.message };
     }
@@ -1970,27 +1961,13 @@ export async function unregisterTouchpoint(dealId: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const { data: deal } = await supabase
-            .from('deals')
-            .select('id, touchpoints')
-            .eq('id', dealId)
-            .eq('tenant_id', tenantId)
-            .maybeSingle();
-        if (!deal) return { success: false, error: 'Negócio não encontrado.' };
-
-        const current = deal.touchpoints ?? 0;
-        if (current <= 0) return { success: true, touchpoints: 0 };
-
-        const next = current - 1;
-        const patch: any = { touchpoints: next, updated_at: new Date().toISOString() };
-        if (next === 0) patch.last_touch_at = null;
-
-        const { error } = await supabase
-            .from('deals')
-            .update(patch)
-            .eq('id', dealId)
-            .eq('tenant_id', tenantId);
+        // Decremento ATOMICO (a funcao ja trava no minimo 0 e zera last_touch)
+        const { data: touched, error } = await supabase
+            .rpc('deal_touch', { p_deal: dealId, p_tenant: tenantId, p_delta: -1 });
         if (error) throw error;
+        const row = Array.isArray(touched) ? touched[0] : touched;
+        if (!row) return { success: false, error: 'Negócio não encontrado.' };
+        const next = row.touchpoints ?? 0;
 
         // Remove a nota mais recente do registro (mantem o historico coerente).
         const { data: lastNote } = await supabase

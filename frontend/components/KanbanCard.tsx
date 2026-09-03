@@ -31,38 +31,36 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
     const router = useRouter();
     const confirm = useConfirm();
 
-    // Cadencia (pontos de contato): otimista local; o refetch do board confirma.
-    const [touchCount, setTouchCount] = useState<number>(deal.touchpoints ?? 0);
-    const [lastTouch, setLastTouch] = useState<string | null>(deal.last_touch_at ?? null);
+    // Cadencia: FONTE UNICA e o cache do board (deal.touchpoints via prop).
+    // Antes havia um contador local + useEffect de sincronizacao, e qualquer
+    // refetch no meio do clique derrubava o valor otimista de volta ("clico e
+    // as vezes nao soma"). Agora o otimismo e a confirmacao acontecem SO no
+    // cache — o card apenas renderiza o que o cache diz.
+    const touchCount = deal.touchpoints ?? 0;
+    const lastTouch: string | null = deal.last_touch_at ?? null;
     const [touchSaving, setTouchSaving] = useState(false);
 
-    // Sincroniza com o dado fresco do board: sem isso o card segurava o valor da
-    // primeira renderizacao (cache velho) e "0" virava "4" no primeiro clique.
-    useEffect(() => {
-        setTouchCount(deal.touchpoints ?? 0);
-        setLastTouch(deal.last_touch_at ?? null);
-    }, [deal.touchpoints, deal.last_touch_at]);
+    const patchBoardTouch = (touchpoints: number, last_touch_at: string | null) => {
+        queryClient.setQueriesData({ queryKey: ["deals", "board"] }, (old: any) =>
+            old ? { ...old, deals: (old.deals ?? []).map((d: any) => d.id === deal.id ? { ...d, touchpoints, last_touch_at } : d) } : old
+        );
+    };
 
     const handleTouchpoint = async (e: React.MouseEvent) => {
         e.stopPropagation();
         if (touchSaving) return;
         setTouchSaving(true);
-        const nowIso = new Date().toISOString();
-        setTouchCount((c) => c + 1); // otimista
-        setLastTouch(nowIso);
-        // Patch no cache do board: com o filtro "Sem contato hoje" ligado, o card
-        // some da fila NA HORA (last_touch_at vira agora).
-        queryClient.setQueriesData({ queryKey: ["deals", "board"] }, (old: any) =>
-            old ? { ...old, deals: (old.deals ?? []).map((d: any) => d.id === deal.id ? { ...d, touchpoints: (d.touchpoints ?? 0) + 1, last_touch_at: nowIso } : d) } : old
-        );
+        // Otimista no cache: soma na hora (e o filtro "Sem contato hoje" reage ja)
+        patchBoardTouch(touchCount + 1, new Date().toISOString());
 
         const res = await registerTouchpoint(deal.id);
         if (res?.success === false) {
             toast.error("Erro ao registrar contato", res.error);
-            // Restaura a verdade do servidor (desfaz o otimismo)
-            queryClient.invalidateQueries({ queryKey: ["deals", "board"] });
+            patchBoardTouch(touchCount, lastTouch); // desfaz
         } else if (typeof (res as any)?.touchpoints === "number") {
-            setTouchCount((res as any).touchpoints);
+            // Fixa o valor AUTORITATIVO do servidor no cache (incremento atomico
+            // no banco: dois cliques rapidos somam 2, nunca 1)
+            patchBoardTouch((res as any).touchpoints, (res as any).last_touch_at ?? new Date().toISOString());
         }
         setTouchSaving(false);
     };
