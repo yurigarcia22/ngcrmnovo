@@ -37,7 +37,7 @@ export async function getAiPageData() {
                 .select(`
                     deal_id, funnel_stage, intent_score, service_interest, waiting_on,
                     waiting_since, appointment, price, summary, next_action,
-                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at, contact_classification,
+                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at, contact_classification, appointment_confirmed_at,
                     deal:deals!deal_ai_state_deal_id_fkey (
                         id, title, status, origin,
                         contact:contacts ( name, phone, photo_url )
@@ -248,6 +248,20 @@ export async function applyClinicFunnel() {
         if (mapErr) throw mapErr;
 
         return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Serie diaria para o BI (grafico de linhas)
+export async function getAiDailyStats(days: number) {
+    try {
+        const { admin, tenantId } = await getAuth();
+        const { data, error } = await admin.rpc("ai_daily_stats", {
+            p_tenant: tenantId, p_days: Math.min(Math.max(days, 7), 90),
+        });
+        if (error) throw error;
+        return { success: true, rows: data ?? [] };
     } catch (e: any) {
         return { success: false, error: e.message };
     }

@@ -134,7 +134,14 @@ export default function InteligenciaPage() {
             if (customFrom) from = new Date(customFrom + "T00:00:00");
             if (customTo) { to = new Date(customTo + "T23:59:59"); }
         }
-        return (row: any) => {
+        const tsIn = (ts: string | null | undefined) => {
+            if (!ts) return false;
+            const d = new Date(ts);
+            if (from && d < from) return false;
+            if (to && d > to) return false;
+            return true;
+        };
+        const rowIn = (row: any) => {
             // Periodo = data da ultima MENSAGEM da conversa (last_analyzed_message_at),
             // nao da analise: a re-analise em massa re-toca updated_at e mentiria.
             const d = new Date(row.last_analyzed_message_at ?? row.updated_at ?? 0);
@@ -142,6 +149,7 @@ export default function InteligenciaPage() {
             if (to && d > to) return false;
             return true;
         };
+        return { rowIn, tsIn };
     }, [period, customFrom, customTo]);
 
     const periodFrom = useMemo(() => {
@@ -153,15 +161,17 @@ export default function InteligenciaPage() {
         return null; // "Tudo": novo = 1o contato em setembro (corte da contabilidade)
     }, [period, customFrom]);
 
-    const periodStates = useMemo(() => states.filter(inPeriod), [states, inPeriod]);
+    const periodStates = useMemo(() => states.filter(inPeriod.rowIn), [states, inPeriod]);
     const open = periodStates.filter((s) => s.deal?.status === "open");
     const overview = useMemo(() => ({
         analisadas: periodStates.length,
         altaIntencao: open.filter((s) => (s.intent_score ?? 0) >= 70 && stageMeta(s.funnel_stage).group === "aberto").length,
         aguardandoClinica: open.filter((s) => s.waiting_on === "BUSINESS").length,
-        agendamentos: periodStates.filter((s) => s.appointment?.confirmed).length,
+        // Conta pela DATA REAL da confirmacao (nao pela ultima msg da conversa):
+        // agendamento de ontem nao pode "migrar" pra hoje quando a conversa continua.
+        agendamentos: states.filter((s) => inPeriod.tsIn(s.appointment_confirmed_at)).length,
         perdasSugeridas: open.filter((s) => !!s.lost_suggestion).length,
-    }), [periodStates]);
+    }), [periodStates, states, inPeriod]);
 
     const pipeline = useMemo(() => {
         const map = new Map<string, number>();
@@ -236,6 +246,10 @@ export default function InteligenciaPage() {
                         >
                             <RefreshCw size={15} className={pageQuery.isFetching ? "animate-spin" : ""} />
                         </button>
+                        <a href="/inteligencia/bi"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50">
+                            📊 BI diário
+                        </a>
                         {isAdmin && (
                             <button
                                 onClick={() => setShowConfig(true)}
@@ -255,6 +269,10 @@ export default function InteligenciaPage() {
                             Quando ativada, ela analisa cada conversa do WhatsApp: intenção de compra, serviço buscado,
                             agendamentos, esperas e oportunidades perdidas — tudo automático, sem mudar sua rotina.
                         </p>
+                        <a href="/inteligencia/bi"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50">
+                            📊 BI diário
+                        </a>
                         {isAdmin && (
                             <button
                                 onClick={() => setShowConfig(true)}

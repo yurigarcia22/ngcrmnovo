@@ -171,6 +171,12 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
     deal_id: dealId, tenant_id: tenantId,
     contact_classification: out.contact_classification,
     first_contact_at: firstContactAt,
+    // Data REAL da confirmacao = ultima mensagem do lote em que confirmed
+    // virou true (nao a hora do processamento — re-analise nao re-data).
+    appointment_confirmed_at:
+      (out.appointment?.confirmed && !(prevState?.appointment as Record<string, unknown> | null)?.confirmed)
+        ? lastMsgAt
+        : (prevState?.appointment_confirmed_at ?? null),
     funnel_stage: out.funnel_stage,
     intent_score: out.commercial_intent_score,
     service_interest: out.service_interest,
