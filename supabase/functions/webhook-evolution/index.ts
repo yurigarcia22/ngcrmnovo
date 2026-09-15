@@ -222,7 +222,21 @@ serve(async (req) => {
     let content = '';
     let pendingMediaMime: string | undefined;
     let hasMedia = false;
-    const textContent = data.message?.conversation || data.message?.extendedTextMessage?.text;
+    // Formatos "ricos" tambem carregam texto: templates/botoes de bots e
+    // respostas de botao/lista do cliente. Sem isso viravam "[Mensagem nao suportada]".
+    const viewOnce = data.message?.viewOnceMessage?.message ?? data.message?.viewOnceMessageV2?.message;
+    const textContent = data.message?.conversation
+      || data.message?.extendedTextMessage?.text
+      || data.message?.templateMessage?.hydratedTemplate?.hydratedContentText
+      || data.message?.templateMessage?.hydratedContentText
+      || data.message?.buttonsMessage?.contentText
+      || data.message?.listMessage?.description
+      || data.message?.buttonsResponseMessage?.selectedDisplayText
+      || data.message?.templateButtonReplyMessage?.selectedDisplayText
+      || data.message?.listResponseMessage?.title
+      || (data.message?.pollCreationMessage?.name ? `[Enquete] ${data.message.pollCreationMessage.name}` : undefined)
+      || viewOnce?.imageMessage?.caption
+      || viewOnce?.videoMessage?.caption;
 
     if (messageType === 'imageMessage') {
       contentType = 'image'; hasMedia = true;
@@ -469,24 +483,34 @@ serve(async (req) => {
         }
       }
 
-      const { data: newDeal, error: insertErr } = await supabase
-        .from('deals')
-        .insert({
-          title: `Oportunidade: ${pushName}`,
-          contact_id: contactId,
-          stage_id: inboxStageId,
-          owner_id: ownerId,
-          status: 'open',
-          value: 0,
-          tenant_id: tenantId,
-        })
-        .select().single();
+      // Busca+criacao atomica por contato: duas mensagens simultaneas do mesmo
+      // contato criavam dois cards (cada uma via "nenhum deal aberto").
+      const { data: opened, error: openErr } = await supabase.rpc('webhook_open_deal', {
+        p_tenant: tenantId,
+        p_contact: contactId,
+        p_stage: inboxStageId,
+        p_owner: ownerId,
+        p_title: `Oportunidade: ${pushName}`,
+      });
 
-      if (insertErr || !newDeal) {
-        console.error('Erro ao criar deal:', insertErr);
-        return await finish('error', `falha ao criar deal: ${insertErr?.message}`, 500);
+      const openedDeal = opened as { deal_id: string; created: boolean; owner_id: string | null } | null;
+      if (openErr || !openedDeal?.deal_id) {
+        console.error('Erro ao criar deal:', openErr);
+        return await finish('error', `falha ao criar deal: ${openErr?.message}`, 500);
       }
-      dealId = newDeal.id;
+      dealId = openedDeal.deal_id;
+
+      if (!openedDeal.created) {
+        const updates: Record<string, unknown> = { updated_at: new Date() };
+        if (!isFromMe && !openedDeal.owner_id && instanceOwnerProfileId) {
+          updates.owner_id = instanceOwnerProfileId;
+        }
+        if (!isFromMe) {
+          updates.resolved_at = null;
+          updates.snoozed_until = null;
+        }
+        await supabase.from('deals').update(updates).eq('id', dealId);
+      }
     } else {
       const updates: Record<string, unknown> = { updated_at: new Date() };
       if (!isFromMe && !deal!.owner_id && instanceOwnerProfileId) {

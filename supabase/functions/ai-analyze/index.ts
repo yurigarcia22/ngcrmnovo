@@ -11,7 +11,7 @@
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const PROMPT_VERSION = 'crm-core-v0.4';
+const PROMPT_VERSION = 'crm-core-v0.5';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -34,8 +34,9 @@ const ANALYSIS_SCHEMA = {
       requested: { type: 'boolean' }, provided: { type: 'boolean' }, objection_detected: { type: 'boolean' } },
       required: ['requested', 'provided', 'objection_detected'] },
     appointment: { type: 'object', additionalProperties: false, properties: {
-      requested: { type: 'boolean' }, offered: { type: 'boolean' }, confirmed: { type: 'boolean' } },
-      required: ['requested', 'offered', 'confirmed'] },
+      requested: { type: 'boolean' }, offered: { type: 'boolean' }, confirmed: { type: 'boolean' },
+      confirmed_in_message_at: { type: ['string', 'null'], description: 'carimbo AAAA-MM-DDTHH:MM (do rotulo da conversa) da mensagem que fechou o acordo de horario MAIS RECENTE; null se nao confirmado' } },
+      required: ['requested', 'offered', 'confirmed', 'confirmed_in_message_at'] },
     waiting_for: { type: 'string', enum: ['CUSTOMER', 'BUSINESS', 'NONE', 'UNKNOWN'] },
     lost_opportunity: { type: 'object', additionalProperties: false, properties: {
       detected: { type: 'boolean' }, reason: { type: ['string', 'null'] }, confidence: { type: 'number' } },
@@ -66,13 +67,16 @@ Sua função NÃO é responder ao cliente. Sua função é observar a conversa, 
 REGRAS CRÍTICAS
 - IDIOMA: escreva TODOS os textos (summary, facts, next_best_action, service_interest) SEMPRE em português brasileiro, sem exceção — nunca em inglês, independente do idioma da conversa.
 - Nunca invente informações. Diferencie fato explícito de inferência provável (use confidence menor).
-- Não marque agendamento como confirmado sem confirmação explícita do cliente ("pode marcar", "confirmo") — horário oferecido não é agendamento.
+- AGENDAMENTO CONFIRMADO exige acordo explícito sobre um horário: o cliente aceita um horário oferecido ("pode sim", "pode ser", "combinado", "confirmo", 👍 respondendo diretamente à oferta); o cliente pede dia/horário e a empresa confirma ("vou deixar agendado", "agendado"); ou o cliente afirma que vai levar/comparecer em data definida ("amanhã levo ela"). Horário apenas oferecido e sem resposta NÃO é agendamento. Se a conversa tiver mais de um agendamento, considere SEMPRE o MAIS RECENTE. Em appointment.confirmed_in_message_at copie o carimbo AAAA-MM-DDTHH:MM do rótulo da mensagem que fechou esse acordo mais recente (null se não confirmado).
 - Pergunta de preço ("quanto custa?") é solicitação, NÃO objeção. Objeção exige sinal explícito ("tá caro").
 - Não faça diagnóstico médico/veterinário. Sintomas relatados são registrados como relato, nunca como diagnóstico.
 - Não classifique silêncio momentâneo como perda. Oportunidade perdida exige evidência observável.
 - Não copie telefone/documentos/endereços para o resumo.
 - origin_guess: só quando o cliente DECLARA de onde veio ("vi no Google", "fulano indicou"). Senão null.
 - PACIENTE EXISTENTE: se QUALQUER um dos lados indicar relação já existente ou continuidade de tratamento — clínica confirmando/remarcando consulta, cobrando retorno, OU o cliente pedindo para "finalizar/terminar/continuar" um procedimento ("finalizar o canal", "terminar meu tratamento", "minha manutenção", "a doutora ficou de..."), citando o dentista pelo nome como quem já o conhece, ou mencionando consulta/exame anterior — classifique contact_classification=EXISTING_PATIENT. NEW_LEAD é somente quem demonstra PRIMEIRO contato com a clínica.
+- HISTÓRICO: se a conversa tem mensagens de semanas ou meses antes entre o mesmo contato e a empresa, o contato NÃO é NEW_LEAD.
+- PET SHOP/VETERINÁRIA: são sinais de cliente existente pedir serviço recorrente para o pet citado pelo nome como rotina ("deixa o Tony aí pra banho", "tem horário pro Paçoca amanhã?"), falar com o atendente pelo nome como conhecido, citar funcionário da casa, ou a empresa tratar o cliente/pet pelo nome sem apresentação. Conversa que começa no meio (respostas como "pode sim", "ok", "certinho" sem pergunta visível) indica relação anterior.
+- NON_COMMERCIAL: fornecedor, representante comercial ou vendedor oferecendo produto/serviço PARA a empresa, cobrança de sistema, bot, spam, e contato pessoal/interno da equipe (números soltos, anotações, links sem pedido). Nunca classifique esses como NEW_LEAD.
 - Pontuação de intenção (0-100): 0-20 sem intenção; 21-40 interesse inicial; 41-60 interesse claro em serviço; 61-80 buscando preço/disponibilidade/próximos passos; 81-100 intenção explícita de agendar/comprar/comparecer. Quantidade de mensagens não aumenta a pontuação.
 - Resumo: objetivo, para um gestor entender em segundos.
 - next_best_action é uma ação operacional interna ("Responder cliente", "Oferecer horários"...). NUNCA escreva a mensagem a ser enviada.
@@ -167,16 +171,43 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
       .order('created_at', { ascending: true }).limit(1).maybeSingle();
     firstContactAt = firstMsg?.created_at ?? null;
   }
+
+  // Quem ja conversava com a empresa antes do inicio da analise nao e lead
+  // novo, mesmo que a IA so enxergue o trecho recente da conversa.
+  let contactClassification = out.contact_classification;
+  const analyzeFrom = settings.analyze_from ? new Date(String(settings.analyze_from)) : null;
+  if (contactClassification === 'NEW_LEAD' && firstContactAt && analyzeFrom
+      && new Date(firstContactAt) < analyzeFrom) {
+    contactClassification = 'EXISTING_PATIENT';
+  }
+
+  const isBulkReanalysis = !!prevState && prevState.last_analyzed_message_at === null;
+
+  // Data REAL da confirmacao: a mensagem que a IA apontou como fechamento do
+  // acordo (validada dentro da janela da conversa). Sem ela, a ultima mensagem
+  // do lote em que confirmed virou true.
+  const prevConfirmed = !!(prevState?.appointment as Record<string, unknown> | null)?.confirmed;
+  let confirmedMsgAt: string | null = null;
+  const rawConfirmed = out.appointment?.confirmed ? out.appointment?.confirmed_in_message_at : null;
+  if (typeof rawConfirmed === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(rawConfirmed)) {
+    const parsed = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(rawConfirmed) ? rawConfirmed : `${rawConfirmed.slice(0, 16)}:00Z`);
+    const windowStart = new Date(ordered[0].created_at).getTime() - 60_000;
+    const windowEnd = new Date(lastMsgAt).getTime() + 60_000;
+    if (!isNaN(parsed.getTime()) && parsed.getTime() >= windowStart && parsed.getTime() <= windowEnd) {
+      confirmedMsgAt = parsed.toISOString();
+    }
+  }
+  let appointmentConfirmedAt: string | null = prevState?.appointment_confirmed_at ?? null;
+  if (out.appointment?.confirmed) {
+    if (!prevConfirmed) appointmentConfirmedAt = confirmedMsgAt ?? lastMsgAt;
+    else if (confirmedMsgAt && (isBulkReanalysis || !appointmentConfirmedAt)) appointmentConfirmedAt = confirmedMsgAt;
+  }
+
   await supabase.from('deal_ai_state').upsert({
     deal_id: dealId, tenant_id: tenantId,
-    contact_classification: out.contact_classification,
+    contact_classification: contactClassification,
     first_contact_at: firstContactAt,
-    // Data REAL da confirmacao = ultima mensagem do lote em que confirmed
-    // virou true (nao a hora do processamento — re-analise nao re-data).
-    appointment_confirmed_at:
-      (out.appointment?.confirmed && !(prevState?.appointment as Record<string, unknown> | null)?.confirmed)
-        ? lastMsgAt
-        : (prevState?.appointment_confirmed_at ?? null),
+    appointment_confirmed_at: appointmentConfirmedAt,
     funnel_stage: out.funnel_stage,
     intent_score: out.commercial_intent_score,
     service_interest: out.service_interest,
@@ -262,7 +293,6 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
   // Re-analise em massa (reset de last_analyzed_message_at) NAO dispara
   // alertas: alertar vale para MENSAGEM NOVA, nao para reprocessamento —
   // um reset geral gerava dezenas de notificacoes repetidas no sininho.
-  const isBulkReanalysis = !!prevState && prevState.last_analyzed_message_at === null;
   if (settings.alerts_enabled !== false && !isBulkReanalysis) {
     try {
       const alerts: { rule: string; title: string; message: string; cooldownH: number }[] = [];
@@ -325,7 +355,13 @@ Deno.serve(async (req) => {
   // Lote pequeno por rodada (backpressure — o cron roda a cada 2 min)
   // Lote 3 em PARALELO: o gateway derruba a funcao em 150s; 3 analises
   // simultaneas (~30-60s cada) cabem com folga. O cron roda a cada 2 min.
-  const { data: picks, error } = await supabase.rpc('ai_pick_deals', { p_limit: 3 });
+  // Reprocessamento manual pode pedir lote maior; teto de 6 cabe no limite do gateway.
+  let batchSize = 3;
+  try {
+    const body = await req.json();
+    if (Number.isInteger(body?.limit)) batchSize = Math.min(Math.max(body.limit, 1), 6);
+  } catch { /* cron manda {} */ }
+  const { data: picks, error } = await supabase.rpc('ai_pick_deals', { p_limit: batchSize });
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
   const settingsCache = new Map<string, Record<string, unknown> | null>();
