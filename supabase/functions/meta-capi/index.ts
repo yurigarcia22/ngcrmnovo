@@ -123,6 +123,20 @@ Deno.serve(async (req) => {
       const email = normalizaEmail(contato.email);
       if (email) user_data.em = [await sha256(email)];
 
+      // Quanto mais identificadores, maior a chance de a Meta achar a pessoa.
+      // So com telefone a correspondencia fica fraca e a venda nao e atribuida.
+      const nome = String(contato.name ?? '').trim().toLowerCase()
+        .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+        .replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
+      const partes = nome ? nome.split(' ') : [];
+      if (partes.length > 0 && partes[0].length > 1) user_data.fn = [await sha256(partes[0])];
+      if (partes.length > 1) {
+        const ultimo = partes[partes.length - 1];
+        if (ultimo.length > 1) user_data.ln = [await sha256(ultimo)];
+      }
+      user_data.country = [await sha256('br')];
+      user_data.external_id = [await sha256(String(d.id))];
+
       // Sem lead_id, telefone ou e-mail a Meta nao consegue casar o evento
       if (!user_data.lead_id && !user_data.ph && !user_data.em) {
         semIdentificador.push(f.id);
