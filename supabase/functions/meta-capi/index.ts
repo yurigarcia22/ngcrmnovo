@@ -97,11 +97,17 @@ Deno.serve(async (req) => {
     const usados: number[] = [];
     const semIdentificador: number[] = [];
     const foraDaJanela: number[] = [];
-    // A Meta recusa o lote INTEIRO se um evento tiver mais de 7 dias
-    const limite = Date.now() - 7 * 24 * 3600_000;
+    // A Meta recusa evento com mais de ~7 dias quando ele chega como
+    // system_generated. Pelo caminho offline (physical_store) ela aceita ate
+    // 62 dias, com janela de atribuicao de 28 dias. Venda de ciclo longo e
+    // reprocessamento antigo entram por ali.
+    const AGORA = Date.now();
+    const LIMITE_DIRETO = 6 * 24 * 3600_000;    // margem de seguranca sobre os 7 dias
+    const LIMITE_OFFLINE = 60 * 24 * 3600_000;  // margem sobre os 62 dias
 
     for (const f of fila) {
-      if (new Date(f.event_time as string).getTime() < limite) { foraDaJanela.push(f.id); continue; }
+      const idade = AGORA - new Date(f.event_time as string).getTime();
+      if (idade > LIMITE_OFFLINE) { foraDaJanela.push(f.id); continue; }
       const d = porDeal.get(f.deal_id) as Record<string, unknown> | undefined;
       if (!d) { semIdentificador.push(f.id); continue; }
       // so vai quem veio de anuncio
@@ -141,7 +147,7 @@ Deno.serve(async (req) => {
         event_name: f.event_name,
         event_time: Math.floor(new Date(f.event_time as string).getTime() / 1000),
         event_id: f.event_id,
-        action_source: 'system_generated',
+        action_source: idade > LIMITE_DIRETO ? 'physical_store' : 'system_generated',
         user_data,
         custom_data,
       });
@@ -150,7 +156,7 @@ Deno.serve(async (req) => {
 
     if (foraDaJanela.length > 0) {
       await supabase.from('meta_capi_events')
-        .update({ status: 'skipped', detail: 'fora da janela de 7 dias da Meta' })
+        .update({ status: 'skipped', detail: 'evento com mais de 60 dias: a Meta nao aceita nem pelo caminho offline' })
         .in('id', foraDaJanela);
     }
     if (semIdentificador.length > 0) {
