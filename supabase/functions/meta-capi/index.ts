@@ -147,7 +147,12 @@ Deno.serve(async (req) => {
         event_name: f.event_name,
         event_time: Math.floor(new Date(f.event_time as string).getTime() / 1000),
         event_id: f.event_id,
-        action_source: idade > LIMITE_DIRETO ? 'physical_store' : 'system_generated',
+        // A venda SEMPRE vai pelo caminho offline: o ciclo daqui leva semanas e
+        // o caminho direto so atribui em 7 dias de clique, contra 28 do offline.
+        // Lead e reuniao continuam diretos, porque acontecem rapido e sao o que
+        // alimenta a otimizacao por leads de conversao.
+        action_source: (f.event_name === cfg.evento_ganhou || idade > LIMITE_DIRETO)
+          ? 'physical_store' : 'system_generated',
         user_data,
         custom_data,
       });
