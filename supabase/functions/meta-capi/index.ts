@@ -96,10 +96,16 @@ Deno.serve(async (req) => {
     const eventos: Record<string, unknown>[] = [];
     const usados: number[] = [];
     const semIdentificador: number[] = [];
+    const foraDaJanela: number[] = [];
+    // A Meta recusa o lote INTEIRO se um evento tiver mais de 7 dias
+    const limite = Date.now() - 7 * 24 * 3600_000;
 
     for (const f of fila) {
+      if (new Date(f.event_time as string).getTime() < limite) { foraDaJanela.push(f.id); continue; }
       const d = porDeal.get(f.deal_id) as Record<string, unknown> | undefined;
       if (!d) { semIdentificador.push(f.id); continue; }
+      // so vai quem veio de anuncio
+      if (!d.meta_lead_id && !d.ctwa_clid) { semIdentificador.push(f.id); continue; }
       const contato = (d.contact ?? {}) as Record<string, string | null>;
 
       const user_data: Record<string, unknown> = {};
@@ -117,14 +123,18 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const valor = Number(d.value ?? 0) > 0 ? Number(d.value) : Number(cfg.valor_padrao ?? 0);
       const custom_data: Record<string, unknown> = {
         lead_event_source: 'CRM NG',
         event_source: 'crm',
       };
-      if (valor > 0) {
-        custom_data.value = valor;
-        custom_data.currency = cfg.moeda ?? 'BRL';
+      // Valor so no evento de fechamento. Se fosse em todos, a Meta somaria a
+      // mesma venda tres vezes e o ROAS sairia inflado.
+      if (f.event_name === cfg.evento_ganhou) {
+        const valor = Number(d.value ?? 0) > 0 ? Number(d.value) : Number(cfg.valor_padrao ?? 0);
+        if (valor > 0) {
+          custom_data.value = valor;
+          custom_data.currency = cfg.moeda ?? 'BRL';
+        }
       }
 
       eventos.push({
@@ -138,13 +148,18 @@ Deno.serve(async (req) => {
       usados.push(f.id);
     }
 
+    if (foraDaJanela.length > 0) {
+      await supabase.from('meta_capi_events')
+        .update({ status: 'skipped', detail: 'fora da janela de 7 dias da Meta' })
+        .in('id', foraDaJanela);
+    }
     if (semIdentificador.length > 0) {
       await supabase.from('meta_capi_events')
         .update({ status: 'skipped', detail: 'sem lead_id, telefone ou e-mail para casar o evento' })
         .in('id', semIdentificador);
     }
     if (eventos.length === 0) {
-      resultados.push({ tenant: cfg.tenant_id, enviados: 0, ignorados: semIdentificador.length });
+      resultados.push({ tenant: cfg.tenant_id, enviados: 0, ignorados: semIdentificador.length, fora_da_janela: foraDaJanela.length });
       continue;
     }
 
@@ -194,6 +209,7 @@ Deno.serve(async (req) => {
       enviados: ok ? usados.length : 0,
       falhas: ok ? 0 : usados.length,
       ignorados: semIdentificador.length,
+      fora_da_janela: foraDaJanela.length,
       recebido_pela_meta: (resposta as { events_received?: number }).events_received ?? null,
       erro: ok ? null : resposta,
     });
