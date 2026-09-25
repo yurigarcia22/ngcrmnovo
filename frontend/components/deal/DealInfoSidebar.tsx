@@ -149,60 +149,82 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
 
     // --- PRODUCTS LOGIC ---
+    // Produto de valor personalizavel (ex.: assessoria) pede o valor na hora,
+    // porque cada cliente paga um preco. Os outros entram com o preco do cadastro.
+    const [customFor, setCustomFor] = useState<any>(null);
+    const [customValue, setCustomValue] = useState("");
+    const [editingItemId, setEditingItemId] = useState<string | null>(null);
+    const [editingItemValue, setEditingItemValue] = useState("");
+    const brl = (n: any) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    // Salva a lista inteira e faz o valor do negocio acompanhar a soma dos itens
+    // (esse valor e o que vai pra Meta como venda quando o negocio fecha).
+    async function saveItems(newItems: any[], log: string) {
+        const prev = items;
+        setItems(newItems); // Optimistic
+        const res = await upsertDealItems(deal.id, newItems);
+        if (!res.success) {
+            toast.error("Erro ao salvar produtos");
+            setItems(prev); // Rollback
+            return;
+        }
+        await logSystemActivity(deal.id, log);
+        const newValue = newItems.reduce((sum: number, item: any) => sum + (item.quantity * Number(item.unit_price)), 0);
+        if (newValue !== Number(dealValue)) {
+            setDealValue(newValue);
+            setTempValue(newValue);
+            await updateDeal(deal.id, { value: newValue });
+            syncBoard((d) => ({ ...d, value: newValue }));
+        }
+        router.refresh();
+    }
+
     async function handleAddProduct(productId: string) {
         const product = products.find((p: any) => p.id === productId);
         if (!product) return;
+        if (product.custom_price) {
+            const atual = items.find((i: any) => i.product_id === productId);
+            setCustomFor(product);
+            setCustomValue(atual ? String(atual.unit_price) : "");
+            return;
+        }
 
-        // Check if already exists
         const existingItem = items.find((i: any) => i.product_id === productId);
-        let newItems;
-
-        if (existingItem) {
-            newItems = items.map((i: any) => i.product_id === productId ? { ...i, quantity: i.quantity + 1 } : i);
-        } else {
-            newItems = [...items, { product_id: productId, products: product, quantity: 1, unit_price: product.price }];
-        }
-
-        setItems(newItems); // Optimistic
+        const newItems = existingItem
+            ? items.map((i: any) => i.product_id === productId ? { ...i, quantity: i.quantity + 1 } : i)
+            : [...items, { product_id: productId, products: product, quantity: 1, unit_price: product.price }];
         setIsAddingProduct(false);
+        await saveItems(newItems, `Adicionou produto: ${product.name}`);
+    }
 
-        // Calculate new deal value
-        const newValue = newItems.reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
-        setTempValue(newValue); // Suggest updating deal value too?
+    async function confirmCustomProduct() {
+        const product = customFor;
+        const valor = parseFloat(customValue);
+        if (!product) return;
+        if (isNaN(valor) || valor <= 0) { toast.warning("Digite o valor fechado com esse cliente."); return; }
+        // Personalizavel nao soma quantidade: o valor digitado JA e o valor do cliente
+        const existe = items.some((i: any) => i.product_id === product.id);
+        const newItems = existe
+            ? items.map((i: any) => i.product_id === product.id ? { ...i, quantity: 1, unit_price: valor } : i)
+            : [...items, { product_id: product.id, products: product, quantity: 1, unit_price: valor }];
+        setCustomFor(null);
+        setIsAddingProduct(false);
+        await saveItems(newItems, `Adicionou produto: ${product.name} (${brl(valor)})`);
+    }
 
-        // Save Items
-        const res = await upsertDealItems(deal.id, newItems);
-        if (res.success) {
-            await logSystemActivity(deal.id, `Adicionou produto: ${product.name}`);
-            router.refresh();
-            // Optionally update deal value automatically?
-            if (newValue !== dealValue) {
-                // Ask user or auto-update? Let's auto-update for seamlessness
-                setDealValue(newValue);
-                await updateDeal(deal.id, { value: newValue });
-            }
-        } else {
-            toast.error("Erro ao salvar produtos");
-            setItems(items); // Rollback
-        }
+    async function saveItemPrice(productId: string) {
+        const valor = parseFloat(editingItemValue);
+        if (isNaN(valor) || valor < 0) { toast.warning("Valor inválido."); return; }
+        const item = items.find((i: any) => i.product_id === productId);
+        setEditingItemId(null);
+        if (!item || Number(item.unit_price) === valor) return;
+        const newItems = items.map((i: any) => i.product_id === productId ? { ...i, unit_price: valor } : i);
+        await saveItems(newItems, `Alterou o valor de ${item.products?.name ?? "produto"}: ${brl(item.unit_price)} para ${brl(valor)}`);
     }
 
     async function handleRemoveProduct(productId: string) {
         const newItems = items.filter((i: any) => i.product_id !== productId);
-        setItems(newItems);
-
-        const res = await upsertDealItems(deal.id, newItems);
-        if (res.success) {
-            await logSystemActivity(deal.id, `Removeu produto`);
-            router.refresh();
-
-            // Update Value
-            const newValue = newItems.reduce((sum: number, item: any) => sum + (item.quantity * item.unit_price), 0);
-            if (newValue !== dealValue) {
-                setDealValue(newValue);
-                await updateDeal(deal.id, { value: newValue });
-            }
-        }
+        await saveItems(newItems, `Removeu produto`);
     }
 
 
@@ -937,41 +959,101 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <span className="text-sm font-semibold text-slate-700">{vocab.productsLabel}</span>
-                            <button onClick={() => setIsAddingProduct(!isAddingProduct)} className="text-[10px] text-blue-600 font-bold hover:underline">+ Adicionar</button>
+                            <button onClick={() => { setIsAddingProduct(!isAddingProduct); setCustomFor(null); }} className="text-[10px] text-blue-600 font-bold hover:underline">+ Adicionar</button>
                         </div>
 
                         {isAddingProduct && (
                             <div className="bg-slate-50 p-2 rounded border border-slate-200 mb-2">
-                                <div className="text-xs font-semibold text-slate-700 mb-2">Selecione um produto</div>
-                                <div className="max-h-32 overflow-y-auto space-y-1">
-                                    {products.map((p: any) => (
-                                        <button
-                                            key={p.id}
-                                            onClick={() => handleAddProduct(p.id)}
-                                            className="w-full text-left bg-white border border-slate-200 px-2 py-1.5 rounded text-xs hover:border-blue-300 flex justify-between"
-                                        >
-                                            <span>{p.name}</span>
-                                            <span className="font-bold">R$ {p.price}</span>
-                                        </button>
-                                    ))}
-                                </div>
+                                {customFor ? (
+                                    <div className="space-y-1.5">
+                                        <div className="text-xs font-semibold text-slate-700">{customFor.name}</div>
+                                        <label className="block text-[11px] text-slate-500">
+                                            Valor fechado com este cliente (R$)
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                autoFocus
+                                                value={customValue}
+                                                onChange={(e) => setCustomValue(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') confirmCustomProduct(); }}
+                                                placeholder="Ex.: 2000"
+                                                className="mt-0.5 w-full min-w-0 text-xs p-1.5 border border-slate-300 rounded bg-white"
+                                            />
+                                        </label>
+                                        <div className="flex gap-1.5">
+                                            <button onClick={confirmCustomProduct} className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-bold text-emerald-700 bg-white border border-emerald-200 px-2 py-1 rounded hover:bg-emerald-50"><Check size={12} /> Adicionar</button>
+                                            <button onClick={() => setCustomFor(null)} className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded hover:bg-slate-50"><X size={12} /> Voltar</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="text-xs font-semibold text-slate-700 mb-2">Selecione um produto</div>
+                                        <div className="max-h-32 overflow-y-auto space-y-1">
+                                            {products.map((p: any) => (
+                                                <button
+                                                    key={p.id}
+                                                    onClick={() => handleAddProduct(p.id)}
+                                                    className="w-full text-left bg-white border border-slate-200 px-2 py-1.5 rounded text-xs hover:border-blue-300 flex justify-between gap-2"
+                                                >
+                                                    <span className="truncate">{p.name}</span>
+                                                    {p.custom_price
+                                                        ? <span className="font-bold text-amber-700 shrink-0">Valor livre</span>
+                                                        : <span className="font-bold shrink-0">{brl(p.price)}</span>}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         )}
 
                         <div className="space-y-1">
                             {items.length === 0 && <span className="text-xs text-slate-500 italic">Nenhum produto adicionado.</span>}
-                            {items.map((item: any, idx: number) => (
-                                <div key={idx} className="flex justify-between items-center text-sm group">
-                                    <div className="flex items-center gap-2">
-                                        <div className="bg-blue-50 p-1 rounded text-blue-600"><ShoppingCart size={12} /></div>
-                                        <span className="text-slate-700">{item.products?.name} <span className="text-slate-500 text-xs">x{item.quantity}</span></span>
+                            {items.map((item: any, idx: number) => {
+                                const custom = !!item.products?.custom_price;
+                                return (
+                                <div key={idx} className="flex justify-between items-center gap-2 text-sm group">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <div className="bg-blue-50 p-1 rounded text-blue-600 shrink-0"><ShoppingCart size={12} /></div>
+                                        <span className="text-slate-700 truncate">{item.products?.name} {!custom && <span className="text-slate-500 text-xs">x{item.quantity}</span>}</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium text-slate-900">R$ {item.unit_price * item.quantity}</span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        {editingItemId === item.product_id ? (
+                                            <span className="flex items-center gap-1">
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    autoFocus
+                                                    value={editingItemValue}
+                                                    onChange={(e) => setEditingItemValue(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') saveItemPrice(item.product_id);
+                                                        if (e.key === 'Escape') setEditingItemId(null);
+                                                    }}
+                                                    aria-label="Novo valor"
+                                                    className="w-24 text-xs p-1 border border-slate-300 rounded"
+                                                />
+                                                <button onClick={() => saveItemPrice(item.product_id)} aria-label="Salvar valor" className="text-emerald-600 hover:bg-emerald-50 p-0.5 rounded"><Check size={12} /></button>
+                                                <button onClick={() => setEditingItemId(null)} aria-label="Cancelar" className="text-rose-500 hover:bg-rose-50 p-0.5 rounded"><X size={12} /></button>
+                                            </span>
+                                        ) : custom ? (
+                                            <button
+                                                onClick={() => { setEditingItemId(item.product_id); setEditingItemValue(String(item.unit_price)); }}
+                                                title="Clique pra alterar o valor deste cliente"
+                                                className="font-medium text-slate-900 hover:text-blue-700 inline-flex items-center gap-1"
+                                            >
+                                                {brl(item.unit_price * item.quantity)} <Edit2 size={10} className="text-slate-400" />
+                                            </button>
+                                        ) : (
+                                            <span className="font-medium text-slate-900">{brl(item.unit_price * item.quantity)}</span>
+                                        )}
                                         <button onClick={() => handleRemoveProduct(item.product_id)} aria-label="Remover produto" className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100"><Trash2 size={12} /></button>
                                     </div>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
 

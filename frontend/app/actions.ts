@@ -2634,7 +2634,7 @@ export async function getDealItems(dealId: string) {
             .from("deal_items")
             .select(`
                 *,
-                products ( name )
+                products ( name, custom_price )
             `)
             .eq("deal_id", dealId);
 

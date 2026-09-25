@@ -17,6 +17,7 @@ export default function ProductsPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<any>(null);
     const [actionLoading, setActionLoading] = useState(false);
+    const [priceType, setPriceType] = useState<"fixed" | "custom">("fixed");
 
     useEffect(() => {
         fetchProducts();
@@ -84,6 +85,7 @@ export default function ProductsPage() {
 
     const openModal = (product?: any) => {
         setEditingProduct(product || null);
+        setPriceType(product?.custom_price ? "custom" : "fixed");
         setIsModalOpen(true);
     };
 
@@ -149,7 +151,13 @@ export default function ProductsPage() {
                                 <tr key={product.id} className="hover:bg-blue-50/30 transition-colors group">
                                     <td className="p-4 font-medium text-slate-800">{product.name}</td>
                                     <td className="p-4 text-emerald-700 font-medium">
-                                        R$ {parseFloat(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        {product.custom_price ? (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold">
+                                                Personalizável
+                                            </span>
+                                        ) : (
+                                            <>R$ {parseFloat(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</>
+                                        )}
                                     </td>
                                     <td className="p-4 text-slate-500 text-sm max-w-xs truncate">{product.description || "-"}</td>
                                     <td className="p-4 text-right">
@@ -213,16 +221,40 @@ export default function ProductsPage() {
                                 </div>
 
                                 <div>
-                                    <label htmlFor="product-price" className="block text-sm font-medium text-slate-700 mb-1">Preço (R$) *</label>
-                                    <input
-                                        id="product-price"
-                                        name="price"
-                                        type="number"
-                                        step="0.01"
-                                        defaultValue={editingProduct?.price}
-                                        className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                        required
-                                    />
+                                    <span className="block text-sm font-medium text-slate-700 mb-1">Valor *</span>
+                                    <input type="hidden" name="price_type" value={priceType} />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {([
+                                            { v: "fixed", title: "Preço fixo", hint: "Mesmo valor pra todo cliente" },
+                                            { v: "custom", title: "Valor personalizável", hint: "Você digita o valor em cada negócio" },
+                                        ] as const).map((o) => (
+                                            <button
+                                                key={o.v}
+                                                type="button"
+                                                onClick={() => setPriceType(o.v)}
+                                                aria-pressed={priceType === o.v}
+                                                className={`text-left p-3 rounded-lg border transition-colors ${priceType === o.v ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500" : "border-slate-300 hover:bg-slate-50"}`}
+                                            >
+                                                <span className="block text-sm font-bold text-slate-800">{o.title}</span>
+                                                <span className="block text-xs text-slate-500 mt-0.5">{o.hint}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {priceType === "fixed" && (
+                                        <div className="mt-3">
+                                            <label htmlFor="product-price" className="block text-sm font-medium text-slate-700 mb-1">Preço (R$) *</label>
+                                            <input
+                                                id="product-price"
+                                                name="price"
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                defaultValue={editingProduct?.custom_price ? undefined : editingProduct?.price}
+                                                className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                                required
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div>

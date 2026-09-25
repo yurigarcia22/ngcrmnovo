@@ -7,7 +7,7 @@ import { markAsWon, markAsLost, recoverDeal, getTeamMembers, deleteDeals, update
 import LossReasonDialog from "@/components/deal/LossReasonDialog";
 import { getPipelines, getBoardData } from "./actions";
 import { qk } from "@/lib/query-keys";
-import { GitPullRequest, CheckSquare, Square, PhoneMissed } from "lucide-react";
+import { GitPullRequest, CheckSquare, Square } from "lucide-react";
 
 import {
     MessageCircle,
@@ -18,7 +18,8 @@ import {
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import NewLeadModal from "@/components/NewLeadModal";
-import FilterBar from "@/components/kanban/FilterBar";
+import LeadFilters, { EMPTY_FILTERS, type LeadFilterState, type DatePreset } from "@/components/kanban/LeadFilters";
+import { getProducts } from "@/app/(protected)/settings/products/actions";
 import { DragDropContext, Draggable } from "@hello-pangea/dnd";
 import { StrictModeDroppable } from "@/components/StrictModeDroppable";
 import KanbanCard from "@/components/KanbanCard";
@@ -128,9 +129,6 @@ export default function LeadsPage() {
     };
 
     const [searchTerm, setSearchTerm] = useState(() => readLs("filter_searchTerm", ""));
-    const [filterStatus, setFilterStatus] = useState<'active' | 'lost'>(
-        () => (readLs("filter_status", "active") as 'active' | 'lost'),
-    );
     const tagsQuery = useQuery({
         queryKey: qk.tags.all(),
         queryFn: async () => {
@@ -141,13 +139,17 @@ export default function LeadsPage() {
         staleTime: 5 * 60_000,
     });
     const tags: any[] = tagsQuery.data ?? [];
-    const [filterTag, setFilterTag] = useState(() => readLs("filter_tag", "all"));
-    // Modo "sem contato hoje": mostra so quem ainda NAO recebeu cadencia hoje.
-    // Ao registrar +1 num lead, ele some da visao na hora (virou contato de hoje).
-    const [filterNoTouchToday, setFilterNoTouchToday] = useState(() => readLs("filter_noTouchToday", "0") === "1");
-    const [filterDate, setFilterDate] = useState(() => readLs("filter_date", "all"));
-    const [filterDateStart, setFilterDateStart] = useState(() => readLs("filter_dateStart", ""));
-    const [filterDateEnd, setFilterDateEnd] = useState(() => readLs("filter_dateEnd", ""));
+    // Produtos pro filtro (server action: ja filtra pelo tenant)
+    const productsQuery = useQuery({
+        queryKey: ["products", "list"],
+        queryFn: async () => {
+            const res = await getProducts();
+            if (!res.success) throw new Error(res.error ?? "Falha ao carregar produtos");
+            return (res.data ?? []).map((p: any) => ({ id: String(p.id), name: p.name }));
+        },
+        staleTime: 5 * 60_000,
+    });
+    const productOptions: any[] = productsQuery.data ?? [];
 
     // Owner Filter
     const teamQuery = useQuery({
@@ -160,22 +162,36 @@ export default function LeadsPage() {
         staleTime: 5 * 60_000,
     });
     const teamMembers: any[] = teamQuery.data ?? [];
-    const [filterOwner, setFilterOwner] = useState(() => readLs("filter_owner", "loading"));
     const [currentUserId, setCurrentUserId] = useState<string>("");
 
-    // Persiste filtros automaticamente
+    // Filtro APLICADO no quadro. O painel "Filtros" edita um rascunho e so troca
+    // isto quando a pessoa clica em Aplicar. Salvo no navegador; na primeira vez
+    // importa as chaves antigas (uma por controle, de quando eram 5 filtros soltos).
+    const [filters, setFilters] = useState<LeadFilterState>(() => {
+        try {
+            const saved = readLs("lead_filters_v2", "");
+            if (saved) return { ...EMPTY_FILTERS, owner: "loading", ...JSON.parse(saved) };
+        } catch { /* cai no formato antigo */ }
+        const oldTag = readLs("filter_tag", "all");
+        return {
+            status: readLs("filter_status", "active") === "lost" ? "lost" : "active",
+            owner: readLs("filter_owner", "loading"),
+            noTouchToday: readLs("filter_noTouchToday", "0") === "1",
+            tags: oldTag !== "all" ? [oldTag] : [],
+            products: [],
+            date: readLs("filter_date", "all") as DatePreset,
+            dateStart: readLs("filter_dateStart", ""),
+            dateEnd: readLs("filter_dateEnd", ""),
+        };
+    });
+    const filterStatus = filters.status;
+
+    // Persiste busca e filtro automaticamente
     useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_searchTerm", searchTerm); }, [searchTerm]);
-    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_status", filterStatus); }, [filterStatus]);
-    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_tag", filterTag); }, [filterTag]);
-    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_noTouchToday", filterNoTouchToday ? "1" : "0"); }, [filterNoTouchToday]);
-    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_date", filterDate); }, [filterDate]);
-    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_dateStart", filterDateStart); }, [filterDateStart]);
-    useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("filter_dateEnd", filterDateEnd); }, [filterDateEnd]);
     useEffect(() => {
-        if (typeof window !== "undefined" && filterOwner !== "loading") {
-            localStorage.setItem("filter_owner", filterOwner);
-        }
-    }, [filterOwner]);
+        if (typeof window === "undefined" || filters.owner === "loading") return;
+        try { localStorage.setItem("lead_filters_v2", JSON.stringify(filters)); } catch { /* modo privado */ }
+    }, [filters]);
 
     // Bulk Actions
     const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -197,7 +213,7 @@ export default function LeadsPage() {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
                 setCurrentUserId(user.id);
-                if (filterOwner === 'loading') setFilterOwner(user.id);
+                setFilters((f) => (f.owner === 'loading' ? { ...f, owner: user.id } : f));
             }
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -495,65 +511,65 @@ export default function LeadsPage() {
 
     // Lógica de Filtro
     const filteredDeals = deals.filter(deal => {
-        // 0. OWNER FILTER (Novo)
-        if (filterOwner !== 'all' && filterOwner !== 'loading') {
-            // Check primary owner OR if user is in deal_members
-            const isMember = deal.deal_members?.some((m: any) => m.user_id === filterOwner);
-            if (deal.owner_id !== filterOwner && !isMember) return false;
+        // 0. Responsável: dono principal OU membro do negócio
+        if (filters.owner !== 'all' && filters.owner !== 'loading') {
+            const isMember = deal.deal_members?.some((m: any) => m.user_id === filters.owner);
+            if (deal.owner_id !== filters.owner && !isMember) return false;
         }
 
-        // 1. Filtro de Status (Ativos vs Perdidos)
-        if (filterStatus === 'active') {
-            // Mostra tudo que NÃO é perdido (inclui 'won' e 'open')
+        // 1. Situação (Ativas inclui ganhos; Perdidas só perdidos)
+        if (filters.status === 'active') {
             if (deal.status === 'lost') return false;
         } else {
-            // Mostra APENAS perdidos
             if (deal.status !== 'lost') return false;
         }
 
         // 1.5 Modo "sem contato hoje": esconde quem JA recebeu cadencia hoje.
-        if (filterNoTouchToday && deal.last_touch_at) {
+        if (filters.noTouchToday && deal.last_touch_at) {
             const t = new Date(deal.last_touch_at);
             const n = new Date();
             const touchedToday = t.getFullYear() === n.getFullYear() && t.getMonth() === n.getMonth() && t.getDate() === n.getDate();
             if (touchedToday) return false;
         }
 
-        // 2. Filtro de Tag (compara como string — select HTML sempre devolve string,
-        //    mas tag.id no banco é number)
-        if (filterTag !== 'all') {
-            const hasTag = deal.deal_tags?.some(
-                (dt: any) => String(dt.tags?.id) === String(filterTag),
-            );
+        // 2. Etiquetas: basta ter UMA das marcadas (id comparado como texto)
+        if (filters.tags.length > 0) {
+            const hasTag = deal.deal_tags?.some((dt: any) => filters.tags.includes(String(dt.tags?.id)));
             if (!hasTag) return false;
         }
 
-        // 3. Filtro de Data
-        if (filterDate !== 'all') {
+        // 2.5 Produtos: basta ter UM dos marcados
+        if (filters.products.length > 0) {
+            const hasProduct = deal.deal_items?.some((it: any) => filters.products.includes(String(it.product_id)));
+            if (!hasProduct) return false;
+        }
+
+        // 3. Período de entrada do lead
+        if (filters.date !== 'all') {
             const dealDate = new Date(deal.created_at);
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-            if (filterDate === 'today') {
+            if (filters.date === 'today') {
                 if (dealDate < today) return false;
-            } else if (filterDate === 'last7') {
+            } else if (filters.date === 'last7') {
                 const sevenDaysAgo = new Date(today);
                 sevenDaysAgo.setDate(today.getDate() - 7);
                 if (dealDate < sevenDaysAgo) return false;
-            } else if (filterDate === 'last30') {
+            } else if (filters.date === 'last30') {
                 const thirtyDaysAgo = new Date(today);
                 thirtyDaysAgo.setDate(today.getDate() - 30);
                 if (dealDate < thirtyDaysAgo) return false;
-            } else if (filterDate === 'thisMonth') {
+            } else if (filters.date === 'thisMonth') {
                 const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                 if (dealDate < firstDayOfMonth) return false;
-            } else if (filterDate === 'custom') {
-                if (filterDateStart) {
-                    const start = new Date(filterDateStart + 'T00:00:00');
+            } else if (filters.date === 'custom') {
+                if (filters.dateStart) {
+                    const start = new Date(filters.dateStart + 'T00:00:00');
                     if (dealDate < start) return false;
                 }
-                if (filterDateEnd) {
-                    const end = new Date(filterDateEnd + 'T23:59:59');
+                if (filters.dateEnd) {
+                    const end = new Date(filters.dateEnd + 'T23:59:59');
                     if (dealDate > end) return false;
                 }
             }
@@ -613,69 +629,34 @@ export default function LeadsPage() {
             {/* TOOLBAR INFERIOR - Filtros e Busca */}
             <div className="bg-white border-b border-slate-200/60 px-6 py-3 flex flex-wrap items-center justify-between shrink-0 z-10 gap-4">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <FilterBar
-                        searchTerm={searchTerm}
-                        setSearchTerm={setSearchTerm}
-                        filterTag={filterTag}
-                        setFilterTag={setFilterTag}
-                        filterDate={filterDate}
-                        setFilterDate={setFilterDate}
-                        customStart={filterDateStart}
-                        setCustomStart={setFilterDateStart}
-                        customEnd={filterDateEnd}
-                        setCustomEnd={setFilterDateEnd}
-                        availableTags={tags}
+                    {/* Busca continua fora do painel: ela filtra enquanto digita */}
+                    <div className="w-72 max-w-full shrink-0 bg-white flex items-center px-3 py-2 rounded-lg border border-slate-200 focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-100 transition-all shadow-sm">
+                        <Search size={16} className="text-slate-400 mr-2 shrink-0" />
+                        <input
+                            type="text"
+                            placeholder="Buscar nome ou telefone..."
+                            aria-label="Pesquisar leads"
+                            className="bg-transparent border-none outline-none text-sm text-slate-700 w-full placeholder-slate-400 font-medium"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                        {searchTerm && (
+                            <button onClick={() => setSearchTerm("")} aria-label="Limpar busca" className="text-slate-400 hover:text-slate-600 text-xs font-bold ml-1">✕</button>
+                        )}
+                    </div>
+
+                    <LeadFilters
+                        value={filters}
+                        onApply={setFilters}
+                        tags={tags.map((t: any) => ({ id: String(t.id), name: t.name, color: t.color }))}
+                        products={productOptions}
+                        teamMembers={teamMembers}
+                        currentUserId={currentUserId}
                     />
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    {/* Owner Filter Component Redesigned */}
-                    <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-slate-200 shadow-sm hover:border-slate-300 transition-colors">
-                        <User size={16} className="text-slate-400" />
-                        <select
-                            value={filterOwner}
-                            onChange={(e) => setFilterOwner(e.target.value)}
-                            className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none cursor-pointer appearance-none pr-4"
-                        >
-                            <option value="all">Todos Responsáveis</option>
-                            <option disabled value="loading">Carregando...</option>
-                            {teamMembers.map((member) => (
-                                <option key={member.id} value={member.id}>
-                                    {member.id === currentUserId ? 'Meus Leads' : member.full_name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Modo "sem contato hoje" (cadência) */}
-                    <button
-                        onClick={() => setFilterNoTouchToday(!filterNoTouchToday)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all text-sm font-bold ${
-                            filterNoTouchToday
-                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                        title={filterNoTouchToday
-                            ? "Mostrando só leads SEM contato hoje — registre a cadência e eles somem da fila. Clique para desligar."
-                            : "Mostrar só leads sem contato hoje (fila de cadência)"}
-                        aria-pressed={filterNoTouchToday}
-                    >
-                        <PhoneMissed size={15} strokeWidth={2.5} />
-                        Sem contato hoje
-                    </button>
-
-                    {/* Status Filter Redesigned */}
-                    <select
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value as 'active' | 'lost')}
-                        className="bg-white border border-slate-200 text-slate-700 font-medium text-sm rounded-lg px-4 py-2 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all cursor-pointer shadow-sm hover:border-slate-300"
-                    >
-                        <option value="active">Oportunidades Ativas</option>
-                        <option value="lost">Oportunidades Perdidas</option>
-                    </select>
-
                     {/* Bulk Selection Toggle */}
-                    <div className="h-8 w-px bg-slate-200 mx-1"></div>
                     <button
                         onClick={() => {
                             setIsSelectionMode(!isSelectionMode);

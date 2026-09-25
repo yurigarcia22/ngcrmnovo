@@ -87,8 +87,9 @@ export default async function DealPage({ params }: { params: { id: string } }) {
             {/* MAIN CONTENT GRID */}
             <div className="flex-1 overflow-hidden grid grid-cols-12">
 
-                {/* LEFT SIDEBAR (INFO) - span 4 (33%) */}
-                <div className="col-span-12 md:col-span-4 lg:col-span-3 h-full overflow-hidden border-r border-gray-300 shadow-lg z-10">
+                {/* LEFT SIDEBAR (INFO): em notebook (ate 1535px) ocupa 1/3; com 1/4
+                    ficava com ~275px e espremia agenda, cadencia e responsaveis */}
+                <div className="col-span-12 md:col-span-5 lg:col-span-4 2xl:col-span-3 h-full overflow-hidden border-r border-gray-300 shadow-lg z-10">
                     <DealInfoSidebar
                         deal={deal}
                         teamMembers={teamMembers}
@@ -102,7 +103,7 @@ export default async function DealPage({ params }: { params: { id: string } }) {
                 </div>
 
                 {/* RIGHT CONTENT (TIMELINE) - span 8 (66%) */}
-                <div className="col-span-12 md:col-span-8 lg:col-span-9 h-full overflow-hidden bg-slate-100">
+                <div className="col-span-12 md:col-span-7 lg:col-span-8 2xl:col-span-9 h-full overflow-hidden bg-slate-100">
                     <DealTimeline
                         dealId={deal.id}
                         initialNotes={notes}
