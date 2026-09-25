@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Draggable } from "@hello-pangea/dnd";
-import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2, PhoneCall } from "lucide-react";
+import { User, Link as LinkIcon, MessageCircle, Calendar, Package, MoreHorizontal, Trophy, XCircle, Trash2, Briefcase, Check, Phone, UserCircle2, PhoneCall, Bell } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
     DropdownMenu,
@@ -16,6 +16,7 @@ import LossReasonDialog from "@/components/deal/LossReasonDialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "@/lib/toast";
 import confetti from "canvas-confetti";
+import { taskKind, TASK_KIND_LABEL } from "@/lib/task-kind";
 
 interface KanbanCardProps {
     deal: any; // Using any for now to match page.tsx
@@ -381,7 +382,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
 
                     {/* Footer em 2 linhas: atividade (cadência + reunião) e meta (criação + donos) */}
                     <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                        {/* Linha 1: cadência + próxima reunião */}
+                        {/* Linha 1: cadência + próximo compromisso (reunião ou follow-up) */}
                         <div className="flex items-center justify-between gap-2">
                             <button
                                 onClick={handleTouchpoint}
@@ -402,7 +403,7 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                                 <span className="text-indigo-400 font-black">+</span>
                             </button>
 
-                            {/* Próxima reunião (se houver) */}
+                            {/* Próximo compromisso (se houver) */}
                             {(() => {
                                 const incompleteTasks = deal.tasks?.filter((t: any) => !t.is_completed && t.due_date) || [];
                                 if (incompleteTasks.length === 0) return null;
@@ -412,14 +413,16 @@ export default function KanbanCard({ deal, index, fields, onClick, isSelectionMo
                                 const nextDate = new Date(nextTask.due_date);
                                 const isToday = new Date().toDateString() === nextDate.toDateString();
                                 const isLate = nextDate < new Date() && !isToday;
+                                const kind = taskKind(nextTask);
+                                const Icon = kind === 'followup' ? Bell : Calendar;
 
                                 return (
                                     <div
                                         className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${isLate ? 'bg-red-50 text-red-600 border-red-100' : isToday ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}
-                                        title={`Próxima reunião/tarefa: ${nextTask.description || 'Sem descrição'}`}
+                                        title={`Próximo compromisso: ${nextTask.description || 'Sem descrição'}`}
                                     >
-                                        <Calendar size={10} strokeWidth={3} />
-                                        <span>Reunião {nextDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span>
+                                        <Icon size={10} strokeWidth={3} />
+                                        <span>{TASK_KIND_LABEL[kind]} {nextDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span>
                                     </div>
                                 );
                             })()}

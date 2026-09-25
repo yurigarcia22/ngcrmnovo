@@ -1,7 +1,10 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle, PhoneCall, CalendarPlus, BellPlus } from "lucide-react";
+import { User, Phone, Mail, Building, Tag, Check, X, Edit2, Plus, ShoppingCart, Trash2, Calendar, Clock, MessageCircle, PhoneCall, CalendarPlus, BellPlus, Bell } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { qk } from "@/lib/query-keys";
+import { taskKind, TASK_KIND_LABEL } from "@/lib/task-kind";
 import { updateDeal, updateContact, addTagToDeal, removeTagFromDeal, logSystemActivity, createContactForDeal, createCompanyForDeal, upsertDealItems, addDealContact, removeDealContact, updateDealContact, rescheduleTask, completeTask, addDealMember, removeDealMember, createTask, registerTouchpoint, unregisterTouchpoint } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { toast } from "@/lib/toast";
@@ -312,6 +315,22 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     });
     const [sideTouchSaving, setSideTouchSaving] = useState(false);
 
+    // O quadro de leads guarda os cards em cache (React Query) e esta pagina
+    // nao falava com ele: contato, reuniao e follow-up marcados aqui so
+    // apareciam no quadro depois de um F5. Agora corrige o card no cache na
+    // hora e marca o quadro para recarregar quando voltar pra ele.
+    const queryClient = useQueryClient();
+    function syncBoard(patch: (d: any) => any) {
+        queryClient.setQueriesData({ queryKey: qk.deals.all }, (old: any) =>
+            old?.deals ? { ...old, deals: old.deals.map((d: any) => d.id === deal.id ? patch(d) : d) } : old
+        );
+        queryClient.invalidateQueries({ queryKey: qk.deals.all });
+    }
+    function syncTasks(patch: (tasks: any[]) => any[]) {
+        syncBoard((d) => ({ ...d, tasks: patch(d.tasks ?? []) }));
+        queryClient.invalidateQueries({ queryKey: qk.tasks.all });
+    }
+
     function openSched(type: 'reuniao' | 'followup') {
         // default: amanha 09:00
         const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
@@ -327,10 +346,12 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
         const res: any = await createTask(deal.id, desc, new Date(schedDate).toISOString());
         if (res.success) {
             await logSystemActivity(deal.id, `Agendou ${schedType === 'reuniao' ? 'reunião' : 'follow-up'} para ${new Date(schedDate).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`);
+            const novaTarefa = { id: res.taskId, description: desc, due_date: new Date(schedDate).toISOString(), is_completed: false };
             // Atualiza o bloco na hora se virou a proxima pendencia
             if (!nextTask || new Date(schedDate).getTime() < new Date(nextTask.due_date).getTime()) {
-                setNextTask({ id: res.taskId, description: desc, due_date: new Date(schedDate).toISOString(), is_completed: false });
+                setNextTask(novaTarefa);
             }
+            syncTasks((tasks) => [...tasks, novaTarefa]);
             toast.success(schedType === 'reuniao' ? "Reunião marcada!" : "Follow-up agendado!");
             setSchedType(null);
             router.refresh();
@@ -350,7 +371,9 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             setSideTouch(prev);
             toast.error("Erro ao registrar contato", res.error);
         } else if (typeof res?.touchpoints === 'number') {
-            setSideTouch({ count: res.touchpoints, at: new Date().toISOString() });
+            const at = res.last_touch_at ?? new Date().toISOString();
+            setSideTouch({ count: res.touchpoints, at });
+            syncBoard((d) => ({ ...d, touchpoints: res.touchpoints, last_touch_at: at }));
             router.refresh();
         }
         setSideTouchSaving(false);
@@ -368,6 +391,7 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
             toast.error("Erro ao remover contato", res.error);
         } else if (typeof res?.touchpoints === 'number') {
             setSideTouch((s) => ({ count: res.touchpoints, at: res.touchpoints === 0 ? null : s.at }));
+            syncBoard((d) => ({ ...d, touchpoints: res.touchpoints, last_touch_at: res.touchpoints === 0 ? null : d.last_touch_at }));
             router.refresh();
         }
         setSideTouchSaving(false);
@@ -477,16 +501,18 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
     async function handleReschedule() {
         if (!nextTask || !newTaskDate) return;
         await rescheduleTask(nextTask.id, newTaskDate);
-        setNextTask({ ...nextTask, due_date: newTaskDate }); // Optimistic
+        const due = new Date(newTaskDate).toISOString();
+        setNextTask({ ...nextTask, due_date: due }); // Optimistic
         setIsRescheduling(false);
-        await logSystemActivity(deal.id, `Reagendou reunião para ${new Date(newTaskDate).toLocaleString('pt-BR')}`);
+        syncTasks((tasks) => tasks.map((t: any) => t.id === nextTask.id ? { ...t, due_date: due } : t));
+        await logSystemActivity(deal.id, `Reagendou ${TASK_KIND_LABEL[taskKind(nextTask)].toLowerCase()} para ${new Date(newTaskDate).toLocaleString('pt-BR')}`);
         router.refresh();
     }
 
     async function handleCompleteTask() {
         if (!nextTask) return;
         const ok = await confirm({
-            title: "Concluir esta reuniao?",
+            title: taskKind(nextTask) === 'reuniao' ? "Concluir esta reunião?" : taskKind(nextTask) === 'followup' ? "Concluir este follow-up?" : "Concluir esta tarefa?",
             tone: "default",
             confirmText: "Concluir",
         });
@@ -496,7 +522,8 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
 
         // Optimistic remove
         setNextTask(null);
-        await logSystemActivity(deal.id, `Concluiu a reunião: ${nextTask.description || "Sem descrição"}`);
+        syncTasks((tasks) => tasks.map((t: any) => t.id === nextTask.id ? { ...t, is_completed: true } : t));
+        await logSystemActivity(deal.id, `Concluiu ${TASK_KIND_LABEL[taskKind(nextTask)].toLowerCase()}: ${nextTask.description || "Sem descrição"}`);
         router.refresh();
     }
 
@@ -513,27 +540,33 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                 {/* INFO GERAL */}
                 <div className="space-y-4">
 
-                    {/* MEETING SECTION */}
-                    <div className="grid grid-cols-[140px_1fr] items-start gap-2 min-h-[30px]">
-                        <span className="text-sm font-semibold text-slate-700 pt-1">Próxima Reunião</span>
-                        <div className="w-full">
-                            {nextTask ? (() => {
-                                const due = new Date(nextTask.due_date);
-                                const now = new Date();
-                                const isOverdue = due.getTime() < now.getTime();
-                                const isToday = !isOverdue && due.toDateString() === now.toDateString();
-                                const containerClass = isOverdue
-                                    ? "bg-rose-50 border-rose-200"
-                                    : isToday
-                                        ? "bg-amber-50 border-amber-200"
-                                        : "bg-sky-50 border-sky-200";
-                                const iconClass = isOverdue ? "text-rose-600" : isToday ? "text-amber-600" : "text-sky-600";
-                                return (
-                                <div className={`${containerClass} border rounded p-2 flex items-center justify-between`}>
-                                    <div className="flex items-center gap-2">
-                                        <Calendar size={14} className={iconClass} />
-                                        <div className="flex flex-col">
-                                            <div className="flex items-center gap-1.5">
+                    {/* AGENDA: proxima reuniao ou follow-up. Empilhado (titulo em cima,
+                        conteudo embaixo) porque em notebook o painel fica estreito: com a
+                        coluna de 140px do lado, o campo de data empurrava os botoes de
+                        confirmar e cancelar pra fora da tela. */}
+                    <div className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-700 block">Agenda</span>
+                        {nextTask ? (() => {
+                            const kind = taskKind(nextTask);
+                            const due = new Date(nextTask.due_date);
+                            const now = new Date();
+                            const isOverdue = due.getTime() < now.getTime();
+                            const isToday = !isOverdue && due.toDateString() === now.toDateString();
+                            const containerClass = isOverdue
+                                ? "bg-rose-50 border-rose-200"
+                                : isToday
+                                    ? "bg-amber-50 border-amber-200"
+                                    : "bg-sky-50 border-sky-200";
+                            const iconClass = isOverdue ? "text-rose-600" : isToday ? "text-amber-600" : "text-sky-600";
+                            const Icon = kind === 'followup' ? Bell : Calendar;
+                            return (
+                            <div className={`${containerClass} border rounded p-2 space-y-2`}>
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <Icon size={14} className={`${iconClass} shrink-0`} />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{TASK_KIND_LABEL[kind]}</span>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
                                                 <span className="text-xs font-bold text-slate-800">
                                                     {due.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
                                                 </span>
@@ -550,21 +583,16 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         </div>
                                     </div>
 
-                                    {isRescheduling ? (
-                                        <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2">
-                                            <input
-                                                type="datetime-local"
-                                                value={newTaskDate}
-                                                onChange={e => setNewTaskDate(e.target.value)}
-                                                aria-label="Nova data da reunião"
-                                                className="text-[10px] p-1 border border-slate-300 rounded w-32"
-                                            />
-                                            <button onClick={handleReschedule} aria-label="Confirmar reagendamento" className="text-emerald-600 bg-white border border-slate-200 p-1 rounded hover:bg-emerald-50"><Check size={12} /></button>
-                                            <button onClick={() => setIsRescheduling(false)} aria-label="Cancelar reagendamento" className="text-rose-500 bg-white border border-slate-200 p-1 rounded hover:bg-rose-50"><X size={12} /></button>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-end gap-1">
-                                            <button onClick={() => setIsRescheduling(true)} className="text-[10px] text-sky-700 font-bold hover:underline bg-white px-2 py-1 rounded border border-sky-200 hover:bg-sky-50 transition-colors w-full text-center">
+                                    {!isRescheduling && (
+                                        <div className="flex flex-col items-end gap-1 shrink-0">
+                                            <button
+                                                onClick={() => {
+                                                    const d = new Date(nextTask.due_date);
+                                                    setNewTaskDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+                                                    setIsRescheduling(true);
+                                                }}
+                                                className="text-[10px] text-sky-700 font-bold hover:underline bg-white px-2 py-1 rounded border border-sky-200 hover:bg-sky-50 transition-colors w-full text-center"
+                                            >
                                                 Reagendar
                                             </button>
                                             <button onClick={handleCompleteTask} className="text-[10px] text-emerald-700 font-bold hover:underline bg-white px-2 py-1 rounded border border-emerald-200 hover:bg-emerald-50 transition-colors w-full text-center">
@@ -573,47 +601,66 @@ export default function DealInfoSidebar({ deal, teamMembers, pipelines, availabl
                                         </div>
                                     )}
                                 </div>
-                                );
-                            })() : (
-                                <div className="text-xs text-slate-500 italic py-1">Nenhuma reunião agendada</div>
-                            )}
 
-                            {/* Agendamento rapido: marcar reuniao / follow-up */}
-                            {schedType ? (
-                                <div className="mt-2 flex items-center gap-1 animate-in fade-in slide-in-from-top-1">
-                                    <span className="text-[10px] font-bold text-slate-600 shrink-0">
-                                        {schedType === 'reuniao' ? '📅 Reunião' : '🔔 Follow-up'}
-                                    </span>
-                                    <input
-                                        type="datetime-local"
-                                        value={schedDate}
-                                        onChange={(e) => setSchedDate(e.target.value)}
-                                        aria-label="Data do agendamento"
-                                        autoFocus
-                                        className="flex-1 text-[11px] p-1 border border-slate-300 rounded min-w-0"
-                                    />
-                                    <button onClick={handleSchedule} disabled={schedSaving} aria-label="Confirmar agendamento" className="text-emerald-600 bg-white border border-slate-200 p-1 rounded hover:bg-emerald-50 disabled:opacity-50"><Check size={12} /></button>
-                                    <button onClick={() => setSchedType(null)} aria-label="Cancelar agendamento" className="text-rose-500 bg-white border border-slate-200 p-1 rounded hover:bg-rose-50"><X size={12} /></button>
+                                {isRescheduling && (
+                                    <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1">
+                                        <input
+                                            type="datetime-local"
+                                            value={newTaskDate}
+                                            onChange={e => setNewTaskDate(e.target.value)}
+                                            aria-label="Nova data"
+                                            className="w-full min-w-0 text-xs p-1.5 border border-slate-300 rounded bg-white"
+                                        />
+                                        <div className="flex gap-1.5">
+                                            <button onClick={handleReschedule} aria-label="Confirmar reagendamento" className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-bold text-emerald-700 bg-white border border-emerald-200 px-2 py-1 rounded hover:bg-emerald-50"><Check size={12} /> Salvar</button>
+                                            <button onClick={() => setIsRescheduling(false)} aria-label="Cancelar reagendamento" className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded hover:bg-slate-50"><X size={12} /> Cancelar</button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            );
+                        })() : (
+                            <div className="text-xs text-slate-500 italic py-1">Nada agendado</div>
+                        )}
+
+                        {/* Agendamento rapido: marcar reuniao / follow-up */}
+                        {schedType ? (
+                            <div className="p-2 rounded border border-slate-200 bg-slate-50 space-y-1.5 animate-in fade-in slide-in-from-top-1">
+                                <span className="text-[11px] font-bold text-slate-600 block">
+                                    {schedType === 'reuniao' ? '📅 Nova reunião' : '🔔 Novo follow-up'}
+                                </span>
+                                <input
+                                    type="datetime-local"
+                                    value={schedDate}
+                                    onChange={(e) => setSchedDate(e.target.value)}
+                                    aria-label="Data do agendamento"
+                                    autoFocus
+                                    className="w-full min-w-0 text-xs p-1.5 border border-slate-300 rounded bg-white"
+                                />
+                                <div className="flex gap-1.5">
+                                    <button onClick={handleSchedule} disabled={schedSaving} aria-label="Confirmar agendamento" className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-bold text-emerald-700 bg-white border border-emerald-200 px-2 py-1 rounded hover:bg-emerald-50 disabled:opacity-50"><Check size={12} /> {schedSaving ? 'Salvando...' : 'Salvar'}</button>
+                                    <button onClick={() => setSchedType(null)} aria-label="Cancelar agendamento" className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-bold text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded hover:bg-slate-50"><X size={12} /> Cancelar</button>
                                 </div>
-                            ) : (
-                                <div className="mt-2 flex items-center gap-2">
-                                    {!nextTask && (
-                                        <button
-                                            onClick={() => openSched('reuniao')}
-                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded hover:bg-sky-100 transition-colors"
-                                        >
-                                            <CalendarPlus size={12} /> Marcar reunião
-                                        </button>
-                                    )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {/* Follow-up agendado nao impede marcar a reuniao */}
+                                {(!nextTask || taskKind(nextTask) !== 'reuniao') && (
                                     <button
-                                        onClick={() => openSched('followup')}
-                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-100 transition-colors"
+                                        onClick={() => openSched('reuniao')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded hover:bg-sky-100 transition-colors"
                                     >
-                                        <BellPlus size={12} /> Follow-up
+                                        <CalendarPlus size={12} /> Marcar reunião
                                     </button>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                                <button
+                                    onClick={() => openSched('followup')}
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-100 transition-colors"
+                                >
+                                    <BellPlus size={12} /> Follow-up
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* CADÊNCIA (pontos de contato) */}
