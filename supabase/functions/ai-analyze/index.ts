@@ -572,7 +572,182 @@ async function rotaLote(req: Request, url: URL): Promise<Response> {
     return Response.json({ gravados, erros, resultados: respostas });
   }
 
-  return Response.json({ erro: 'rota desconhecida', rotas: ['instrucoes', 'pendentes', 'resultado'] }, { status: 404 });
+  // Relatorio de atendimento (so leitura): numeros por cliente numa janela local.
+  if (rota === 'relatorio') {
+    // deno-lint-ignore no-explicit-any
+    let body: any = {};
+    try { body = await req.json(); } catch { /* usa erro abaixo */ }
+    try {
+      return Response.json(await relatorioAtendimento(String(body?.inicio ?? ''), String(body?.fim ?? '')));
+    } catch (e) {
+      return Response.json({ erro: String((e as Error).message).slice(0, 300) }, { status: 400 });
+    }
+  }
+
+  return Response.json({ erro: 'rota desconhecida', rotas: ['instrucoes', 'pendentes', 'resultado', 'relatorio'] }, { status: 404 });
+}
+
+// =====================================================================
+// RELATORIO DE ATENDIMENTO (Hermes, rota /lote/relatorio). SO LEITURA.
+// Janela em horario LOCAL de cada clinica (inicio/fim "AAAA-MM-DDTHH:MM").
+// Tempo de resposta conta so minutos de expediente (07h-18h, seg a sab),
+// para mensagem da madrugada respondida as 7h nao virar "8h de demora".
+// Conversa marcada pela IA como NON_COMMERCIAL fica fora do tempo de resposta.
+// =====================================================================
+const EXPEDIENTE = { de: 7, ate: 18 };
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+function minutosUteis(aMs: number, bMs: number, tz: string): number {
+  if (bMs <= aMs) return 0;
+  let total = 0;
+  let dia = rotuloLocal(new Date(aMs).toISOString(), tz).slice(0, 10);
+  for (let i = 0; i < 60; i++) {
+    const ini = localParaInstante(`${dia}T${pad2(EXPEDIENTE.de)}:00`, tz).getTime();
+    const fim = localParaInstante(`${dia}T${pad2(EXPEDIENTE.ate)}:00`, tz).getTime();
+    if (ini > bMs) break;
+    const meioDia = new Date(`${dia}T12:00:00Z`);
+    if (meioDia.getUTCDay() !== 0) total += Math.max(0, Math.min(fim, bMs) - Math.max(ini, aMs));
+    meioDia.setUTCDate(meioDia.getUTCDate() + 1);
+    dia = meioDia.toISOString().slice(0, 10);
+  }
+  return total / 60000;
+}
+
+function mediana(v: number[]): number | null {
+  if (v.length === 0) return null;
+  const s = [...v].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
+}
+
+async function relatorioAtendimento(inicioL: string, fimL: string) {
+  const formato = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  if (!formato.test(inicioL) || !formato.test(fimL)) throw new Error('inicio e fim no formato AAAA-MM-DDTHH:MM (horario local)');
+  const { data: cfgs, error: eCfg } = await supabase.from('ai_settings')
+    .select('tenant_id, timezone, hot_intent_threshold').eq('enabled', true);
+  if (eCfg) throw new Error(eCfg.message);
+  const agora = Date.now();
+  const clientes: Record<string, unknown>[] = [];
+
+  for (const cfg of cfgs ?? []) {
+    const tz = fusoDe(cfg);
+    const quente = Number(cfg.hot_intent_threshold ?? 80);
+    const ini = localParaInstante(inicioL, tz).getTime();
+    const fim = Math.min(localParaInstante(fimL, tz).getTime(), agora);
+    const { data: t } = await supabase.from('tenants').select('name').eq('id', cfg.tenant_id).maybeSingle();
+
+    // Mensagens da janela + 12h antes (para saber quem ja chegou esperando)
+    const msgs: { deal_id: string; direction: string; created_at: string }[] = [];
+    for (let de = 0; de < 30000; de += 1000) {
+      const { data, error } = await supabase.from('messages').select('deal_id, direction, created_at')
+        .eq('tenant_id', cfg.tenant_id).not('deal_id', 'is', null)
+        .gte('created_at', new Date(ini - 12 * 3600_000).toISOString())
+        .lte('created_at', new Date(fim).toISOString())
+        .order('created_at', { ascending: true }).range(de, de + 999);
+      if (error) throw new Error(error.message);
+      msgs.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    const porDeal = new Map<string, { inbound: boolean; t: number }[]>();
+    let recebidas = 0, enviadas = 0;
+    for (const m of msgs) {
+      const tm = new Date(m.created_at).getTime();
+      if (!porDeal.has(m.deal_id)) porDeal.set(m.deal_id, []);
+      porDeal.get(m.deal_id)!.push({ inbound: m.direction === 'inbound', t: tm });
+      if (tm >= ini) { if (m.direction === 'inbound') recebidas++; else enviadas++; }
+    }
+    const ativos = [...porDeal.entries()].filter(([, l]) => l.some((x) => x.t >= ini)).map(([id]) => id);
+
+    // Estado da IA dos cards ativos
+    // deno-lint-ignore no-explicit-any
+    const estados = new Map<string, any>();
+    for (let i = 0; i < ativos.length; i += 150) {
+      const { data, error } = await supabase.from('deal_ai_state')
+        .select('deal_id, contact_classification, funnel_stage, intent_score, service_interest, waiting_on, price, lost_suggestion, summary, first_contact_at')
+        .in('deal_id', ativos.slice(i, i + 150));
+      if (error) throw new Error(error.message);
+      for (const e of data ?? []) estados.set(e.deal_id, e);
+    }
+
+    const tempos: number[] = [], primeiras: number[] = [];
+    const pendentes: { min: number; novo: boolean; quente: boolean }[] = [];
+    const classes = { NEW_LEAD: 0, EXISTING_PATIENT: 0, NON_COMMERCIAL: 0, sem_analise: 0 };
+    const servicos = new Map<string, number>();
+    let precoSemResposta = 0;
+    // deno-lint-ignore no-explicit-any
+    const amostras: any[] = [];
+
+    for (const id of ativos) {
+      const e = estados.get(id);
+      const cls = e?.contact_classification as keyof typeof classes | undefined;
+      if (cls && cls in classes) classes[cls]++; else classes.sem_analise++;
+      if (cls === 'NON_COMMERCIAL') continue;
+      for (const s of (e?.service_interest ?? [])) servicos.set(s, (servicos.get(s) ?? 0) + 1);
+      const novoNaJanela = cls === 'NEW_LEAD' && e?.first_contact_at && new Date(e.first_contact_at).getTime() >= ini;
+
+      let esperando: number | null = null, primeiraFeita = false;
+      for (const m of porDeal.get(id)!) {
+        if (m.inbound) { if (esperando === null) esperando = m.t; continue; }
+        if (esperando !== null && m.t >= ini) {
+          const min = minutosUteis(esperando, m.t, tz);
+          tempos.push(min);
+          if (novoNaJanela && !primeiraFeita) primeiras.push(min);
+        }
+        if (esperando !== null) primeiraFeita = true;
+        esperando = null;
+      }
+      if (esperando !== null) {
+        const q = (e?.intent_score ?? 0) >= quente;
+        pendentes.push({ min: minutosUteis(esperando, fim, tz), novo: cls === 'NEW_LEAD', quente: q });
+        if (e?.price?.requested && !e?.price?.provided) precoSemResposta++;
+        if ((q || cls === 'NEW_LEAD') && e?.summary && amostras.length < 6) {
+          amostras.push({ tipo: 'esperando_resposta', espera_min: Math.round(minutosUteis(esperando, fim, tz)), intencao: e.intent_score, resumo: String(e.summary).slice(0, 180) });
+        }
+      }
+    }
+
+    // Agendamentos: horario da mensagem que confirmou (nao o da analise)
+    const { data: ag } = await supabase.from('deal_ai_state').select('deal_id, contact_classification, service_interest')
+      .eq('tenant_id', cfg.tenant_id)
+      .gte('appointment_confirmed_at', new Date(ini).toISOString()).lte('appointment_confirmed_at', new Date(fim).toISOString());
+    const { data: ev } = await supabase.from('crm_events').select('event_type, new_value')
+      .eq('tenant_id', cfg.tenant_id).eq('source', 'ai').in('event_type', ['ai_suggested_lost', 'origin_declared'])
+      .gte('created_at', new Date(ini).toISOString()).lte('created_at', new Date(fim + 3600_000).toISOString());
+    const perdas = (ev ?? []).filter((x) => x.event_type === 'ai_suggested_lost').map((x) => String(x.new_value ?? '').slice(0, 160));
+    const origens: Record<string, number> = {};
+    for (const x of (ev ?? []).filter((x) => x.event_type === 'origin_declared')) origens[String(x.new_value)] = (origens[String(x.new_value)] ?? 0) + 1;
+
+    const r = (v: number) => Math.round(v);
+    clientes.push({
+      cliente: t?.name ?? cfg.tenant_id, fuso: tz,
+      janela_local: { inicio: inicioL, fim: rotuloLocal(new Date(fim).toISOString(), tz) },
+      conversas_ativas: ativos.length, por_tipo: classes,
+      mensagens: { recebidas, enviadas },
+      tempo_resposta_min: {
+        respostas: tempos.length, mediana: mediana(tempos),
+        media: tempos.length ? r(tempos.reduce((a, b) => a + b, 0) / tempos.length) : null,
+        pct_ate_15min: tempos.length ? r(100 * tempos.filter((x) => x <= 15).length / tempos.length) : null,
+        acima_1h: tempos.filter((x) => x > 60).length,
+      },
+      primeira_resposta_lead_novo_min: { leads: primeiras.length, mediana: mediana(primeiras) },
+      sem_resposta_no_fim_da_janela: {
+        total: pendentes.length,
+        acima_30min: pendentes.filter((p) => p.min > 30).length,
+        acima_1h: pendentes.filter((p) => p.min > 60).length,
+        leads_novos: pendentes.filter((p) => p.novo).length,
+        alta_intencao: pendentes.filter((p) => p.quente).length,
+        pediram_preco_sem_resposta: precoSemResposta,
+        maior_espera_min: pendentes.length ? r(Math.max(...pendentes.map((p) => p.min))) : 0,
+      },
+      agendamentos_confirmados: (ag ?? []).length,
+      agendamentos_de_lead_novo: (ag ?? []).filter((x) => x.contact_classification === 'NEW_LEAD').length,
+      perdas_sugeridas: { total: perdas.length, motivos: perdas.slice(0, 8) },
+      servicos_mais_citados: [...servicos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([s, n]) => ({ servico: s, conversas: n })),
+      origens_declaradas: origens,
+      amostras_para_contexto: amostras,
+    });
+  }
+  return { gerado_em: new Date(agora).toISOString(), expediente: `${EXPEDIENTE.de}h-${EXPEDIENTE.ate}h seg-sab`, clientes };
 }
 
 Deno.serve(async (req) => {
