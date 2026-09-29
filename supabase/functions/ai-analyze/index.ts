@@ -6,7 +6,12 @@
 // REGRA INEGOCIAVEL: este motor NUNCA envia mensagem. Nao ha nenhuma
 // chamada de envio aqui — apenas leitura de mensagens e escrita de analise.
 //
-// Chamado pelo pg_cron a cada 2 min com header x-cron-key.
+// Dois motores gravam pelo MESMO codigo (aplicarAnalise):
+//   - GPT: chamado pelo pg_cron a cada 2 min com header x-cron-key.
+//   - Hermes (agente local com Opus): rotas /lote/* com header x-lote-key.
+//     Ele pede conversas pendentes, analisa fora daqui e devolve o JSON no
+//     schema abaixo. Cliente com ai_settings.motor = 'hermes' sai da fila do
+//     GPT, que so volta a analisar se o Hermes sumir 2h no horario comercial.
 // Plano completo: docs/IA-INTELIGENCIA.md
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -88,17 +93,44 @@ SERVIÇOS=${JSON.stringify(services ?? [])}
 Responda exclusivamente o JSON do schema.`;
 }
 
-async function analyzeDeal(dealId: string, tenantId: string, settings: Record<string, unknown>, apiKey: string, pickLastMsgAt: string) {
-  // 1. Conversa (ate 80 msgs mais recentes com conteudo; rotulada, sem PII)
+// Texto efetivo: transcricao do audio > conteudo > placeholder de midia.
+// Clinica conversa MUITO por audio — sem transcricao o motor ficava cego.
+const PLACEHOLDERS = ['[Imagem]', '[Vídeo]', '[Áudio]', '[Documento]', '[Figurinha]', '[Localização]'];
+
+// Horario LOCAL da clinica. O banco guarda em UTC; rotular a conversa em UTC
+// fazia o modelo achar que "as 16h" era antes de mensagens mandadas as 13h e
+// errar "hoje"/"amanha". Fuso vem de ai_settings.timezone (Cuiaba e -4).
+function rotuloLocal(iso: string, tz: string): string {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+// Caminho inverso: rotulo AAAA-MM-DDTHH:MM no fuso da clinica -> instante real.
+function localParaInstante(rotulo: string, tz: string): Date {
+  const comoUtc = new Date(`${rotulo.slice(0, 16)}:00Z`);
+  const lido = rotuloLocal(comoUtc.toISOString(), tz);
+  const deslocamento = new Date(`${lido}:00Z`).getTime() - comoUtc.getTime();
+  return new Date(comoUtc.getTime() - deslocamento);
+}
+
+const fusoDe = (settings: Record<string, unknown> | null | undefined) =>
+  String(settings?.timezone || 'America/Sao_Paulo');
+
+type Msg = { id: string; direction: string; content: string | null; transcription: string | null; type: string | null; created_at: string; text: string };
+type Conversa = { ordered: Msg[]; prevState: Record<string, unknown> | null; userContent: string };
+
+// Passos 1 e 2: a conversa como o motor enxerga (ate 80 msgs mais recentes com
+// conteudo, rotuladas, sem PII) + estado anterior para analise incremental.
+async function carregarConversa(dealId: string, tz = 'America/Sao_Paulo'): Promise<Conversa | null> {
   const { data: msgs } = await supabase
     .from('messages')
     .select('id, direction, content, transcription, type, created_at')
     .eq('deal_id', dealId)
     .order('created_at', { ascending: false })
     .limit(80);
-  // Texto efetivo: transcricao do audio > conteudo > placeholder de midia.
-  // Clinica conversa MUITO por audio — sem transcricao o motor ficava cego.
-  const PLACEHOLDERS = ['[Imagem]', '[Vídeo]', '[Áudio]', '[Documento]', '[Figurinha]', '[Localização]'];
   const withText = (msgs ?? []).map((m) => ({
     ...m,
     text: (m.transcription && !String(m.transcription).startsWith('[áudio sem'))
@@ -106,15 +138,14 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
       : (m.content && !PLACEHOLDERS.includes(m.content))
         ? m.content
         : (m.type && m.type !== 'text' ? `[${m.type}]` : ''),
-  })).filter((m) => m.text !== '');
+  })).filter((m) => m.text !== '') as Msg[];
   const ordered = withText.reverse();
-  if (ordered.length === 0) return { skipped: 'sem mensagens de texto' };
+  if (ordered.length === 0) return null;
 
   const convo = ordered
-    .map((m) => `[${m.direction === 'inbound' ? 'CLIENTE' : 'CLINICA'} ${String(m.created_at).slice(0, 16)}] ${String(m.text).slice(0, 400)}`)
+    .map((m) => `[${m.direction === 'inbound' ? 'CLIENTE' : 'CLINICA'} ${rotuloLocal(m.created_at, tz)}] ${String(m.text).slice(0, 400)}`)
     .join('\n');
 
-  // 2. Estado anterior (analise incremental)
   const { data: prevState } = await supabase
     .from('deal_ai_state').select('*').eq('deal_id', dealId).maybeSingle();
 
@@ -123,38 +154,30 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
       funnel_stage: prevState.funnel_stage, intent_score: prevState.intent_score,
       service_interest: prevState.service_interest, appointment: prevState.appointment,
       price: prevState.price, summary: prevState.summary,
-    })}\n\n` : '') + `CONVERSA:\n${convo}`;
+    })}\n\n` : '') + `CONVERSA (horários no fuso local da clínica, ${tz}):\n${convo}`;
 
-  // 3. OpenAI com Structured Outputs
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: settings.model || 'gpt-5-mini',
-      messages: [
-        { role: 'system', content: systemPrompt(String(settings.vertical), settings.services) },
-        { role: 'user', content: userContent },
-      ],
-      response_format: { type: 'json_schema', json_schema: { name: 'conversation_analysis', strict: true, schema: ANALYSIS_SCHEMA } },
-      reasoning_effort: 'low',
-    }),
-    signal: AbortSignal.timeout(90000),
-  });
-  if (!resp.ok) {
-    const errText = (await resp.text()).slice(0, 300);
-    throw new Error(`openai ${resp.status}: ${errText}`);
-  }
-  const result = await resp.json();
-  const out = JSON.parse(result.choices[0].message.content);
-  const usage = result.usage ?? {};
+  return { ordered, prevState, userContent };
+}
+
+// Passos 4 em diante: grava o resultado com as regras do BACKEND (primeiro
+// contato, data do agendamento, eventos, piloto e alertas). Igual para os dois
+// motores — o modelo so muda o que vai em ai_analysis.model.
+async function aplicarAnalise(p: {
+  dealId: string; tenantId: string; settings: Record<string, unknown>;
+  // deno-lint-ignore no-explicit-any
+  out: any; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  modelo: string; lastMsgAt: string; conversa: Conversa;
+}) {
+  const { dealId, tenantId, settings, out, usage, conversa } = p;
+  const { ordered, prevState } = conversa;
   // Marca d'agua: o MAX real do pick (inclui midia sem texto). Usar so a ultima
   // msg com texto deixava o deal eternamente elegivel quando a ultima era midia.
-  const lastMsgAt = pickLastMsgAt;
+  const lastMsgAt = p.lastMsgAt;
 
   // 4. Historico imutavel
   await supabase.from('ai_analysis').insert({
     tenant_id: tenantId, deal_id: dealId,
-    prompt_version: PROMPT_VERSION, model: String(settings.model || 'gpt-5-mini'),
+    prompt_version: PROMPT_VERSION, model: p.modelo,
     messages_from: ordered[0].created_at, messages_to: lastMsgAt,
     structured_output: out, summary: out.summary, confidence: out.confidence,
     input_tokens: usage.prompt_tokens ?? null, output_tokens: usage.completion_tokens ?? null,
@@ -164,7 +187,7 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
   const waitingChanged = prevState?.waiting_on !== out.waiting_for;
   // Primeiro contato REAL = mensagem mais antiga do deal (nao o created_at,
   // que mente para conversas vindas do sync de historico)
-  let firstContactAt: string | null = prevState?.first_contact_at ?? null;
+  let firstContactAt: string | null = (prevState?.first_contact_at as string | null) ?? null;
   if (!firstContactAt) {
     const { data: firstMsg } = await supabase
       .from('messages').select('created_at').eq('deal_id', dealId)
@@ -190,14 +213,15 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
   let confirmedMsgAt: string | null = null;
   const rawConfirmed = out.appointment?.confirmed ? out.appointment?.confirmed_in_message_at : null;
   if (typeof rawConfirmed === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(rawConfirmed)) {
-    const parsed = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(rawConfirmed) ? rawConfirmed : `${rawConfirmed.slice(0, 16)}:00Z`);
+    const parsed = /[zZ]|[+-]\d{2}:?\d{2}$/.test(rawConfirmed)
+      ? new Date(rawConfirmed) : localParaInstante(rawConfirmed, fusoDe(settings));
     const windowStart = new Date(ordered[0].created_at).getTime() - 60_000;
     const windowEnd = new Date(lastMsgAt).getTime() + 60_000;
     if (!isNaN(parsed.getTime()) && parsed.getTime() >= windowStart && parsed.getTime() <= windowEnd) {
       confirmedMsgAt = parsed.toISOString();
     }
   }
-  let appointmentConfirmedAt: string | null = prevState?.appointment_confirmed_at ?? null;
+  let appointmentConfirmedAt: string | null = (prevState?.appointment_confirmed_at as string | null) ?? null;
   if (out.appointment?.confirmed) {
     if (!prevConfirmed) appointmentConfirmedAt = confirmedMsgAt ?? lastMsgAt;
     else if (confirmedMsgAt && (isBulkReanalysis || !appointmentConfirmedAt)) appointmentConfirmedAt = confirmedMsgAt;
@@ -327,8 +351,8 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
             .eq('meta_json->>rule', a.rule)
             .gte('created_at', since).limit(1).maybeSingle();
           if (dup) continue;
-          const rows = (admins ?? []).map((p) => ({
-            user_id: p.id, tenant_id: tenantId, related_lead_id: dealId,
+          const rows = (admins ?? []).map((pr) => ({
+            user_id: pr.id, tenant_id: tenantId, related_lead_id: dealId,
             kind: 'ai_alert', title: a.title, message: a.message,
             channel: 'in_app',
             scheduled_for: new Date().toISOString(), sent_at: new Date().toISOString(),
@@ -343,7 +367,218 @@ async function analyzeDeal(dealId: string, tenantId: string, settings: Record<st
   return { ok: true, stage: out.funnel_stage, intent: out.commercial_intent_score, moved, tokens: usage.total_tokens };
 }
 
+async function analyzeDeal(dealId: string, tenantId: string, settings: Record<string, unknown>, apiKey: string, pickLastMsgAt: string) {
+  // 1-2. Conversa + estado anterior
+  const conversa = await carregarConversa(dealId, fusoDe(settings));
+  if (!conversa) return { skipped: 'sem mensagens de texto' };
+
+  // 3. OpenAI com Structured Outputs
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: settings.model || 'gpt-5-mini',
+      messages: [
+        { role: 'system', content: systemPrompt(String(settings.vertical), settings.services) },
+        { role: 'user', content: conversa.userContent },
+      ],
+      response_format: { type: 'json_schema', json_schema: { name: 'conversation_analysis', strict: true, schema: ANALYSIS_SCHEMA } },
+      reasoning_effort: 'low',
+    }),
+    signal: AbortSignal.timeout(90000),
+  });
+  if (!resp.ok) {
+    const errText = (await resp.text()).slice(0, 300);
+    throw new Error(`openai ${resp.status}: ${errText}`);
+  }
+  const result = await resp.json();
+  const out = JSON.parse(result.choices[0].message.content);
+  const usage = result.usage ?? {};
+
+  return await aplicarAnalise({
+    dealId, tenantId, settings, out, usage,
+    modelo: String(settings.model || 'gpt-5-mini'),
+    lastMsgAt: pickLastMsgAt, conversa,
+  });
+}
+
+// =====================================================================
+// API DE LOTE (Hermes). O Hermes nunca toca no banco: so pede conversas e
+// devolve analises. A chave x-lote-key so abre estas rotas, e so da para
+// devolver resultado de card que o proprio Hermes reservou.
+// =====================================================================
+
+// Valida contra o ANALYSIS_SCHEMA e devolve so os campos conhecidos.
+// deno-lint-ignore no-explicit-any
+function conferir(valor: any, schema: any, caminho: string): { ok: true; valor: unknown } | { ok: false; erro: string } {
+  const tipos: string[] = Array.isArray(schema.type) ? schema.type : [schema.type];
+  const tipoDe = (v: unknown) => v === null ? 'null' : Array.isArray(v) ? 'array'
+    : (typeof v === 'number' && Number.isInteger(v)) ? 'integer' : typeof v;
+  const t = tipoDe(valor);
+  const aceito = tipos.includes(t) || (t === 'integer' && tipos.includes('number'));
+  if (!aceito) return { ok: false, erro: `${caminho}: esperado ${tipos.join('|')}, veio ${t}` };
+  if (schema.enum && !schema.enum.includes(valor)) return { ok: false, erro: `${caminho}: valor fora da lista (${String(valor)})` };
+  if (t === 'string') return { ok: true, valor: String(valor).slice(0, 2000) };
+  if (t === 'array') {
+    const itens: unknown[] = [];
+    for (let i = 0; i < Math.min(valor.length, 30); i++) {
+      const r = conferir(valor[i], schema.items, `${caminho}[${i}]`);
+      if (!r.ok) return r;
+      itens.push(r.valor);
+    }
+    return { ok: true, valor: itens };
+  }
+  if (t === 'object') {
+    const limpo: Record<string, unknown> = {};
+    for (const campo of schema.required ?? []) {
+      if (!(campo in valor)) return { ok: false, erro: `${caminho}.${campo}: campo obrigatório ausente` };
+    }
+    for (const [campo, sub] of Object.entries(schema.properties ?? {})) {
+      if (!(campo in valor)) continue;
+      const r = conferir(valor[campo], sub, `${caminho}.${campo}`);
+      if (!r.ok) return r;
+      limpo[campo] = r.valor;
+    }
+    return { ok: true, valor: limpo };
+  }
+  return { ok: true, valor };
+}
+
+async function rotaLote(req: Request, url: URL): Promise<Response> {
+  const chave = Deno.env.get('AI_LOTE_KEY');
+  if (!chave || req.headers.get('x-lote-key') !== chave) {
+    return new Response('unauthorized', { status: 401 });
+  }
+  const rota = url.pathname.split('/lote/')[1] ?? '';
+
+  const settingsCache = new Map<string, Record<string, unknown> | null>();
+  async function getSettings(tenantId: string) {
+    if (!settingsCache.has(tenantId)) {
+      const { data } = await supabase.from('ai_settings').select('*').eq('tenant_id', tenantId).maybeSingle();
+      settingsCache.set(tenantId, data);
+    }
+    return settingsCache.get(tenantId);
+  }
+
+  // Instrucoes e schema: o Hermes pega daqui, nunca guarda copia propria.
+  if (rota === 'instrucoes') {
+    return Response.json({
+      prompt_version: PROMPT_VERSION,
+      schema: ANALYSIS_SCHEMA,
+      como_responder: 'Para cada conversa, devolva um objeto { deal_id, analise } onde analise segue exatamente o schema. ' +
+        'Envie em POST /lote/resultado como { modelo, uso: { entrada, saida }, resultados: [...] }.',
+    });
+  }
+
+  // Conversas pendentes, agrupadas por cliente (cada um com suas instrucoes).
+  if (rota === 'pendentes') {
+    let limite = 10;
+    try {
+      const body = await req.json();
+      if (Number.isInteger(body?.limite)) limite = Math.min(Math.max(body.limite, 1), 30);
+    } catch { /* corpo vazio = padrao */ }
+
+    const { data: picks, error } = await supabase.rpc('ai_pick_deals_lote', { p_limit: limite });
+    if (error) return Response.json({ erro: error.message }, { status: 500 });
+
+    const porCliente = new Map<string, { tenant_id: string; nome: string | null; instrucoes: string; conversas: unknown[] }>();
+    let semTexto = 0;
+    for (const p of (picks ?? []) as { deal_id: string; tenant_id: string; last_msg_at: string }[]) {
+      const settingsCli = await getSettings(p.tenant_id);
+      const conversa = await carregarConversa(p.deal_id, fusoDe(settingsCli));
+      if (!conversa) {
+        // So midia sem texto: marca como vista e solta a reserva (senao volta pra fila sempre)
+        await supabase.from('deal_ai_state').upsert({
+          deal_id: p.deal_id, tenant_id: p.tenant_id,
+          last_analyzed_message_at: p.last_msg_at, updated_at: new Date().toISOString(),
+        });
+        await supabase.from('ai_lote_reserva').delete().eq('deal_id', p.deal_id);
+        semTexto++;
+        continue;
+      }
+      if (!porCliente.has(p.tenant_id)) {
+        const settings = await getSettings(p.tenant_id);
+        const { data: t } = await supabase.from('tenants').select('name').eq('id', p.tenant_id).maybeSingle();
+        porCliente.set(p.tenant_id, {
+          tenant_id: p.tenant_id, nome: t?.name ?? null,
+          instrucoes: systemPrompt(String(settings?.vertical), settings?.services),
+          conversas: [],
+        });
+      }
+      porCliente.get(p.tenant_id)!.conversas.push({
+        deal_id: p.deal_id, ultima_mensagem_em: p.last_msg_at, entrada: conversa.userContent,
+      });
+    }
+    const total = [...porCliente.values()].reduce((n, c) => n + c.conversas.length, 0);
+    const { data: rodada } = await supabase.from('ai_lote_rodadas')
+      .insert({ tipo: 'pendentes', qtd: total, detalhe: { sem_texto: semTexto } }).select('id').single();
+    return Response.json({ rodada: rodada?.id ?? null, total, clientes: [...porCliente.values()] });
+  }
+
+  // Resultado: valida e grava pelo mesmo caminho do GPT.
+  if (rota === 'resultado') {
+    // deno-lint-ignore no-explicit-any
+    let body: any;
+    try { body = await req.json(); } catch { return Response.json({ erro: 'JSON inválido' }, { status: 400 }); }
+    const modelo = typeof body?.modelo === 'string' && body.modelo.trim() ? body.modelo.trim().slice(0, 60) : 'hermes';
+    const lista = Array.isArray(body?.resultados) ? body.resultados.slice(0, 30) : [];
+    if (lista.length === 0) return Response.json({ erro: 'resultados vazio' }, { status: 400 });
+    const entrada = Number(body?.uso?.entrada ?? 0) || 0;
+    const saida = Number(body?.uso?.saida ?? 0) || 0;
+    const usage = {
+      prompt_tokens: entrada ? Math.round(entrada / lista.length) : undefined,
+      completion_tokens: saida ? Math.round(saida / lista.length) : undefined,
+      total_tokens: (entrada + saida) ? Math.round((entrada + saida) / lista.length) : undefined,
+    };
+
+    const respostas: Record<string, unknown>[] = [];
+    let gravados = 0, erros = 0;
+    for (const item of lista) {
+      const dealId = String(item?.deal_id ?? '');
+      try {
+        const { data: reserva } = await supabase.from('ai_lote_reserva')
+          .select('deal_id, tenant_id, ultima_msg, ate').eq('deal_id', dealId).maybeSingle();
+        if (!reserva) throw new Error('card não reservado para o Hermes (peça em /lote/pendentes)');
+        if (new Date(reserva.ate).getTime() < Date.now()) throw new Error('reserva expirada; o card volta na próxima rodada');
+
+        const r = conferir(item?.analise, ANALYSIS_SCHEMA, 'analise');
+        if (!r.ok) throw new Error(r.erro);
+        // deno-lint-ignore no-explicit-any
+        const out = r.valor as any;
+        out.commercial_intent_score = Math.max(0, Math.min(100, Math.round(out.commercial_intent_score)));
+        out.confidence = Math.max(0, Math.min(1, Number(out.confidence)));
+
+        const settings = await getSettings(reserva.tenant_id);
+        if (!settings?.enabled) throw new Error('IA desligada para este cliente');
+        const conversa = await carregarConversa(dealId, fusoDe(settings));
+        if (!conversa) throw new Error('conversa sem texto');
+
+        const res = await aplicarAnalise({
+          dealId, tenantId: reserva.tenant_id, settings, out, usage,
+          modelo, lastMsgAt: reserva.ultima_msg, conversa,
+        });
+        await supabase.from('ai_lote_reserva').delete().eq('deal_id', dealId);
+        gravados++;
+        respostas.push({ deal_id: dealId, ok: true, etapa: res.stage, movido_para: res.moved });
+      } catch (e) {
+        erros++;
+        respostas.push({ deal_id: dealId, ok: false, erro: String((e as Error).message).slice(0, 300) });
+      }
+    }
+    await supabase.from('ai_lote_rodadas').insert({
+      tipo: 'resultado', qtd: lista.length, gravados, erros, modelo,
+      tokens_entrada: entrada || null, tokens_saida: saida || null,
+    });
+    return Response.json({ gravados, erros, resultados: respostas });
+  }
+
+  return Response.json({ erro: 'rota desconhecida', rotas: ['instrucoes', 'pendentes', 'resultado'] }, { status: 404 });
+}
+
 Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  if (url.pathname.includes('/lote/')) return await rotaLote(req, url);
+
   // Autorizacao do cron (a funcao nao e publica)
   const key = req.headers.get('x-cron-key');
   if (!key || key !== Deno.env.get('AI_CRON_KEY')) {
@@ -380,7 +615,15 @@ Deno.serve(async (req) => {
       const r = await analyzeDeal(p.deal_id, p.tenant_id, settings, apiKey, p.last_msg_at);
       return { deal: p.deal_id, ...r };
     } catch (e) {
-      // Falha em um deal nao derruba o lote; marca o estado pra nao re-tentar em loop
+      const msg = String((e as Error).message);
+      // Falha do PROVEDOR (sem credito, limite, fora do ar, tempo esgotado) nao e
+      // culpa da conversa: ela continua na fila. Em 28/09/2026 o credito da
+      // OpenAI acabou e, marcando como analisada, um dia inteiro de conversas
+      // dos clientes saiu da fila sem analise nenhuma.
+      if (/^openai (429|5\d\d)/.test(msg) || /abort|timed? ?out/i.test(msg)) {
+        return { deal: p.deal_id, error: msg.slice(0, 200), fica_na_fila: true };
+      }
+      // Falha da propria conversa: marca o estado pra nao re-tentar em loop
       await supabase.from('deal_ai_state').upsert({
         deal_id: p.deal_id, tenant_id: p.tenant_id,
         last_analyzed_message_at: p.last_msg_at, updated_at: new Date().toISOString(),
