@@ -696,7 +696,9 @@ async function relatorioAtendimento(inicioL: string, fimL: string) {
         if (esperando !== null) primeiraFeita = true;
         esperando = null;
       }
-      if (esperando !== null) {
+      // Pendente = a IA leu a conversa e concluiu que a CLINICA deve resposta.
+      // "ok", "obrigada", "ja vou buscar" ficam fora (waiting_on NONE/CUSTOMER).
+      if (esperando !== null && e?.waiting_on === 'BUSINESS') {
         const q = (e?.intent_score ?? 0) >= quente;
         pendentes.push({ min: minutosUteis(esperando, fim, tz), novo: cls === 'NEW_LEAD', quente: q });
         if (e?.price?.requested && !e?.price?.provided) precoSemResposta++;
