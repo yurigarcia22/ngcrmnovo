@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { toast } from "@/lib/toast";
 import {
     BrainCircuit, Sparkles, Settings2, Search, Clock, CalendarCheck2, AlertTriangle,
-    Flame, MessageSquareText, RefreshCw, ChevronRight, Loader2, PhoneIncoming,
+    Flame, MessageSquareText, RefreshCw, ChevronRight, Loader2, PhoneIncoming, UserPlus,
 } from "lucide-react";
 import { getAiPageData, getAiConversationDetail, updateAiSettings, getAiMappingData, saveAiStageMappings, applyClinicFunnel } from "./actions";
 
@@ -163,6 +163,21 @@ export default function InteligenciaPage() {
 
     const periodStates = useMemo(() => states.filter(inPeriod.rowIn), [states, inPeriod]);
     const open = periodStates.filter((s) => s.deal?.status === "open");
+
+    // Leads novos = 1o contato DENTRO do periodo, independente da ultima mensagem:
+    // o lead fica para sempre no dia em que chegou (bate com o Gerenciador da Meta)
+    // e o numero de um periodo fechado nao encolhe quando a conversa continua.
+    // Paciente existente e conversa nao comercial nao contam como lead.
+    const newLeads = useMemo(() => {
+        const from = periodFrom ?? new Date("2026-09-01T00:00:00");
+        const to = period === "custom" && customTo ? new Date(customTo + "T23:59:59") : null;
+        return states.filter((r) => {
+            if (!r.first_contact_at) return false;
+            if (r.contact_classification === "EXISTING_PATIENT" || r.contact_classification === "NON_COMMERCIAL") return false;
+            const d = new Date(r.first_contact_at);
+            return d >= from && (!to || d <= to);
+        });
+    }, [states, periodFrom, period, customTo]);
     const overview = useMemo(() => ({
         analisadas: periodStates.length,
         altaIntencao: open.filter((s) => (s.intent_score ?? 0) >= 70 && stageMeta(s.funnel_stage).group === "aberto").length,
@@ -171,7 +186,8 @@ export default function InteligenciaPage() {
         // agendamento de ontem nao pode "migrar" pra hoje quando a conversa continua.
         agendamentos: states.filter((s) => inPeriod.tsIn(s.appointment_confirmed_at)).length,
         perdasSugeridas: open.filter((s) => !!s.lost_suggestion).length,
-    }), [periodStates, states, inPeriod]);
+        leadsNovos: newLeads.length,
+    }), [periodStates, states, inPeriod, newLeads]);
 
     const pipeline = useMemo(() => {
         const map = new Map<string, number>();
@@ -181,7 +197,9 @@ export default function InteligenciaPage() {
 
     const rowOrigin = (r: any) => r.deal?.origin ?? r.origin_guess ?? "nao_identificada";
     const list = useMemo(() => {
-        let rows = [...open];
+        // "Leads novos" troca a base: em vez das conversas com mensagem no periodo,
+        // os leads que CHEGARAM no periodo (mesmo que tenham falado de novo depois).
+        let rows = onlyNew ? [...newLeads] : [...open];
         if (stageFilter !== "all") rows = rows.filter((r) => r.funnel_stage === stageFilter);
         if (onlyHot) rows = rows.filter((r) => (r.intent_score ?? 0) >= 70);
         if (originFilter) rows = rows.filter((r) => rowOrigin(r) === originFilter);
@@ -189,15 +207,6 @@ export default function InteligenciaPage() {
         if (quickFilter === "waiting") rows = rows.filter((r) => r.waiting_on === "BUSINESS");
         if (quickFilter === "scheduled") rows = rows.filter((r) => r.appointment?.confirmed);
         if (quickFilter === "lost") rows = rows.filter((r) => !!r.lost_suggestion);
-        if (onlyNew) {
-            const cut = periodFrom ?? new Date("2026-09-01T00:00:00");
-            // Lead novo = 1o contato no periodo E a IA nao classificou como
-            // paciente existente/nao-comercial (ex.: "finalizar o canal" =
-            // tratamento em andamento, nao e lead novo).
-            rows = rows.filter((r) => r.first_contact_at && new Date(r.first_contact_at) >= cut
-                && r.contact_classification !== "EXISTING_PATIENT"
-                && r.contact_classification !== "NON_COMMERCIAL");
-        }
         if (search.trim()) {
             const q = search.trim().toLowerCase();
             rows = rows.filter((r) =>
@@ -206,7 +215,7 @@ export default function InteligenciaPage() {
                 (r.service_interest ?? []).join(" ").toLowerCase().includes(q));
         }
         return rows.sort((a, b) => (b.intent_score ?? 0) - (a.intent_score ?? 0));
-    }, [periodStates, stageFilter, onlyHot, search, originFilter, onlyNew, periodFrom, quickFilter]);
+    }, [periodStates, newLeads, stageFilter, onlyHot, search, originFilter, onlyNew, quickFilter]);
 
     // ---------- estados de carregamento / desativado ----------
     if (pageQuery.isLoading) {
@@ -311,25 +320,28 @@ export default function InteligenciaPage() {
                         </div>
                     )}
                     <span className="ml-auto text-[11px] text-slate-400">
-                        Filtra pela última mensagem de cada conversa
+                        {onlyNew ? "Leads novos: pela data do 1º contato" : "Filtra pela última mensagem de cada conversa"}
                     </span>
                 </div>
 
                 {/* Visão geral */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
                     {([
                         { label: "Conversas analisadas", value: overview.analisadas, Icon: MessageSquareText, cls: "text-indigo-600", qf: null },
+                        { label: "Leads novos (1º contato)", value: overview.leadsNovos, Icon: UserPlus, cls: "text-sky-600", qf: "new" },
                         { label: "Alta intenção abertas", value: overview.altaIntencao, Icon: Flame, cls: "text-amber-600", qf: "hot" },
                         { label: "Aguardando clínica", value: overview.aguardandoClinica, Icon: PhoneIncoming, cls: "text-rose-600", qf: "waiting" },
                         { label: "Agendamentos detectados", value: overview.agendamentos, Icon: CalendarCheck2, cls: "text-emerald-600", qf: "scheduled" },
                         { label: "Perdas sugeridas", value: overview.perdasSugeridas, Icon: AlertTriangle, cls: "text-rose-500", qf: "lost" },
                     ] as const).map((c) => {
-                        const active = c.qf !== null && quickFilter === c.qf;
+                        const active = c.qf === "new" ? onlyNew : c.qf !== null && quickFilter === c.qf;
                         return (
                         <button
                             key={c.label}
                             onClick={() => {
-                                if (c.qf === null) {
+                                if (c.qf === "new") {
+                                    setOnlyNew(!onlyNew);
+                                } else if (c.qf === null) {
                                     // "Conversas analisadas" = limpar todos os filtros da lista
                                     setQuickFilter(null); setStageFilter("all"); setOriginFilter(null);
                                     setOnlyHot(false); setOnlyNew(false); setSearch("");
@@ -337,7 +349,7 @@ export default function InteligenciaPage() {
                                     setQuickFilter(quickFilter === c.qf ? null : c.qf);
                                 }
                             }}
-                            title={c.qf === null ? "Limpar filtros da lista" : "Clique para filtrar a lista"}
+                            title={c.qf === null ? "Limpar filtros da lista" : c.qf === "new" ? "Leads cujo PRIMEIRO contato foi no período (mesmo que tenham falado de novo depois)" : "Clique para filtrar a lista"}
                             className={`text-left bg-white border rounded-xl p-4 transition-all cursor-pointer hover:shadow-sm ${
                                 active ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
                             }`}
@@ -431,7 +443,7 @@ export default function InteligenciaPage() {
                         </button>
                         <button
                             onClick={() => setOnlyNew(!onlyNew)}
-                            title="Só leads cujo PRIMEIRO contato aconteceu no período selecionado"
+                            title="Leads cujo PRIMEIRO contato foi no período (mesmo que tenham falado de novo depois)"
                             className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-bold transition-colors ${onlyNew ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
                         >
                             🆕 Leads novos
