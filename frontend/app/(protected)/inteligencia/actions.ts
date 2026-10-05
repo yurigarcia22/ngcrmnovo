@@ -27,23 +27,39 @@ async function getAuth() {
     return { admin, tenantId: profile.tenant_id as string, role: profile.role as string };
 }
 
-export async function getAiPageData() {
+// Os admins da conta GRUPO NG (a agencia) acompanham a Inteligencia de todas as
+// clinicas na aba Clientes. Qualquer outra conta so enxerga os proprios dados.
+const TENANT_GRUPO_NG = "00000000-0000-0000-0000-000000000000";
+const ehEquipeNG = (a: { tenantId: string; role: string }) =>
+    a.tenantId === TENANT_GRUPO_NG && a.role === "admin";
+
+// Conta cujos dados serao lidos: a propria, ou outra so se for a equipe NG.
+async function getAuthPara(tenantIdAlvo?: string) {
+    const auth = await getAuth();
+    if (!tenantIdAlvo || tenantIdAlvo === auth.tenantId) return { ...auth, alvo: auth.tenantId };
+    if (!ehEquipeNG(auth)) throw new Error("Acesso negado");
+    return { ...auth, alvo: tenantIdAlvo };
+}
+
+const STATE_COLUMNS = `
+    deal_id, funnel_stage, intent_score, service_interest, waiting_on,
+    waiting_since, appointment, price, summary, next_action,
+    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at, contact_classification, appointment_confirmed_at,
+    deal:deals!deal_ai_state_deal_id_fkey (
+        id, title, status, origin,
+        contact:contacts ( name, phone, photo_url )
+    )
+`;
+
+export async function getAiPageData(tenantIdAlvo?: string) {
     try {
-        const { admin, tenantId, role } = await getAuth();
+        const { admin, tenantId, role, alvo } = await getAuthPara(tenantIdAlvo);
 
         const [settingsRes, statesRes] = await Promise.all([
-            admin.from("ai_settings").select("*").eq("tenant_id", tenantId).maybeSingle(),
+            admin.from("ai_settings").select("*").eq("tenant_id", alvo).maybeSingle(),
             admin.from("deal_ai_state")
-                .select(`
-                    deal_id, funnel_stage, intent_score, service_interest, waiting_on,
-                    waiting_since, appointment, price, summary, next_action,
-                    lost_suggestion, origin_guess, confidence, updated_at, first_contact_at, last_analyzed_message_at, contact_classification, appointment_confirmed_at,
-                    deal:deals!deal_ai_state_deal_id_fkey (
-                        id, title, status, origin,
-                        contact:contacts ( name, phone, photo_url )
-                    )
-                `)
-                .eq("tenant_id", tenantId)
+                .select(STATE_COLUMNS)
+                .eq("tenant_id", alvo)
                 .order("updated_at", { ascending: false })
                 .limit(500),
         ]);
@@ -51,6 +67,7 @@ export async function getAiPageData() {
         return {
             success: true,
             isAdmin: role === "admin",
+            equipeNG: ehEquipeNG({ tenantId, role }),
             settings: settingsRes.data ?? null,
             states: statesRes.data ?? [],
         };
@@ -59,9 +76,9 @@ export async function getAiPageData() {
     }
 }
 
-export async function getAiConversationDetail(dealId: string) {
+export async function getAiConversationDetail(dealId: string, tenantIdAlvo?: string) {
     try {
-        const { admin, tenantId } = await getAuth();
+        const { admin, alvo: tenantId } = await getAuthPara(tenantIdAlvo);
         const [msgsRes, eventsRes, analysisRes] = await Promise.all([
             admin.from("messages")
                 .select("id, direction, content, type, transcription, media_url, created_at")
@@ -85,6 +102,40 @@ export async function getAiConversationDetail(dealId: string) {
             events: eventsRes.data ?? [],
             analysis: analysisRes.data ?? null,
         };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
+// Aba Clientes (so equipe NG): toda clinica com a IA ligada + as conversas
+// analisadas de cada uma, para a visao geral lado a lado.
+export async function getAiClientes() {
+    try {
+        const auth = await getAuth();
+        if (!ehEquipeNG(auth)) throw new Error("Acesso restrito à equipe do Grupo NG");
+        const { admin } = auth;
+
+        const { data: cfgs, error } = await admin
+            .from("ai_settings").select("tenant_id, mode, motor").eq("enabled", true);
+        if (error) throw error;
+        const ids = (cfgs ?? []).map((c) => c.tenant_id as string);
+        if (!ids.length) return { success: true, clientes: [] };
+
+        const { data: tenants, error: tErr } = await admin.from("tenants").select("id, name").in("id", ids);
+        if (tErr) throw tErr;
+        const nomes = new Map((tenants ?? []).map((t) => [t.id as string, t.name as string]));
+
+        const clientes = await Promise.all((cfgs ?? []).map(async (c) => {
+            const { data: states, error: sErr } = await admin.from("deal_ai_state")
+                .select(STATE_COLUMNS)
+                .eq("tenant_id", c.tenant_id)
+                .order("updated_at", { ascending: false })
+                .limit(500);
+            if (sErr) throw sErr;
+            return { id: c.tenant_id as string, nome: nomes.get(c.tenant_id) ?? "—", mode: c.mode, motor: c.motor, states: states ?? [] };
+        }));
+        clientes.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        return { success: true, clientes };
     } catch (e: any) {
         return { success: false, error: e.message };
     }
