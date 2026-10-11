@@ -48,6 +48,12 @@ Plano v1, 10/10/2026. Levantamento feito direto na produção (Supabase, VPS, Ev
 
 ### Fase 0: ponte (decisão)
 
+**Decidido em 10/10/2026: opção B com pausa de imagem e vídeo.** Desde 10/10 às 23h57 o `webhook-evolution`
+(v58) não baixa imagem nem vídeo (segredo `PAUSAR_MIDIA=imagem,video`). A mensagem entra normal, com a
+legenda ou o aviso "[Imagem não salva]" / "[Vídeo não salvo]". Áudio (a IA transcreve), PDF, figurinha e foto
+de perfil continuam sendo salvos. O crescimento cai de ~270 MB pra ~66 MB por semana, uns 20 dias de folga.
+Pra voltar a salvar tudo: apagar o segredo `PAUSAR_MIDIA`. Se precisar de mais folga, `PAUSAR_MIDIA=imagem,video,documento`.
+
 - **Opção A (recomendada):** Supabase Pro por 1 mês (US$ 25, só a organização do CRM é afetada).
   Some o limite de 1 GB e de 500 MB, o banco sobe de Nano pra Micro (pode reiniciar 1 ou 2 minutos na troca)
   e a migração anda sem pressa. Cancela depois da virada.
@@ -123,6 +129,9 @@ Talvez a equipe precise entrar de novo no CRM uma vez (login e senha continuam o
 - Acompanhar RAM, disco e backup. Fazer um teste de restauração completo.
 - Backup final da nuvem e cancelamento do Pro (ou pausa do projeto).
 - Minhas ferramentas trocam a API da Supabase por SSH: SQL via `psql` no container e deploy de função por cópia.
+- Apagar o `PAUSAR_MIDIA` no servidor novo (volta a salvar imagem e vídeo) e **tentar recuperar** as imagens e
+  vídeos do período pausado: mensagens `image`/`video` sem `media_url` desde 10/10, baixadas de novo pela Evolution
+  (`getBase64FromMediaMessage`). Funciona enquanto o WhatsApp ainda guarda o arquivo, por isso o quanto antes.
 
 ## Riscos e o que fazemos com cada um
 

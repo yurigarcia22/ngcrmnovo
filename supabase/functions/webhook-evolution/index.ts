@@ -32,6 +32,14 @@ function findExternalAdReply(node: any, depth = 0): any | null {
   return null;
 }
 
+// Pausa de midia (out/2026): o Storage da nuvem chegou perto do limite de 1 GB do
+// plano gratis. Os tipos listados no segredo PAUSAR_MIDIA (imagem, video,
+// figurinha, audio, documento) continuam chegando como mensagem normal; so o
+// arquivo nao e baixado nem salvo. Segredo vazio ou ausente = salva tudo.
+const PAUSAR_MIDIA = new Set(
+  (Deno.env.get('PAUSAR_MIDIA') ?? '').toLowerCase().split(',').map((t) => t.trim()).filter(Boolean),
+);
+
 serve(async (req) => {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -276,6 +284,17 @@ serve(async (req) => {
       content = textContent || '[Mensagem não suportada]';
     }
 
+    const tipoMidia = messageType === 'imageMessage' ? 'imagem'
+      : messageType === 'videoMessage' ? 'video'
+      : messageType === 'stickerMessage' ? 'figurinha'
+      : messageType === 'audioMessage' ? 'audio' : 'documento';
+    const midiaPausada = hasMedia && PAUSAR_MIDIA.has(tipoMidia);
+    if (midiaPausada && !content) {
+      content = tipoMidia === 'video' ? '[Vídeo não salvo]'
+        : tipoMidia === 'audio' ? '[Áudio não salvo]'
+        : tipoMidia === 'documento' ? '[Documento não salvo]' : '[Imagem não salva]';
+    }
+
     // Upload de bytes pro Storage (usado pelo inline e pelo fallback).
     async function uploadBytes(b64: string, mime: string | undefined): Promise<string | null> {
       try {
@@ -294,7 +313,7 @@ serve(async (req) => {
 
     // Caminho rapido: base64 inline no proprio payload (webhookBase64=true).
     let mediaUrl: string | null = null;
-    if (hasMedia) {
+    if (hasMedia && !midiaPausada) {
       const inlineB64 = data.message?.base64 ?? data.base64 ?? data.message?.mediaBase64;
       if (inlineB64 && typeof inlineB64 === 'string' && inlineB64.length > 100) {
         mediaUrl = await uploadBytes(inlineB64, pendingMediaMime);
@@ -676,8 +695,8 @@ serve(async (req) => {
     }
 
     // --- 9. Fallback de midia (DEPOIS da mensagem salva; falha nao perde nada) ---
-    let mediaNote: string | null = null;
-    if (hasMedia && !mediaUrl && savedMsg?.id) {
+    let mediaNote: string | null = midiaPausada ? `midia pausada (${tipoMidia})` : null;
+    if (hasMedia && !midiaPausada && !mediaUrl && savedMsg?.id) {
       const evoUrl = Deno.env.get('EVOLUTION_API_URL');
       const evoToken = Deno.env.get('EVOLUTION_API_TOKEN');
       if (evoUrl && evoToken && instanceName) {
