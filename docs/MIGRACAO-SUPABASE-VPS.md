@@ -80,6 +80,12 @@ Pra voltar a salvar tudo: apagar o segredo `PAUSAR_MIDIA`. Se precisar de mais f
 
 1. Compose oficial com as imagens **iguais ou mais novas que as da nuvem**. Trava: login (GoTrue) com
    migração ≥ 20260831180000, storage com migração ≥ 72, Postgres 17.6.
+   Conferido em 13/10/2026: o compose oficial vem com `supabase/postgres:17.6.1.136` (ok), mas com
+   `gotrue:v2.196.0` (última migração 20260625, **mais velha que a nuvem**) e `storage-api:v1.74.0`
+   (69 migrações, **mais velha**). Usar `supabase/gotrue:v2.197.0` (estável, termina exatamente em
+   20260831180000) e `supabase/storage-api:v1.81.3` (74 migrações, inclui a 72). O gateway agora é Envoy
+   (`api-gw`, apelido `kong`), e o analytics não vem mais no compose base. Tirar do compose: as portas
+   publicadas no host (8000 do `api-gw`, 5432 e 6543 do `supavisor`), o `supavisor` e o `imgproxy`.
 2. Gerar segredos novos (JWT, anon, service_role, senha do Postgres, senha do painel, chaves internas)
    e guardar no `credentials.md`.
 3. Funções copiadas do repositório, `VERIFY_JWT=false` (as 5 já são assim), segredos no ambiente.

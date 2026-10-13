@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-const WEBHOOK_FN_URL = 'https://twsnyobgvwvuqjgemrca.supabase.co/functions/v1/webhook-evolution';
+// Mesmo Supabase que o CRM usa (nuvem hoje, VPS depois da migracao).
+const WEBHOOK_FN_URL = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/webhook-evolution`;
 const WINDOW_HOURS = 24;      // janela de comparacao
 const MAX_INJECT_PER_INSTANCE = 30; // seguranca por rodada
 const PAGES_PER_INSTANCE = 3; // ~100 msgs/pagina

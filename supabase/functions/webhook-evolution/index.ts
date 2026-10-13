@@ -40,6 +40,15 @@ const PAUSAR_MIDIA = new Set(
   (Deno.env.get('PAUSAR_MIDIA') ?? '').toLowerCase().split(',').map((t) => t.trim()).filter(Boolean),
 );
 
+// No Supabase do VPS a funcao fala com o gateway por um endereco interno
+// (SUPABASE_URL = http://kong:8000), que o navegador nao abre. SUPABASE_PUBLIC_URL
+// troca esse prefixo pelo endereco publico no link salvo. Sem a variavel, fica igual.
+function linkPublico(url: string): string {
+  const pub = (Deno.env.get('SUPABASE_PUBLIC_URL') ?? '').replace(/\/$/, '');
+  const interno = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
+  return pub && interno && url.startsWith(interno) ? pub + url.slice(interno.length) : url;
+}
+
 serve(async (req) => {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -307,7 +316,7 @@ serve(async (req) => {
         const { error: upErr } = await supabase.storage
           .from('crm-media').upload(fileName, bytes, { contentType: finalMime, upsert: false });
         if (upErr) { console.error('Storage upload falhou:', upErr); return null; }
-        return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
+        return linkPublico(supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl);
       } catch (e) { console.error('uploadBytes erro:', e); return null; }
     }
 
@@ -417,7 +426,7 @@ serve(async (req) => {
               const fileName = `${tenantId}/avatars/${canonicalPhone || `lid-${waLid}`}.jpg`;
               const { error: upErr } = await supabase.storage
                 .from('crm-media').upload(fileName, bytes, { contentType: 'image/jpeg', upsert: true });
-              if (!upErr) return supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl;
+              if (!upErr) return linkPublico(supabase.storage.from('crm-media').getPublicUrl(fileName).data.publicUrl);
             }
           }
         } catch { /* fallback abaixo */ }
