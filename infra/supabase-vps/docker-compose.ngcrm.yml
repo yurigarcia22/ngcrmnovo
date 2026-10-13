@@ -45,6 +45,14 @@ services:
     mem_limit: 256m
   functions:
     mem_limit: 1g
+    environment:
+      # Segredos das funcoes do CRM (valores no .env, conferidos com a nuvem por hash)
+      OPENAI_API_KEY: ${FUNCOES_OPENAI_API_KEY}
+      AI_CRON_KEY: ${AI_CRON_KEY}
+      AI_LOTE_KEY: ${AI_LOTE_KEY}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL}
+      EVOLUTION_API_TOKEN: ${EVOLUTION_API_TOKEN}
+      PAUSAR_MIDIA: ${PAUSAR_MIDIA}
   supavisor:
     profiles: [desligado]
 networks:

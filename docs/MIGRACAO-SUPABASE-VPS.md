@@ -12,6 +12,25 @@ Plano v1, 10/10/2026. Levantamento feito direto na produção (Supabase, VPS, Ev
 | 13/10 | **Fase 2 concluída:** Supabase no VPS (`infra/supabase-vps/`), ~1 GB de RAM, `https://api.grupong.online` com certificado. Testado: login (criar, entrar, sessão), API com RLS, Storage com link público, tempo real (broadcast e mudança de linha chegando na hora), função chamada sem chave (como a Evolution), painel só com senha, portas 5432/6543/8000 fechadas pra internet |
 | 13/10 | `painel.grupong.online` com HTTPS funcionando (falta fechar a porta 3000 no firewall) |
 
+| 13/10 | Firewall da Hostinger ligado (só 22, 80 e 443; via API). Painel do Easypanel agora só em `https://painel.grupong.online` |
+| 13/10 | **Ensaio 1 concluído** (detalhes abaixo) |
+
+### Ensaio 1 (13/10/2026): o que foi feito e quanto levou
+
+| Etapa | Como | Tempo |
+|---|---|---|
+| Cópia da nuvem | Scripts do `supabase db dump --dry-run` (CLI 2.120.0) rodados sem o `--role postgres` (o `backup_leitura` não pode virar postgres), pelo pooler IPv4, com `postgres:17`. Dados sem `storage`, `net` e `cron` | 20 s (dados: 147 MB) |
+| Restauração | `roles + schema + SET session_replication_role = replica + data` como `supabase_admin`, numa transação | 8 s, sem erro |
+| Peças fora da cópia | Gatilho `on_auth_user_created` e as 2 regras do Storage, gerados da nuvem (`pg_get_triggerdef`, `pg_policies`) | instantâneo |
+| Conferência | 76 tabelas, 345.687 linhas; só 1 evento de webhook de diferença (chegou depois da cópia) | 1 min |
+| Mídias | `sobe_midias.py` no VPS: lista na nuvem, usa o espelho do backup, sobe pela API do Storage novo | 65 s (3.667 arquivos) |
+| Links | `replace` em `messages.media_url`, `contacts.photo_url`, `quick_replies.media_url` | 3.566 links, instantâneo |
+| Funções | 4 copiadas (meta-capi só na virada); segredos conferidos com a nuvem pelo hash SHA-256 que a API devolve | 1 min |
+| Reenvio do buraco | `reenvia_buraco.py`: eventos da nuvem desde a cópia reenviados ao webhook novo | 6 s (32 eventos); mensagens idênticas nos dois bancos |
+| CRM de teste | `next dev -p 3001` no PC com variáveis apontando pro banco novo; Evolution, n8n e IA apontando pra porta morta | 8 telas OK, 0 chamada pra nuvem, tempo real no servidor novo |
+
+Achado à parte (não é da migração): `/settings` em modo dev às vezes dá "Rendered more hooks" ao redirecionar pro perfil; não aparece em produção.
+
 Pendências da fase 1: firewall da Hostinger, SSH só por chave, monitor de queda (UptimeRobot), deploy do CRM com a `/api/health`.
 
 ## Por que agora
