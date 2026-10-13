@@ -2,6 +2,18 @@
 
 Plano v1, 10/10/2026. Levantamento feito direto na produção (Supabase, VPS, Evolution, n8n e código).
 
+## Andamento
+
+| Data | Feito |
+|---|---|
+| 10/10 | Pausa de imagem e vídeo (`PAUSAR_MIDIA`); Storage parou de crescer (806 MB em 13/10) |
+| 13/10 | DNS `api` e `painel` no Cloudflare (via API); snapshot do VPS (via API da Hostinger; vale 24 h) |
+| 13/10 | Código da fase 1: rotas de cron pela configuração, link público da mídia, `/api/health` |
+| 13/10 | **Fase 2 concluída:** Supabase no VPS (`infra/supabase-vps/`), ~1 GB de RAM, `https://api.grupong.online` com certificado. Testado: login (criar, entrar, sessão), API com RLS, Storage com link público, tempo real (broadcast e mudança de linha chegando na hora), função chamada sem chave (como a Evolution), painel só com senha, portas 5432/6543/8000 fechadas pra internet |
+| 13/10 | `painel.grupong.online` com HTTPS funcionando (falta fechar a porta 3000 no firewall) |
+
+Pendências da fase 1: firewall da Hostinger, SSH só por chave, monitor de queda (UptimeRobot), deploy do CRM com a `/api/health`.
+
 ## Por que agora
 
 - **Storage em 803 MB de 1 GB** no plano grátis, crescendo uns 45 MB por dia (dois terços são vídeos,

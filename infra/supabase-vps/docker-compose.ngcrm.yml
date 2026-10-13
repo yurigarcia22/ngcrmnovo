@@ -1,0 +1,52 @@
+# Ajustes do Grupo NG sobre o compose oficial da Supabase (CRM NG).
+# Plano e motivos: CRM NG/docs/MIGRACAO-SUPABASE-VPS.md
+# - login e storage em versoes que ja conhecem as migracoes da nuvem (o compose
+#   oficial de 13/10/2026 veio com gotrue v2.196.0 e storage v1.74.0, mais velhos);
+# - nada publicado no host: o gateway so e acessado pelo Traefik do Easypanel
+#   (api.grupong.online, arquivo /etc/easypanel/traefik/config/ngcrm-supabase.yaml);
+# - pooler (supavisor) desligado: abriria 5432/6543 pra internet e nao usamos;
+# - teto de memoria por servico: o VPS divide espaco com CRM, Evolution e n8n.
+services:
+  api-gw:
+    ports: !reset []
+    networks: [default, easypanel]
+    mem_limit: 256m
+  auth:
+    image: supabase/gotrue:v2.197.0
+    mem_limit: 256m
+  storage:
+    image: supabase/storage-api:v1.81.3
+    mem_limit: 512m
+  db:
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - log_min_messages=fatal
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+    mem_limit: 1536m
+  realtime:
+    mem_limit: 512m
+  rest:
+    mem_limit: 256m
+  meta:
+    mem_limit: 256m
+  studio:
+    mem_limit: 768m
+  imgproxy:
+    mem_limit: 256m
+  functions:
+    mem_limit: 1g
+  supavisor:
+    profiles: [desligado]
+networks:
+  easypanel:
+    external: true

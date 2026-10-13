@@ -1,0 +1,37 @@
+# Rotas criadas a mao (Grupo NG), fora do main.yaml que o Easypanel reescreve.
+# api.grupong.online -> Supabase do CRM (gateway Envoy em /opt/supabase)
+# painel.grupong.online -> painel do Easypanel (servico "easypanel" do main.yaml)
+http:
+  routers:
+    ngcrm-supabase-http:
+      rule: Host(`api.grupong.online`)
+      entryPoints: [http]
+      middlewares: [redirect-to-https]
+      service: ngcrm-supabase
+    ngcrm-supabase-https:
+      rule: Host(`api.grupong.online`)
+      entryPoints: [https]
+      service: ngcrm-supabase
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: api.grupong.online
+    ngcrm-painel-http:
+      rule: Host(`painel.grupong.online`)
+      entryPoints: [http]
+      middlewares: [redirect-to-https]
+      service: easypanel
+    ngcrm-painel-https:
+      rule: Host(`painel.grupong.online`)
+      entryPoints: [https]
+      service: easypanel
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: painel.grupong.online
+  services:
+    ngcrm-supabase:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://supabase-envoy:8000
