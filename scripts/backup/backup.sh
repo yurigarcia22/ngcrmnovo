@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Backup diario do CRM NG. Roda no VPS pelo cron (/etc/cron.d/crm-backup), como root.
-#   1. pg_dump do banco da Supabase com o usuario backup_leitura (so leitura);
+#   1. pg_dump do banco da Supabase do VPS (container supabase-db);
 #   2. confere o dump antes de confiar nele (tamanho e tabelas principais);
 #   3. criptografa com age. O servidor so tem a chave PUBLICA: tranca, nao abre.
 #      A chave privada fica fora do servidor (credentials.md);
@@ -14,7 +14,7 @@ DIR=/opt/crm-backup
 PG_IMAGE=postgres:17
 set -a
 # shellcheck disable=SC1091
-source "$DIR/.env"   # PGHOST PGUSER PGPASSWORD SUPABASE_URL B2_BUCKET RCLONE_CONFIG_B2_* TELEGRAM_*
+source "$DIR/.env"   # SUPABASE_URL B2_BUCKET RCLONE_CONFIG_B2_* TELEGRAM_*
 set +a
 
 ETAPA="inicio"
@@ -38,12 +38,9 @@ echo "$(date -u +%FT%TZ) inicio $NOME"
 rm -f "$DIR"/tmp/crm_*
 
 ETAPA="pg_dump do banco"
-# --network host: a conexao direta da Supabase e so IPv6 e a rede padrao do Docker nao tem.
-# Historico do pg_cron e respostas do pg_net sao descartaveis: vai so a estrutura.
-docker run --rm --network host -e PGPASSWORD -v "$DIR/tmp:/out" "$PG_IMAGE" \
-  pg_dump -h "$PGHOST" -p 5432 -U "$PGUSER" -d postgres --no-password -Fc -Z 6 \
-  --exclude-table-data=cron.job_run_details --exclude-table-data=net._http_response \
-  -f "/out/$NOME"
+# Desde 20/10/2026 o banco e a Supabase do proprio VPS (container supabase-db). O dump roda
+# dentro do container, sem rede e sem senha. Historico do pg_cron e respostas do pg_net ficam de fora.
+docker exec supabase-db pg_dump -U supabase_admin -d postgres -Fc -Z 6   --exclude-table-data=cron.job_run_details --exclude-table-data=net._http_response   > "$DIR/tmp/$NOME"
 
 ETAPA="conferencia do dump"
 TAM=$(stat -c %s "$DIR/tmp/$NOME")

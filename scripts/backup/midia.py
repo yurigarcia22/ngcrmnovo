@@ -22,11 +22,9 @@ SQL = f"""select coalesce(json_agg(json_build_object('n', name, 's', (metadata->
 
 
 def listar():
-    r = subprocess.run(
-        ["docker", "run", "--rm", "--network", "host", "-e", "PGPASSWORD", "postgres:17",
-         "psql", "-h", os.environ["PGHOST"], "-U", os.environ["PGUSER"], "-d", "postgres",
-         "--no-password", "-At", "-v", "ON_ERROR_STOP=1", "-c", SQL],
-        capture_output=True, text=True, timeout=300)
+    # Supabase do proprio VPS: consulta direto no container do banco.
+    r = subprocess.run(["docker", "exec", "supabase-db", "psql", "-U", "supabase_admin", "-d", "postgres",
+                        "-At", "-v", "ON_ERROR_STOP=1", "-c", SQL], capture_output=True, text=True, timeout=300)
     if r.returncode != 0:
         raise SystemExit(f"nao listou o storage: {r.stderr.strip()[:300]}")
     return json.loads(r.stdout)
