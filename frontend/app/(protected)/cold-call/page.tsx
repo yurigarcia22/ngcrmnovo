@@ -13,7 +13,8 @@ import { NichoSelector } from '@/components/cold-call/NichoSelector';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getMembers } from '@/app/(protected)/settings/team/actions';
-import { getColdCallPipelinesWithStages, moveColdLeadToStage, getColdLeadStageCounts } from './actions';
+import { getColdCallPipelinesWithStages, moveColdLeadToStage, getColdLeadStageCounts, claimColdLead, releaseColdLead } from './actions';
+import { todayBR } from '@/lib/br-time';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/query-keys';
 
@@ -59,10 +60,16 @@ export default function ColdCallPage() {
                 getColdCallFollowups({ status: 'pendente' }),
                 getColdCallFollowups({ status: 'atrasado' }),
             ]);
+            // "Follow-ups do Dia": so o que vence hoje ou ja venceu (data do Brasil).
+            // Nada grava status 'atrasado' no banco: e calculado aqui pela data, senao a
+            // coluna Atrasados ficava sempre vazia e os de semana que vem apareciam juntos.
+            const today = todayBR();
             return [
                 ...((res.success && res.data) || []),
                 ...((resAtrasados.success && resAtrasados.data) || []),
-            ];
+            ]
+                .filter((f: any) => String(f.data_agendada || '').slice(0, 10) <= today)
+                .map((f: any) => (String(f.data_agendada || '').slice(0, 10) < today ? { ...f, status: 'atrasado' } : f));
         },
         staleTime: 30_000,
     });
@@ -75,8 +82,8 @@ export default function ColdCallPage() {
         queryKey: [...qk.coldCall.followups(), 'concluidos-hoje'],
         queryFn: async () => {
             const res = await getColdCallFollowups({ status: 'concluido' });
-            const today = new Date().toISOString().split('T')[0];
-            return ((res.success && res.data) || []).filter((f: any) => f.data_agendada === today).length;
+            const today = todayBR();
+            return ((res.success && res.data) || []).filter((f: any) => String(f.data_agendada || '').slice(0, 10) === today).length;
         },
         staleTime: 30_000,
     });
@@ -280,22 +287,37 @@ export default function ColdCallPage() {
 
     const handleMoveStage = async (leadId: string, newStageId: number | string) => {
         const stageIdNum = Number(newStageId);
-        const res = await moveColdLeadToStage(leadId, stageIdNum);
+        const res: any = await moveColdLeadToStage(leadId, stageIdNum);
         if (!res.success) {
-            toast.error('Erro ao mover lead');
+            toast.error('Erro ao mover lead', { description: res.error });
+        } else if (res.moved === false) {
+            toast.info('O lead já está nessa etapa');
         } else {
-            toast.success('Lead movido');
+            toast.success(res.registered ? 'Lead movido e ligação registrada' : 'Lead movido');
+            for (const w of res.warnings ?? []) toast.warning(w);
         }
         // Atualiza contagens + os leads das etapas (origem e destino).
         fetchLeads();
     };
 
     // Abre o modal e fixa a etapa de trabalho na coluna atual do lead.
+    const warnIfLocked = useCallback(async (lead: ColdLead) => {
+        const r = await claimColdLead(lead.id);
+        if (r && r.ok === false && r.locked_by) {
+            toast.warning(`${r.locked_by_name || 'Outro vendedor'} está com esse lead aberto agora`, {
+                description: 'Combine antes de ligar, pra não ligarem os dois.',
+            });
+            return false;
+        }
+        return true;
+    }, []);
+
     const openLeadModal = useCallback((lead: ColdLead) => {
         setWorkingStageId(Number((lead as any).stage_id));
         setSelectedLead(lead);
         setIsModalOpen(true);
-    }, []);
+        void warnIfLocked(lead);
+    }, [warnIfLocked]);
 
     const handleCallClick = (lead: ColdLead) => {
         openLeadModal(lead);
@@ -320,6 +342,7 @@ export default function ColdCallPage() {
     }, [leads, openLeadModal]);
 
     const handleModalClose = () => {
+        if (selectedLead) void releaseColdLead(selectedLead.id);
         setIsModalOpen(false);
         setSelectedLead(null);
         fetchLeads();
@@ -333,8 +356,18 @@ export default function ColdCallPage() {
         if (!selectedLead || workingStageId == null) return;
         const idx = leads.findIndex(l => l.id === selectedLead.id);
         if (idx === -1) return;
-        const next = leads.slice(idx + 1).find((l: any) => Number(l.stage_id) === Number(workingStageId));
-        if (next) setSelectedLead(next);
+        const candidates = leads.slice(idx + 1).filter((l: any) => Number(l.stage_id) === Number(workingStageId));
+        if (!candidates.length) return;
+        void releaseColdLead(selectedLead.id);
+        (async () => {
+            // Pula quem outro vendedor esta com aberto (ate 10 tentativas).
+            for (const cand of candidates.slice(0, 10)) {
+                const r = await claimColdLead(cand.id);
+                if (!r || r.ok !== false) { setSelectedLead(cand); return; }
+            }
+            toast.warning('Os próximos leads estão abertos com outros vendedores.');
+            setSelectedLead(candidates[0]);
+        })();
     };
 
     const hasNext = () => {
@@ -377,7 +410,7 @@ export default function ColdCallPage() {
             if (!res.ok) throw new Error('Falha ao atualizar em massa');
 
             const data = await res.json();
-            toast.success(`${data.count || selectedLeads.length} leads atualizados!`, { id: toastId });
+            toast.success(`${data.count ?? 0} leads atualizados!`, { id: toastId });
 
             // Clear selection and inputs
             setSelectedLeads([]);
@@ -415,7 +448,7 @@ export default function ColdCallPage() {
             if (!res.ok) throw new Error('Falha ao excluir em massa');
 
             const data = await res.json();
-            toast.success(`${data.count || selectedLeads.length} leads excluídos!`, { id: toastId });
+            toast.success(`${data.count ?? 0} leads excluídos!`, { id: toastId });
 
             // Clear selection
             setSelectedLeads([]);
@@ -493,8 +526,8 @@ export default function ColdCallPage() {
             <FollowUpMetrics
                 metrics={{
                     totalHoje: followups.filter(f => {
-                        const today = new Date().toISOString().split('T')[0];
-                        return f.data_agendada === today && f.status !== 'concluido';
+                        const today = todayBR();
+                        return String(f.data_agendada || '').slice(0, 10) === today && f.status !== 'concluido';
                     }).length,
                     manha: followups.filter(f => f.periodo === 'manha' && f.status !== 'concluido' && f.status !== 'atrasado').length,
                     tarde: followups.filter(f => (f.periodo === 'tarde' || f.periodo === 'noite' || f.periodo === 'qualquer') && f.status !== 'concluido' && f.status !== 'atrasado').length,
@@ -709,7 +742,8 @@ export default function ColdCallPage() {
                                 const followup = followups.find(f => f.id === id);
                                 if (followup?.cold_leads?.telefone) {
                                     const cleanPhone = followup.cold_leads.telefone.replace(/\D/g, "");
-                                    window.open(`https://wa.me/55${cleanPhone}`, '_blank');
+                                    const waPhone = cleanPhone.startsWith('55') && cleanPhone.length >= 12 ? cleanPhone : `55${cleanPhone}`;
+                                    window.open(`https://wa.me/${waPhone}`, '_blank');
                                 }
                             }
                         }}

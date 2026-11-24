@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Phone, CheckCircle, Calendar, X, Clock, Target, Trash2, Pencil, MapPin, Globe, MessageCircle, GitPullRequest, Check, Send, AlertTriangle, Mail } from "lucide-react";
 import { addColdLeadNote, getColdLeadNotes, createTask, updateColdLeadNote, createColdCallFollowup, getColdCallFollowups, updateColdCallFollowup, startConversationForPhone } from "@/app/actions";
 import { registerColdLeadStage } from "@/app/(protected)/cold-call/actions";
+import { formatPhoneBR } from "@/lib/br-time";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 // Notas "Interação Registrada: <chave>" viram um chip bonito no historico,
@@ -154,7 +155,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             setEditForm({
                 nome: lead.nome || "",
                 nicho: lead.nicho || "",
-                telefone: lead.telefone || "",
+                telefone: formatPhoneBR(lead.telefone) || "",
                 responsavel_id: lead.responsavel_id || "",
                 site_url: lead.site_url || "",
                 instagram_url: lead.instagram_url || "",
@@ -192,6 +193,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             // moved=false: a etapa-alvo estava atras da atual, entao so registrou a
             // interacao (nao regride o lead). Feedback coerente com o que aconteceu.
             toast.success(res.moved === false ? `Interação registrada · ${stage.name}` : `Movido para ${stage.name}`);
+            for (const w of res.warnings ?? []) toast.warning(w);
             if (res.data) (onLeadUpdate ?? onActionComplete)(res.data as ColdLead);
 
             // Discagem automatica ligada: ao registrar a acao, ja pula pro proximo
@@ -271,7 +273,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                     setLoading(false);
                     return;
                 }
-                payload.proxima_ligacao = meetingDate;
+                payload.proxima_ligacao = new Date(meetingDate).toISOString();
                 payload.pipeline_id = selectedPipeline;
                 payload.stage_id = selectedStage;
             }
@@ -285,8 +287,11 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             if (!res.ok) throw new Error("Erro ao salvar resultado");
 
             const updatedLead = await res.json();
-            toast.success("Resultado registrado!");
+            toast.success(updatedLead?.moved === false ? "Interação registrada (o lead continua na etapa atual)" : "Resultado registrado!");
+            for (const w of updatedLead?.warnings ?? []) toast.warning(w);
             setIsMeetingMode(false);
+            if (currentNote.trim()) setCurrentNote("");
+            fetchNotes();
 
             // Atualiza o lead em tela e MANTEM o modal no lead atual.
             // Nao auto-avanca nem fecha (era isso que fazia o lead "sumir").
@@ -348,7 +353,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
         try {
             const payload: any = {
                 resultado: 'reuniao_marcada',
-                proxima_ligacao: meetingDate,
+                proxima_ligacao: new Date(meetingDate).toISOString(),
                 notas: currentNote || "Reunião marcada",
                 pipeline_id: selectedPipeline,
                 stage_id: selectedStage
@@ -360,9 +365,12 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             });
             if (!res.ok) throw new Error("Erro");
 
-            toast.success("Reunião agendada e Lead convertido!");
+            const upd = await res.json();
+            toast.success(upd?.converted_deal_id ? "Reunião agendada e lead convertido em venda!" : "Reunião agendada!");
+            for (const w of upd?.warnings ?? []) toast.warning(w);
             setIsMeetingMode(false);
-            (onLeadUpdate ?? onActionComplete)(await res.json());
+            setCurrentNote("");
+            (onLeadUpdate ?? onActionComplete)(upd);
             setTimeout(() => onClose(), 500);
 
         } catch (e) {
@@ -611,7 +619,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
                                         <Input value={editForm.telefone} onChange={e => setEditForm({ ...editForm, telefone: e.target.value })} className="bg-white text-slate-900 w-full" />
                                     ) : (
                                         <div className="text-lg font-mono text-slate-800 font-medium break-all">
-                                            {lead.telefone}
+                                            {formatPhoneBR(lead.telefone)}
                                         </div>
                                     )}
                                     <div className="flex items-center gap-1">

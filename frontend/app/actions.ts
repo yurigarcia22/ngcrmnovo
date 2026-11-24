@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
 import { scheduleTaskNotifications } from "@/lib/notifications";
 import { normalizeToCanonical, getPossibleVariants, isPlausibleBRPhone } from "@/lib/phone";
+import { todayBR, addDaysYMD, dayRangeBR } from "@/lib/br-time";
 import * as XLSX from 'xlsx';
 import OpenAI from 'openai';
 
@@ -61,6 +62,21 @@ export async function getTenantId() {
     }
 
     return profile.tenant_id;
+}
+
+// --- HELPER: confere se o cold_lead e do tenant (as actions usam service role e passam por cima da RLS) ---
+// Retorna null se ok, ou a mensagem de erro.
+async function checkColdLeadTenant(adminClient: any, coldLeadId: string, tenantId: string): Promise<string | null> {
+    if (!coldLeadId) return "Lead nao informado.";
+    const { data, error } = await adminClient
+        .from("cold_leads")
+        .select("id")
+        .eq("id", coldLeadId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+    if (error) return error.message;
+    if (!data) return "Lead nao encontrado nesta empresa.";
+    return null;
 }
 
 // --- HELPER: Perfil do usuario atual (id, tenant, role) ---
@@ -1252,13 +1268,20 @@ export async function updateColdLeadNote(noteId: string, content: string) {
         const tenantId = await getTenantId();
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
+        // cold_lead_notes nao tem tenant_id: valida pelo join nota -> lead -> tenant
+        const { data: note, error: noteError } = await supabase
+            .from("cold_lead_notes")
+            .select("id, cold_leads!inner(tenant_id)")
+            .eq("id", noteId)
+            .eq("cold_leads.tenant_id", tenantId)
+            .maybeSingle();
+        if (noteError) return { success: false, error: noteError.message };
+        if (!note) return { success: false, error: "Nota nao encontrada nesta empresa." };
+
         const { error } = await supabase
             .from("cold_lead_notes")
             .update({ content })
             .eq("id", noteId);
-        // .eq("tenant_id", tenantId); // cold_lead_notes might not have tenant_id or RLS handles it?
-        // Checking migration... usually linked to cold_lead which has tenant?
-        // Safer to just update by ID for now or check migration content.
 
         if (error) throw error;
         return { success: true };
@@ -1306,6 +1329,11 @@ export async function createTaskFull(input: TaskInput) {
             }
         );
         const { data: { user } } = await ssrClient.auth.getUser();
+
+        if (input.coldLeadId) {
+            const leadErr = await checkColdLeadTenant(supabase, input.coldLeadId, tenantId);
+            if (leadErr) return { success: false, error: leadErr };
+        }
 
         const payload: any = {
             tenant_id: tenantId,
@@ -1380,11 +1408,11 @@ export async function getMyTasks(userIdOverride?: string) {
 
         if (!targetUserId) return { success: false, error: "Usuario nao identificado." };
 
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        const endOfToday   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
-        const weekAhead    = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59, 59).toISOString();
-        const weekAgo      = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
+        // "Hoje" pelo dia do Brasil (o servidor roda em UTC)
+        const hoje = todayBR();
+        const { start: startOfToday, end: endOfToday } = dayRangeBR(hoje);
+        const weekAhead    = dayRangeBR(addDaysYMD(hoje, 7)).end;
+        const weekAgo      = dayRangeBR(addDaysYMD(hoje, -7)).start;
 
         // Tarefas relacionadas (com deal/cold_lead pra mostrar nome)
         const select = `
@@ -1431,6 +1459,9 @@ export async function getMyTasks(userIdOverride?: string) {
                 .order("completed_at", { ascending: false })
                 .limit(30),
         ]);
+
+        const queryError = overdueRes.error || todayRes.error || upcomingRes.error || completedRes.error;
+        if (queryError) return { success: false, error: queryError.message };
 
         return {
             success: true,
@@ -1506,6 +1537,11 @@ export async function createTask(dealId: string | null, description: string, due
             { cookies: { getAll() { return cookieStore.getAll() }, setAll() { } } }
         );
         const { data: { user } } = await ssrClient.auth.getUser();
+
+        if (coldLeadId) {
+            const leadErr = await checkColdLeadTenant(supabase, coldLeadId, tenantId);
+            if (leadErr) return { success: false, error: leadErr };
+        }
 
         const payload: any = {
             description: description,
@@ -3254,6 +3290,9 @@ export async function addColdLeadNote(coldLeadId: string, content: string) {
         );
         const { data: { user } } = await supabaseAuth.auth.getUser();
 
+        const leadErr = await checkColdLeadTenant(supabase, coldLeadId, tenantId);
+        if (leadErr) return { success: false, error: leadErr };
+
         const { error } = await supabase
             .from("cold_lead_notes")
             .insert({
@@ -3262,9 +3301,15 @@ export async function addColdLeadNote(coldLeadId: string, content: string) {
                 created_by: user?.id
             });
 
-        await supabase.from("cold_leads").update({ updated_at: new Date().toISOString() }).eq('id', coldLeadId);
-
         if (error) throw error;
+
+        const { error: touchError } = await supabase
+            .from("cold_leads")
+            .update({ updated_at: new Date().toISOString() })
+            .eq('id', coldLeadId)
+            .eq('tenant_id', tenantId);
+        if (touchError) console.error("addColdLeadNote: falha ao atualizar updated_at do lead:", touchError);
+
         return { success: true };
     } catch (error: any) {
         console.error("addColdLeadNote Error:", error);
@@ -3274,10 +3319,14 @@ export async function addColdLeadNote(coldLeadId: string, content: string) {
 
 export async function getColdLeadNotes(coldLeadId: string) {
     try {
+        const tenantId = await getTenantId();
         const supabase = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
+
+        const leadErr = await checkColdLeadTenant(supabase, coldLeadId, tenantId);
+        if (leadErr) return { success: false, error: leadErr };
 
         const { data, error } = await supabase
             .from("cold_lead_notes")
@@ -3630,6 +3679,33 @@ export async function updateNotificationSettings(settings: any) {
 // COLD CALL FOLLOW-UPS OPERATIONS
 // -------------------------------------------------------------
 
+// Campos que o cliente pode mandar num follow-up. tenant_id vem sempre do servidor
+// e cold_lead_id so entra no insert (depois de validado), nunca no update.
+const COLD_FOLLOWUP_FIELDS = ['data_agendada', 'periodo', 'horario_especifico', 'tipo_acao', 'objetivo', 'prioridade', 'status', 'responsavel_id'] as const;
+
+function pickColdFollowupFields(input: any): Record<string, any> {
+    const out: Record<string, any> = {};
+    if (!input || typeof input !== 'object') return out;
+    for (const key of COLD_FOLLOWUP_FIELDS) {
+        if (key in input) out[key] = input[key];
+    }
+    return out;
+}
+
+// responsavel_id tem que ser alguem da mesma empresa
+async function checkResponsavelTenant(adminClient: any, responsavelId: string | null | undefined, tenantId: string): Promise<string | null> {
+    if (!responsavelId) return null;
+    const { data, error } = await adminClient
+        .from("profiles")
+        .select("id")
+        .eq("id", responsavelId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+    if (error) return error.message;
+    if (!data) return "Responsavel nao pertence a esta empresa.";
+    return null;
+}
+
 export async function createColdCallFollowup(data: Omit<any, 'id' | 'created_at' | 'updated_at' | 'tenant_id'>) {
     try {
         const tenantId = await getTenantId();
@@ -3638,10 +3714,19 @@ export async function createColdCallFollowup(data: Omit<any, 'id' | 'created_at'
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
+        const coldLeadId = (data as any)?.cold_lead_id;
+        const leadErr = await checkColdLeadTenant(supabase, coldLeadId, tenantId);
+        if (leadErr) return { success: false, error: leadErr };
+
+        const fields = pickColdFollowupFields(data);
+        const respErr = await checkResponsavelTenant(supabase, fields.responsavel_id, tenantId);
+        if (respErr) return { success: false, error: respErr };
+
         const { data: followup, error } = await supabase
             .from("cold_call_followups")
             .insert({
-                ...data,
+                ...fields,
+                cold_lead_id: coldLeadId,
                 tenant_id: tenantId
             })
             .select()
@@ -3697,9 +3782,17 @@ export async function updateColdCallFollowup(id: string, updates: any) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
+        // So campos permitidos; tenant_id e cold_lead_id nunca mudam por aqui
+        const safeUpdates = pickColdFollowupFields(updates);
+        if (Object.keys(safeUpdates).length === 0) {
+            return { success: false, error: "Nenhum campo valido para atualizar." };
+        }
+        const respErr = await checkResponsavelTenant(supabase, safeUpdates.responsavel_id, tenantId);
+        if (respErr) return { success: false, error: respErr };
+
         const { data, error } = await supabase
             .from("cold_call_followups")
-            .update(updates)
+            .update(safeUpdates)
             .eq("id", id)
             .eq("tenant_id", tenantId)
             .select();

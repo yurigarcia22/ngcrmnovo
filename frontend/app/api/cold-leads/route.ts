@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getTenantId } from '@/app/actions';
 import { ColdLeadInsert } from '@/types/cold-lead';
-import { canonicalizeNicho } from '@/lib/nicho';
+import { canonicalizeNichoOrDefault, NICHO_VAZIO } from '@/lib/nicho';
+import {
+    buildColdLeadSearchOr,
+    canonicalPhoneOrNull,
+    isColdCallStageOfTenant,
+    listTenantNichos,
+    parseStageId,
+    PG_UNIQUE_VIOLATION,
+} from '@/lib/cold-leads-api';
 
 export async function GET(request: NextRequest) {
     const supabase = await createClient();
@@ -17,6 +25,9 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
 
     const tenantId = await getTenantId();
+    // Busca escapada (virgula/parenteses quebravam o .or() e davam 500) e tambem
+    // pelos digitos do telefone, que agora e gravado so com digitos.
+    const searchOr = buildColdLeadSearchOr(search);
 
     // "Meus leads" resolve o usuario atual uma vez (fora do loop de paginacao).
     let meId: string | null = null;
@@ -30,8 +41,8 @@ export async function GET(request: NextRequest) {
         let q = supabase
             .from('cold_leads')
             .select('*', { count: 'exact' })
-            .eq('tenant_id', tenantId);
-        if (search) q = q.or(`nome.ilike.%${search}%,telefone.ilike.%${search}%`);
+            .eq('tenant_id', tenantId); // filtro explicito, nao depende so da RLS
+        if (searchOr) q = q.or(searchOr);
         if (status) q = q.eq('status', status);
         if (nicho) q = q.eq('nicho', nicho);
         if (stageId) q = q.eq('stage_id', stageId);
@@ -85,24 +96,53 @@ export async function POST(request: NextRequest) {
 
     const tenantId = await getTenantId();
 
-    // Canonicaliza o nicho: casa com um existente (ignora caixa/acento) pra nao duplicar.
-    let nichoFinal = '';
-    if (body.nicho) {
-        const { data: nichoRows } = await supabase
-            .from('cold_leads').select('nicho').eq('tenant_id', tenantId).not('nicho', 'is', null);
-        const existing = Array.from(new Set((nichoRows ?? []).map((r: any) => r.nicho).filter(Boolean)));
-        nichoFinal = canonicalizeNicho(body.nicho, existing) || String(body.nicho).trim();
+    // Telefone sempre no canonico (55 + DDD + numero, so digitos): e assim que o
+    // banco grava e e por ele que o indice unico (tenant_id, telefone) barra duplicata.
+    const telefone = canonicalPhoneOrNull(body.telefone);
+    if (!telefone) {
+        return NextResponse.json(
+            { error: 'Telefone inválido. Informe DDD + número.' },
+            { status: 400 }
+        );
     }
 
+    // Etapa: so aceita etapa de um funil de cold call do proprio tenant.
+    // Sem etapa, o trigger do banco coloca na etapa de entrada do funil padrao.
+    let stageId: number | null = null;
+    if (body.stageId) {
+        stageId = parseStageId(body.stageId);
+        try {
+            if (!stageId || !(await isColdCallStageOfTenant(supabase, tenantId, stageId))) {
+                return NextResponse.json({ error: 'Etapa inválida para o funil de cold call.' }, { status: 400 });
+            }
+        } catch (err: any) {
+            return NextResponse.json({ error: err.message }, { status: 500 });
+        }
+    }
+
+    // Canonicaliza o nicho: une apelidos (vet -> Veterinaria) e casa com um existente
+    // (ignora caixa/acento) pra nao duplicar. A lista vem paginada (sem teto de 1000).
+    let nichoFinal = NICHO_VAZIO;
+    if (body.nicho) {
+        let existing: string[] = [];
+        try {
+            existing = await listTenantNichos(supabase, tenantId);
+        } catch (err: any) {
+            return NextResponse.json({ error: err.message }, { status: 500 });
+        }
+        nichoFinal = canonicalizeNichoOrDefault(body.nicho, existing);
+    }
+
+    // status nao vai: o trigger deriva da etapa.
     const newLead: ColdLeadInsert = {
         tenant_id: tenantId,
-        nome: body.nome,
-        telefone: body.telefone,
-        // nicho NOT NULL no banco — default vazio quando nao informado
+        nome: String(body.nome).trim(),
+        telefone,
+        // nicho NOT NULL no banco — "Não informado" quando nao vier
         nicho: nichoFinal,
         email: body.email || null,
         responsavel_id: body.responsavelId || null,
-        stage_id: body.stageId ? Number(body.stageId) : null,
+        stage_id: stageId,
         google_meu_negocio_url: body.googleMeuNegocioUrl || null,
         site_url: body.siteUrl || null,
         instagram_url: body.instagramUrl || null,
@@ -116,6 +156,9 @@ export async function POST(request: NextRequest) {
         .single();
 
     if (error) {
+        if (error.code === PG_UNIQUE_VIOLATION) {
+            return NextResponse.json({ error: 'Já existe um lead com esse telefone.' }, { status: 409 });
+        }
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

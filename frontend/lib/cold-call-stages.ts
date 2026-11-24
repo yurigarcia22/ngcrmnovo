@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // Mapa status text -> nomes possiveis da etapa no funil de cold_call, em ordem de
 // preferencia. Aceitar varios nomes deixa o funil configuravel: voce pode ter uma
 // coluna unica "Ligacao Feita" (sem Tentativa 1/2) que o sistema ainda reconhece.
-// Nao ha trigger no banco, entao status e stage_id sao mantidos em sync no /call.
+// A comparacao ignora caixa e acento. O caminho inverso (etapa -> status) e feito
+// no banco pelo trigger trg_cold_lead_sync (funcao cold_status_for_stage).
 export const STATUS_TO_STAGE_NAMES: Record<string, string[]> = {
     novo: ['Novo'],
     novo_lead: ['Novo'],
@@ -18,63 +19,66 @@ export const STATUS_TO_STAGE_NAMES: Record<string, string[]> = {
     reuniao_marcada: ['Reunião marcada', 'Confirmado'],
     convertido: ['Convertido'],
     descartado: ['Descartado'],
-    numero_inexistente: ['Descartado'],
-    sem_interesse: ['Descartado'],
-    perdido: ['Descartado'],
+    numero_inexistente: ['Número inexistente', 'Numero inexistente', 'Número inválido', 'Sem WhatsApp'],
+    sem_interesse: ['Sem interesse', 'Descartado'],
+    perdido: ['Descartado', 'Perdido'],
 };
 
 const LOST_STATUSES = new Set(['numero_inexistente', 'sem_interesse', 'perdido', 'descartado']);
-const WON_STATUSES = new Set(['convertido']);
+const WON_STATUSES = new Set(['convertido', 'reuniao_marcada']);
+
+function key(s: string): string {
+    return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
 
 /**
  * Resolve o id da etapa correspondente a um status, DENTRO de um pipeline especifico.
- * Estados terminais usam as flags is_lost/is_won (robusto a renomeacao); os demais
- * casam por uma lista de nomes possiveis, em ordem de preferencia. Retorna null
- * quando nao existe etapa equivalente (nesse caso o lead nao muda de coluna).
+ * Primeiro casa pelo nome (ignorando caixa/acento, em ordem de preferencia), para
+ * "numero inexistente" cair na coluna propria e nao na primeira etapa de perda.
+ * Sem nome equivalente, estados terminais usam as flags is_lost/is_won (robusto a
+ * renomeacao). Retorna null quando nao existe etapa equivalente.
  */
 export async function resolveStageIdInPipeline(
     admin: SupabaseClient,
     pipelineId: number,
     status: string,
 ): Promise<number | null> {
-    if (LOST_STATUSES.has(status)) {
-        const { data } = await admin
-            .from('stages')
-            .select('id')
-            .eq('pipeline_id', pipelineId)
-            .eq('is_lost', true)
-            .order('position', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-        if (data?.id) return data.id as number;
-    }
-
-    if (WON_STATUSES.has(status)) {
-        const { data } = await admin
-            .from('stages')
-            .select('id')
-            .eq('pipeline_id', pipelineId)
-            .eq('is_won', true)
-            .order('position', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-        if (data?.id) return data.id as number;
-    }
-
-    const candidates = STATUS_TO_STAGE_NAMES[status];
-    if (!candidates?.length) return null;
-
-    const { data } = await admin
+    const { data: stages } = await admin
         .from('stages')
-        .select('id, name')
+        .select('id, name, position, is_won, is_lost')
         .eq('pipeline_id', pipelineId)
-        .in('name', candidates);
-    if (!data?.length) return null;
+        .order('position', { ascending: true });
+    if (!stages?.length) return null;
 
-    // Escolhe pela ordem de preferencia dos nomes candidatos.
-    for (const name of candidates) {
-        const hit = data.find((s: any) => s.name === name);
+    for (const name of STATUS_TO_STAGE_NAMES[status] ?? []) {
+        const hit = stages.find((s: any) => key(s.name) === key(name));
+        if (hit) return hit.id as number;
+    }
+    if (LOST_STATUSES.has(status)) {
+        const hit = stages.find((s: any) => s.is_lost);
+        if (hit) return hit.id as number;
+    }
+    if (WON_STATUSES.has(status)) {
+        const hit = stages.find((s: any) => s.is_won);
         if (hit) return hit.id as number;
     }
     return null;
+}
+
+/** Pipeline de cold call do lead (pela etapa atual) ou o padrao do tenant. */
+export async function resolveLeadPipelineId(
+    admin: SupabaseClient,
+    tenantId: string,
+    stageId: number | string | null | undefined,
+): Promise<number | null> {
+    if (stageId) {
+        const { data } = await admin.from('stages').select('pipeline_id').eq('id', stageId).eq('tenant_id', tenantId).maybeSingle();
+        if (data?.pipeline_id) return data.pipeline_id as number;
+    }
+    const { data: p } = await admin
+        .from('pipelines').select('id')
+        .eq('tenant_id', tenantId).eq('kind', 'cold_call')
+        .order('is_default', { ascending: false }).order('created_at', { ascending: true })
+        .limit(1).maybeSingle();
+    return (p?.id as number) ?? null;
 }

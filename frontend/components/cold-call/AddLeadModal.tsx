@@ -139,7 +139,11 @@ export function AddLeadModal({ isOpen, onClose, onSuccess }: AddLeadModalProps) 
                 toast.error(data.error || 'Erro na importação');
                 return;
             }
-            toast.success(`Importação realizada! ${data.totalImported} leads adicionados.`);
+            const extras = [
+                data.duplicates ? `${data.duplicates} já existiam` : '',
+                data.invalid ? `${data.invalid} com telefone inválido` : '',
+            ].filter(Boolean).join(', ');
+            toast.success(`Importação realizada! ${data.totalImported} leads adicionados.`, extras ? { description: `Ignorados: ${extras}.` } : undefined);
             if (data.errors && data.errors.length > 0) {
                 toast.warning(`${data.errors.length} linhas ignoradas com erros.`);
             }

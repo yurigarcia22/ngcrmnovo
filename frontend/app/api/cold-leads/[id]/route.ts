@@ -2,43 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 
-// Mapa de status text legado -> nome canonico da stage no funil padrao de cold_call
-const STATUS_TO_STAGE_NAME: Record<string, string> = {
-    novo: "Novo",
-    novo_lead: "Novo",
-    tentativa_inicial: "Tentativa 1",
-    ligacao_feita: "Tentativa 1",
-    em_follow_up: "Tentativa 2+",
-    lead_qualificado: "Tentativa 2+",
-    contato_realizado: "Contato feito",
-    contato_decisor: "Falou c/ decisor",
-    reuniao_marcada: "Reunião marcada",
-    convertido: "Convertido",
-    descartado: "Descartado",
-    numero_inexistente: "Descartado",
-};
+import { resolveStageIdInPipeline, resolveLeadPipelineId } from '@/lib/cold-call-stages';
+import { canonicalizeNichoOrDefault } from '@/lib/nicho';
 
-async function resolveStageIdFromStatus(
-    tenantId: string,
-    statusText: string,
-): Promise<number | null> {
-    const stageName = STATUS_TO_STAGE_NAME[statusText];
-    if (!stageName) return null;
-
-    const admin = createServiceClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
-    const { data } = await admin
-        .from('stages')
-        .select('id, pipelines!inner(tenant_id, kind, is_default)')
-        .eq('name', stageName)
-        .eq('pipelines.tenant_id', tenantId)
-        .eq('pipelines.kind', 'cold_call')
-        .eq('pipelines.is_default', true)
-        .maybeSingle();
-    return (data?.id as number | undefined) ?? null;
-}
+// Campos que a tela pode editar. tenant_id, tentativas, converted_deal_id, locked_* etc
+// nunca vem do cliente (o trigger tambem bloqueia troca de tenant).
+const EDITABLE = new Set([
+    'nome', 'telefone', 'email', 'nicho', 'responsavel_id', 'site_url', 'instagram_url',
+    'google_meu_negocio_url', 'notas', 'custom_fields', 'proxima_ligacao', 'stage_id', 'status',
+]);
 
 // Busca um lead pelo id (RLS restringe ao tenant do usuario). Usado para abrir
 // um lead a partir do follow-up mesmo quando a etapa dele nao esta carregada.
@@ -72,29 +44,32 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
 
-    // Sanitize body
-    const updates: any = { ...body };
-
+    const updates: any = {};
+    for (const [k, v] of Object.entries(body ?? {})) if (EDITABLE.has(k)) updates[k] = v;
     if (updates.responsavel_id === '') updates.responsavel_id = null;
+    if ('nicho' in updates) updates.nicho = canonicalizeNichoOrDefault(updates.nicho);
 
-    delete updates.id;
-    delete updates.created_at;
-
-    // Sincroniza status -> stage_id se status veio mas stage_id nao
+    // Status sem etapa: acha a coluna equivalente NO FUNIL DO LEAD. Sem coluna
+    // equivalente o status e descartado (o status e derivado da etapa pelo banco;
+    // gravar so o status deixava o lead dessincronizado).
     if (updates.status && !updates.stage_id) {
-        // Resolve tenant do lead atual
+        const admin = createServiceClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
         const { data: leadRow } = await supabase
             .from('cold_leads')
-            .select('tenant_id')
+            .select('tenant_id, stage_id')
             .eq('id', id)
             .maybeSingle();
-        if (leadRow?.tenant_id) {
-            const resolvedStageId = await resolveStageIdFromStatus(
-                leadRow.tenant_id,
-                updates.status,
-            );
-            if (resolvedStageId) updates.stage_id = resolvedStageId;
-        }
+        if (!leadRow) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+        const pipelineId = await resolveLeadPipelineId(admin, leadRow.tenant_id, leadRow.stage_id);
+        const resolved = pipelineId ? await resolveStageIdInPipeline(admin, pipelineId, updates.status) : null;
+        if (resolved) updates.stage_id = resolved;
+        else delete updates.status;
+    }
+    if (!Object.keys(updates).length) {
+        return NextResponse.json({ error: 'Nada para atualizar' }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -106,6 +81,9 @@ export async function PATCH(
 
     if (error) {
         console.error('Error updating cold lead:', error);
+        if ((error as any).code === '23505') {
+            return NextResponse.json({ error: 'Já existe um lead com esse telefone.' }, { status: 409 });
+        }
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

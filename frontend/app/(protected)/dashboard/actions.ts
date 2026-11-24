@@ -3,8 +3,53 @@
 import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { getTenantId, getCurrentProfile } from "@/app/actions";
+import { todayBR, addDaysYMD, dayRangeBR } from "@/lib/br-time";
 
 export type MeetingOutcome = "aconteceu" | "cancelada" | "no_show";
+
+// O PostgREST corta em 1000 linhas: busca em blocos ate acabar.
+// buildQuery precisa devolver uma query NOVA a cada chamada (com order estavel).
+const PAGE_SIZE = 1000;
+async function fetchAllRows(buildQuery: () => any): Promise<{ data: any[]; error: any }> {
+    const rows: any[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+        if (error) return { data: rows, error };
+        rows.push(...(data ?? []));
+        if (!data || data.length < PAGE_SIZE) break;
+    }
+    return { data: rows, error: null };
+}
+
+// .in() com lista grande estoura o tamanho da URL: quebra em blocos.
+async function fetchInChunks(ids: string[], run: (chunk: string[]) => any): Promise<{ data: any[]; error: any }> {
+    const out: any[] = [];
+    for (let i = 0; i < ids.length; i += 200) {
+        const { data, error } = await run(ids.slice(i, i + 200));
+        if (error) return { data: out, error };
+        out.push(...(data ?? []));
+    }
+    return { data: out, error: null };
+}
+
+// Intervalo do periodo pelo dia do Brasil (mesma regra do getDashboardData).
+function periodRangeBR(period: string, customStart?: string, customEnd?: string): { startDate: string; endDate: string } {
+    const hoje = todayBR();
+    let { start: startDate, end: endDate } = dayRangeBR(hoje);
+    if (period === "yesterday") {
+        ({ start: startDate, end: endDate } = dayRangeBR(addDaysYMD(hoje, -1)));
+    } else if (period === "week") {
+        startDate = dayRangeBR(addDaysYMD(hoje, -7)).start;
+    } else if (period === "month") {
+        startDate = dayRangeBR(`${hoje.slice(0, 7)}-01`).start;
+    } else if (period === "custom" && customStart && customEnd) {
+        startDate = dayRangeBR(customStart).start;
+        endDate = dayRangeBR(customEnd).end;
+    } else if (period === "all") {
+        startDate = new Date(0).toISOString();
+    }
+    return { startDate, endDate };
+}
 
 // Registra/atualiza o resultado de uma reuniao marcada (1 por nota).
 export async function setMeetingOutcome(input: {
@@ -32,12 +77,26 @@ export async function setMeetingOutcome(input: {
             return { success: true };
         }
 
-        const { data: found } = await supabase
+        // Service role passa por cima da RLS: confere nota -> lead -> tenant
+        const { data: note, error: noteError } = await supabase
+            .from("cold_lead_notes")
+            .select("id, cold_lead_id, cold_leads!inner(tenant_id)")
+            .eq("id", input.noteId)
+            .eq("cold_leads.tenant_id", tenantId)
+            .maybeSingle();
+        if (noteError) return { success: false, error: noteError.message };
+        if (!note) return { success: false, error: "Reuniao nao encontrada nesta empresa." };
+        if (note.cold_lead_id !== input.coldLeadId) {
+            return { success: false, error: "A reuniao nao pertence a este lead." };
+        }
+
+        const { data: found, error: foundError } = await supabase
             .from("cold_meeting_outcomes")
             .select("id")
             .eq("tenant_id", tenantId)
             .eq("note_id", input.noteId)
             .maybeSingle();
+        if (foundError) return { success: false, error: foundError.message };
 
         const payload = {
             tenant_id: tenantId,
@@ -50,7 +109,7 @@ export async function setMeetingOutcome(input: {
         };
 
         if (found?.id) {
-            const { error } = await supabase.from("cold_meeting_outcomes").update(payload).eq("id", found.id);
+            const { error } = await supabase.from("cold_meeting_outcomes").update(payload).eq("id", found.id).eq("tenant_id", tenantId);
             if (error) throw error;
         } else {
             const { error } = await supabase.from("cold_meeting_outcomes").insert(payload);
@@ -151,7 +210,8 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         if (userId && userId !== "all") tasksQuery = tasksQuery.eq("assigned_to", userId);
 
         // 6. Messages (Conversations)
-        let msgQuery = supabase.from("messages").select("contact_id").eq("tenant_id", tenantId).gte("created_at", startDate).lte("created_at", endDate);
+        // Paginado: sem isso o total de conversas parava nas 1000 primeiras mensagens.
+        const msgQuery = fetchAllRows(() => supabase.from("messages").select("contact_id").eq("tenant_id", tenantId).gte("created_at", startDate).lte("created_at", endDate).order("id"));
 
         // 7. Latest Messages (for Unanswered & Wait Time)
         // Limita aos ultimos 30 dias para nao contar conversas mortas
@@ -171,19 +231,23 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             coldLeadsQuery = coldLeadsQuery.gte("created_at", startDate).lte("created_at", endDate);
         }
 
-        // 9. Cold Activity Notes
-        let coldActivityQuery = supabase
-            .from("cold_lead_notes")
-            .select("id, content, created_by, cold_leads!inner(tenant_id)")
-            .eq("cold_leads.tenant_id", tenantId)
-            .ilike("content", "Interação Registrada:%");
-
-        if (period !== "all") {
-            coldActivityQuery = coldActivityQuery.gte("created_at", startDate).lte("created_at", endDate);
-        }
-        if (userId && userId !== "all") {
-            coldActivityQuery = coldActivityQuery.eq("created_by", userId);
-        }
+        // 9. Cold Activity Notes (paginado: passa de 1000 linhas facil)
+        const buildColdActivityQuery = () => {
+            let q = supabase
+                .from("cold_lead_notes")
+                .select("id, content, created_by, cold_leads!inner(tenant_id)")
+                .eq("cold_leads.tenant_id", tenantId)
+                .ilike("content", "Interação Registrada:%")
+                .order("id", { ascending: true });
+            if (period !== "all") {
+                q = q.gte("created_at", startDate).lte("created_at", endDate);
+            }
+            if (userId && userId !== "all") {
+                q = q.eq("created_by", userId);
+            }
+            return q;
+        };
+        const coldActivityQuery = fetchAllRows(buildColdActivityQuery);
 
         let tenantQuery = supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
 
@@ -232,7 +296,7 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             { data: rawMsgs },
             { data: latestMessages },
             { count: coldLeadsCount },
-            { data: activityNotes },
+            { data: activityNotes, error: activityError },
             { data: tenantData },
             { count: lostDeals, data: lostDealsData },
             wonPrevResult,
@@ -252,6 +316,9 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
             wonPrevQuery ?? Promise.resolve({ count: 0, data: [] as any[] }),
             channelQuery,
         ]);
+
+        // Sem isso as metricas de cold call zeravam sem aviso
+        if (activityError) throw activityError;
 
         const wonDealsPrev = (wonPrevResult as any)?.count ?? 0;
         const wonDealsPrevData = (wonPrevResult as any)?.data ?? [];
@@ -344,10 +411,14 @@ export async function getDashboardData(filters?: { period?: string; userId?: str
         // Resultado das reunioes marcadas no periodo (aconteceu / cancelada / no-show).
         let meetingHappened = 0, meetingCanceled = 0, meetingNoShow = 0;
         if (meetingNoteIds.length > 0) {
-            const { data: outcomes } = await supabase
-                .from("cold_meeting_outcomes")
-                .select("outcome")
-                .in("note_id", meetingNoteIds);
+            const { data: outcomes, error: outcomesError } = await fetchInChunks(meetingNoteIds, (chunk) =>
+                supabase
+                    .from("cold_meeting_outcomes")
+                    .select("outcome")
+                    .eq("tenant_id", tenantId)
+                    .in("note_id", chunk)
+            );
+            if (outcomesError) throw outcomesError;
             for (const o of outcomes ?? []) {
                 if (o.outcome === "aconteceu") meetingHappened++;
                 else if (o.outcome === "cancelada") meetingCanceled++;
@@ -456,30 +527,8 @@ export async function getWonDealsDetails(filters?: { period?: string; userId?: s
 
         const { period = "today", userId, startDate: customStart, endDate: customEnd } = filters || {};
 
-        const now = new Date();
-        let startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        let endDate = new Date().toISOString();
-
-        if (period === "yesterday") {
-            const yesterday = new Date(now);
-            yesterday.setDate(now.getDate() - 1);
-            startDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()).toISOString();
-            endDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59).toISOString();
-        } else if (period === "week") {
-            const weekStart = new Date(now);
-            weekStart.setDate(now.getDate() - 7);
-            startDate = weekStart.toISOString();
-        } else if (period === "month") {
-            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-            startDate = monthStart.toISOString();
-        } else if (period === "custom" && customStart && customEnd) {
-            const [sYear, sMonth, sDay] = customStart.split('-').map(Number);
-            const [eYear, eMonth, eDay] = customEnd.split('-').map(Number);
-            startDate = new Date(sYear, sMonth - 1, sDay, 0, 0, 0).toISOString();
-            endDate = new Date(eYear, eMonth - 1, eDay, 23, 59, 59).toISOString();
-        } else if (period === "all") {
-            startDate = new Date(0).toISOString();
-        }
+        // Antes usava o fuso do servidor (UTC) e nao batia com o card do dashboard (BRT)
+        const { startDate, endDate } = periodRangeBR(period, customStart, customEnd);
 
         let wonQuery = supabase
             .from("deals")
@@ -540,32 +589,42 @@ export async function getColdMeetingsDetails(filters?: { period?: string; userId
             startDate = new Date(0).toISOString();
         }
 
-        let q = supabase
-            .from("cold_lead_notes")
-            .select("id, cold_lead_id, created_by, created_at, cold_leads!inner(tenant_id, nome, telefone, nicho, proxima_ligacao)")
-            .eq("cold_leads.tenant_id", tenantId)
-            .ilike("content", "Interação Registrada: reuniao_marcada")
-            .order("created_at", { ascending: false });
-        if (period !== "all") q = q.gte("created_at", startDate).lte("created_at", endDate);
-        if (userId && userId !== "all") q = q.eq("created_by", userId);
+        // Paginado: o PostgREST para em 1000 linhas
+        const buildQuery = () => {
+            let q = supabase
+                .from("cold_lead_notes")
+                .select("id, cold_lead_id, created_by, created_at, cold_leads!inner(tenant_id, nome, telefone, nicho, proxima_ligacao)")
+                .eq("cold_leads.tenant_id", tenantId)
+                .ilike("content", "Interação Registrada: reuniao_marcada")
+                .order("created_at", { ascending: false })
+                .order("id", { ascending: true });
+            if (period !== "all") q = q.gte("created_at", startDate).lte("created_at", endDate);
+            if (userId && userId !== "all") q = q.eq("created_by", userId);
+            return q;
+        };
 
-        const { data: notes, error } = await q;
+        const { data: notes, error } = await fetchAllRows(buildQuery);
         if (error) throw error;
 
         // Nome do vendedor que marcou (created_by -> profiles).
-        const ids = Array.from(new Set((notes ?? []).map((n: any) => n.created_by).filter(Boolean)));
+        const ids = Array.from(new Set((notes ?? []).map((n: any) => n.created_by).filter(Boolean))) as string[];
         const nameById: Record<string, string> = {};
         if (ids.length > 0) {
-            const { data: profs } = await supabase.from("profiles").select("id, full_name").in("id", ids);
+            const { data: profs, error: profsError } = await fetchInChunks(ids, (chunk) =>
+                supabase.from("profiles").select("id, full_name").eq("tenant_id", tenantId).in("id", chunk)
+            );
+            if (profsError) throw profsError;
             for (const p of profs ?? []) nameById[p.id] = p.full_name || "Usuário";
         }
 
         // Resultado ja registrado de cada reuniao (aconteceu / cancelada / no_show).
-        const noteIds = (notes ?? []).map((n: any) => n.id).filter(Boolean);
+        const noteIds = (notes ?? []).map((n: any) => n.id).filter(Boolean) as string[];
         const outcomeByNote: Record<string, string> = {};
         if (noteIds.length > 0) {
-            const { data: outs } = await supabase
-                .from("cold_meeting_outcomes").select("note_id, outcome").in("note_id", noteIds);
+            const { data: outs, error: outsError } = await fetchInChunks(noteIds, (chunk) =>
+                supabase.from("cold_meeting_outcomes").select("note_id, outcome").eq("tenant_id", tenantId).in("note_id", chunk)
+            );
+            if (outsError) throw outsError;
             for (const o of outs ?? []) if (o.note_id) outcomeByNote[o.note_id] = o.outcome;
         }
 

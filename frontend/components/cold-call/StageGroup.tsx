@@ -1,5 +1,6 @@
 'use client';
 
+import { formatPhoneBR } from "@/lib/br-time";
 import { useState, useEffect } from 'react';
 import { ColdLead } from '@/types/cold-lead';
 import {
@@ -111,7 +112,7 @@ export function StageGroup({
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
                                             <span className="font-medium text-sm text-slate-800 truncate">
-                                                {lead.nome || lead.telefone}
+                                                {lead.nome || formatPhoneBR(lead.telefone)}
                                             </span>
                                             {hasFollowup && (
                                                 <Clock className="h-3 w-3 text-amber-500 shrink-0" aria-label="Follow-up agendado" />
@@ -133,7 +134,7 @@ export function StageGroup({
                                         </div>
                                         <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
                                             <Phone className="h-3 w-3" />
-                                            {lead.telefone}
+                                            {formatPhoneBR(lead.telefone)}
                                         </div>
                                     </div>
 

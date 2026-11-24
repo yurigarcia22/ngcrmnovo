@@ -4,6 +4,17 @@ import { createClient } from "@supabase/supabase-js";
 import { getTenantId } from "@/app/actions";
 import { revalidatePath } from "next/cache";
 
+// Conta cold_leads + deals do tenant que estao nessas etapas.
+async function countLeadsInStages(supabase: any, tenantId: string, stageIds: string[]): Promise<{ total: number; error?: string }> {
+    const [coldRes, dealsRes] = await Promise.all([
+        supabase.from("cold_leads").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("stage_id", stageIds),
+        supabase.from("deals").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("stage_id", stageIds),
+    ]);
+    if (coldRes.error) return { total: 0, error: coldRes.error.message };
+    if (dealsRes.error) return { total: 0, error: dealsRes.error.message };
+    return { total: (coldRes.count ?? 0) + (dealsRes.count ?? 0) };
+}
+
 // --- PIPELINES ---
 
 export async function getPipelines(kind?: "deals" | "cold_call") {
@@ -95,32 +106,31 @@ export async function deletePipeline(id: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        const { data: pipe } = await supabase
+        const { data: pipe, error: pipeError } = await supabase
             .from("pipelines")
             .select("id, name, kind, is_default")
             .eq("id", id)
             .eq("tenant_id", tenantId)
             .maybeSingle();
+        if (pipeError) return { success: false, error: pipeError.message };
         if (!pipe) return { success: false, error: "Funil não encontrado." };
         if (pipe.is_default) {
             return { success: false, error: "O funil padrão não pode ser excluído. Defina outro funil como padrão antes." };
         }
 
         // Funil com leads dentro nao pode ser excluido (a FK bloquearia com erro
-        // criptico; melhor explicar). Conta pelo tipo do funil.
-        const { data: stageRows } = await supabase
+        // criptico; melhor explicar). Conta cold_leads e deals do tenant nas etapas.
+        const { data: stageRows, error: stagesError } = await supabase
             .from("stages").select("id").eq("pipeline_id", id);
+        if (stagesError) return { success: false, error: stagesError.message };
         const stageIds = (stageRows ?? []).map((s: any) => s.id);
         if (stageIds.length > 0) {
-            const table = pipe.kind === "cold_call" ? "cold_leads" : "deals";
-            const { count } = await supabase
-                .from(table)
-                .select("id", { count: "exact", head: true })
-                .in("stage_id", stageIds);
-            if ((count ?? 0) > 0) {
+            const countRes = await countLeadsInStages(supabase, tenantId, stageIds);
+            if (countRes.error) return { success: false, error: countRes.error };
+            if (countRes.total > 0) {
                 return {
                     success: false,
-                    error: `O funil "${pipe.name}" ainda tem ${count} lead(s). Mova-os para outro funil antes de excluir (no board, use Selecionar > mover em massa).`,
+                    error: `O funil "${pipe.name}" ainda tem ${countRes.total} lead(s). Mova-os para outro funil antes de excluir (no board, use Selecionar > mover em massa).`,
                 };
             }
         }
@@ -233,6 +243,25 @@ export async function deleteStage(stageId: string) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
+        const { data: stage, error: stageError } = await supabase
+            .from("stages")
+            .select("id")
+            .eq("id", stageId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+        if (stageError) return { success: false, error: stageError.message };
+        if (!stage) return { success: false, error: "Etapa não encontrada." };
+
+        // Etapa com leads/negocios dentro nao pode ser apagada (ficariam orfaos)
+        const countRes = await countLeadsInStages(supabase, tenantId, [stageId]);
+        if (countRes.error) return { success: false, error: countRes.error };
+        if (countRes.total > 0) {
+            return {
+                success: false,
+                error: `Essa etapa tem ${countRes.total} ${countRes.total === 1 ? "lead" : "leads"}. Mova-os antes de apagar.`,
+            };
+        }
+
         const { error } = await supabase
             .from("stages")
             .delete()
@@ -317,12 +346,26 @@ export async function setPipelineDefault(
             process.env.SUPABASE_SERVICE_ROLE_KEY!
         );
 
-        // Desmarca todos os outros pipelines do tenant
-        await supabase
+        // O padrao e por tipo de funil: marcar um de cold call nao pode tirar o
+        // padrao do funil de vendas (que o webhook do WhatsApp usa) e vice-versa.
+        const { data: pipe, error: pipeError } = await supabase
+            .from("pipelines")
+            .select("id, kind")
+            .eq("id", pipelineId)
+            .eq("tenant_id", tenantId)
+            .maybeSingle();
+        if (pipeError) return { success: false, error: pipeError.message };
+        if (!pipe) return { success: false, error: "Funil não encontrado." };
+
+        // Desmarca so os outros pipelines do mesmo kind
+        let unsetQuery = supabase
             .from("pipelines")
             .update({ is_default: false })
             .eq("tenant_id", tenantId)
             .neq("id", pipelineId);
+        unsetQuery = pipe.kind ? unsetQuery.eq("kind", pipe.kind) : unsetQuery.is("kind", null);
+        const { error: unsetError } = await unsetQuery;
+        if (unsetError) return { success: false, error: unsetError.message };
 
         const { error } = await supabase
             .from("pipelines")
