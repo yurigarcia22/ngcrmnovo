@@ -263,6 +263,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [repliedCount, setRepliedCount] = useState<number | null>(null);
+    const [section, setSection] = useState<"msgs" | "contacts">("msgs");
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -299,7 +300,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Detalhe da campanha" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="flex w-full max-w-2xl max-h-[90vh] flex-col rounded-2xl bg-white shadow-2xl">
+            <div className="flex w-full max-w-3xl h-[88vh] flex-col rounded-2xl bg-white shadow-2xl">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
                     <div className="min-w-0">
@@ -328,13 +329,25 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                     </div>
                 </div>
 
-                {/* Desempenho de cada mensagem nesta campanha */}
-                {campaign.messages && campaign.messages.length > 0 && (
-                    <div className="px-5 pt-4 max-h-64 overflow-y-auto">
-                        <MessageStatsTable campaignIds={[campaign.id]} order={campaign.messages} compact />
-                    </div>
-                )}
+                {/* Abas: mensagens (desempenho) x contatos, cada uma com a altura toda */}
+                <div className="px-5 pt-4 flex items-center gap-5 border-b border-slate-100">
+                    {([
+                        { k: "msgs", label: `Mensagens (${campaign.messages?.length ?? 0})` },
+                        { k: "contacts", label: `Contatos (${campaign.total})` },
+                    ] as const).map((t) => (
+                        <button key={t.k} onClick={() => setSection(t.k)}
+                            className={`-mb-px border-b-2 pb-2 text-sm font-semibold transition-colors ${section === t.k ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
 
+                {section === "msgs" ? (
+                    <div className="flex-1 overflow-y-auto px-5 py-4">
+                        <MessageStatsTable campaignIds={[campaign.id]} order={campaign.messages ?? []} full />
+                    </div>
+                ) : (
+                <>
                 {/* Tabs de status */}
                 <div className="px-5 pt-4 flex items-center gap-1.5 flex-wrap">
                     {tabs.map((t) => (
@@ -389,6 +402,8 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                         <p className="text-center text-[12px] text-slate-400 pt-2">mostrando {shown.length} de {total}</p>
                     )}
                 </div>
+                </>
+                )}
             </div>
         </div>
     );
@@ -621,7 +636,7 @@ function MessagePerformance({ campaigns, refreshKey }: { campaigns: Campaign[]; 
     );
 }
 
-function MessageStatsTable({ campaignIds, order, compact, refreshKey = 0 }: { campaignIds: string[] | null; order?: string[]; compact?: boolean; refreshKey?: number }) {
+function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campaignIds: string[] | null; order?: string[]; full?: boolean; refreshKey?: number }) {
     const [stats, setStats] = useState<MessageStat[] | null>(null);
     const [untracked, setUntracked] = useState(0);
     const [open, setOpen] = useState<string | null>(null);
@@ -653,26 +668,29 @@ function MessageStatsTable({ campaignIds, order, compact, refreshKey = 0 }: { ca
 
     return (
         <div>
-            {!compact && <p className="text-[12px] text-slate-500 mb-2">Resposta = o contato mandou mensagem no mesmo número depois do disparo. A taxa só fica confiável a partir de {AMOSTRA_MINIMA} envios por mensagem.</p>}
-            {compact && <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Mensagens ({rows.length}) · envios e respostas</p>}
-            <ul className="space-y-2">
+            <p className="text-[12px] text-slate-500 mb-3">Resposta = o contato mandou mensagem no mesmo número depois do disparo. A taxa só fica confiável a partir de {AMOSTRA_MINIMA} envios por mensagem.</p>
+            <ul className={full ? "space-y-3" : "space-y-2"}>
                 {rows.map((r, i) => {
                     const pct = Math.round(rate(r) * 1000) / 10;
                     const leader = r.sent >= AMOSTRA_MINIMA && rate(r) === best && best > 0;
                     const isOpen = open === r.template;
                     return (
-                        <li key={i} className={`rounded-lg border px-3 py-2 ${leader ? "border-amber-300 bg-amber-50/50" : "border-slate-100 bg-slate-50"}`}>
+                        <li key={i} className={`rounded-lg border ${full ? "px-4 py-3" : "px-3 py-2"} ${leader ? "border-amber-300 bg-amber-50/50" : "border-slate-100 bg-slate-50"}`}>
                             <div className="flex items-start gap-3">
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 mb-0.5">
                                         {label(r.template) && <span className="rounded bg-white border border-slate-200 px-1.5 text-[10px] font-bold text-slate-500">{label(r.template)}</span>}
                                         {leader && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"><Trophy size={12} /> melhor taxa</span>}
                                     </div>
-                                    <button type="button" onClick={() => setOpen(isOpen ? null : r.template)}
-                                        className={`text-left text-[12px] text-slate-600 whitespace-pre-wrap ${isOpen ? "" : "line-clamp-2"}`}>
-                                        {r.template}
-                                    </button>
-                                    {!compact && r.campaigns.length > 0 && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{r.campaigns.join(" · ")}</p>}
+                                    {full ? (
+                                        <p className="text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap">{r.template}</p>
+                                    ) : (
+                                        <button type="button" onClick={() => setOpen(isOpen ? null : r.template)}
+                                            className={`text-left text-[12px] text-slate-600 whitespace-pre-wrap ${isOpen ? "" : "line-clamp-2"}`}>
+                                            {r.template}
+                                        </button>
+                                    )}
+                                    {!full && r.campaigns.length > 0 && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{r.campaigns.join(" · ")}</p>}
                                 </div>
                                 <div className="shrink-0 text-right tabular-nums">
                                     <div className="text-lg font-bold text-slate-800 leading-tight">{r.sent ? `${pct.toLocaleString("pt-BR")}%` : "-"}</div>
@@ -687,7 +705,7 @@ function MessageStatsTable({ campaignIds, order, compact, refreshKey = 0 }: { ca
                     );
                 })}
             </ul>
-            {untracked > 0 && !compact && <p className="mt-2 text-[11px] text-slate-400">{untracked} envios de campanhas antigas ficaram de fora (foram antes do registro de qual mensagem saiu).</p>}
+            {untracked > 0 && !full && <p className="mt-2 text-[11px] text-slate-400">{untracked} envios de campanhas antigas ficaram de fora (foram antes do registro de qual mensagem saiu).</p>}
         </div>
     );
 }
