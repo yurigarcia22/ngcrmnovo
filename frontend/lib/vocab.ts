@@ -17,6 +17,8 @@ export interface Vocab {
     pipeline: string;
     /** Frase de ajuda na coluna de entrada do Kanban. */
     newLeadsHint: string;
+    /** Frase da coluna de entrada quando o funil nao recebe WhatsApp. */
+    newLeadsHintNoWhatsapp: string;
     /** Como chamar o "negocio"/card do Kanban. */
     dealWord: string;
     /** Rotulo de faturamento/receita. */
@@ -37,6 +39,7 @@ const SALES: Vocab = {
     leadsNav: "Leads",
     pipeline: "Pipeline de Vendas",
     newLeadsHint: "Conversas novas chegam aqui. Arraste para promover a deal.",
+    newLeadsHintNoWhatsapp: "Leads novos chegam aqui. Arraste conforme a negociação avança.",
     dealWord: "Negócio",
     revenue: "Receita ganha",
     valueLabel: "Venda",
@@ -51,6 +54,7 @@ const VET: Vocab = {
     leadsNav: "Captação",
     pipeline: "Funil de Atendimento",
     newLeadsHint: "Tutores novos chegam aqui. Arraste conforme o atendimento avança.",
+    newLeadsHintNoWhatsapp: "Tutores novos chegam aqui. Arraste conforme o atendimento avança.",
     dealWord: "Atendimento",
     revenue: "Faturamento",
     valueLabel: "Valor",

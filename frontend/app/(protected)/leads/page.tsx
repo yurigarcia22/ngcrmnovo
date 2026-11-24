@@ -685,6 +685,9 @@ export default function LeadsPage() {
                             const stageValue = stageDeals.reduce((sum, deal) => sum + Number(deal.value || 0), 0);
 
                             const isInbox = stage.is_inbox === true;
+                            // Funil com a "Entrada do WhatsApp" desligada (Configuracoes > Funis): a
+                            // entrada continua sendo a coluna de chegada, mas com o cartao normal.
+                            const waInbox = isInbox && pipelines.find((p: any) => String(p.id) === String(selectedPipelineId))?.whatsapp_inbox !== false;
                             return (
                                 <StrictModeDroppable key={stage.id} droppableId={String(stage.id)}>
                                     {(provided, dropSnapshot) => (
@@ -739,7 +742,7 @@ export default function LeadsPage() {
                                                 </div>
                                                 {isInbox && (
                                                     <p className="text-[10px] text-indigo-600/70 mt-1 leading-tight">
-                                                        {vocab.newLeadsHint}
+                                                        {waInbox ? vocab.newLeadsHint : vocab.newLeadsHintNoWhatsapp}
                                                     </p>
                                                 )}
                                             </div>
@@ -751,7 +754,7 @@ export default function LeadsPage() {
                                                     : 'bg-gray-100/50 border-black/5'
                                             } ${dropSnapshot.isDraggingOver ? 'ring-2 ring-indigo-300' : ''}`}>
                                                 {stageDeals.map((deal, index) =>
-                                                    isInbox ? (
+                                                    waInbox ? (
                                                         <InboxKanbanCard
                                                             key={deal.id}
                                                             deal={deal}

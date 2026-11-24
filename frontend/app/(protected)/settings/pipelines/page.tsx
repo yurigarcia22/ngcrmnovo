@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import {
     getPipelines, createPipeline, deletePipeline,
     getStages, createStage, updateStage, deleteStage, updateStagesOrder,
-    setStageFlag, setPipelineDefault
+    setStageFlag, setPipelineDefault, setPipelineWhatsappInbox
 } from "./actions";
-import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star, Zap } from "lucide-react";
+import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star, Zap, MessageCircle } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { cn } from "@/lib/utils";
@@ -360,6 +360,46 @@ export default function PipelinesPage() {
                                 Gerencie as colunas e fases deste processo de venda
                             </p>
                         )}
+                        {selectedPipelineId && activeKind === "deals" && (() => {
+                            const pipe = pipelines.find((p) => String(p.id) === String(selectedPipelineId));
+                            if (!pipe) return null;
+                            const on = pipe.whatsapp_inbox !== false;
+                            return (
+                                <label className="mt-3 flex items-start gap-3 cursor-pointer select-none max-w-xl">
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={on}
+                                        onClick={async () => {
+                                            setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, whatsapp_inbox: !on } : p)));
+                                            const res = await setPipelineWhatsappInbox(pipe.id, !on);
+                                            if (res.success) {
+                                                toast.success(!on ? "Entrada do WhatsApp ligada neste funil" : "Entrada do WhatsApp desligada neste funil");
+                                            } else {
+                                                setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, whatsapp_inbox: on } : p)));
+                                                toast.error(res.error ?? "Erro ao salvar");
+                                            }
+                                        }}
+                                        className={cn(
+                                            "mt-0.5 relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
+                                            on ? "bg-emerald-500" : "bg-slate-300"
+                                        )}
+                                    >
+                                        <span className={cn("inline-block h-4 w-4 rounded-full bg-white shadow transition-transform", on ? "translate-x-4" : "translate-x-0.5")} />
+                                    </button>
+                                    <span className="text-sm">
+                                        <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" /> Entrada do WhatsApp
+                                        </span>
+                                        <span className="block text-xs text-slate-500 mt-0.5">
+                                            {on
+                                                ? "Ligada: conversas novas do WhatsApp chegam na coluna de entrada deste funil, com o cartão de conversa."
+                                                : "Desligada: este funil não recebe conversa do WhatsApp e a coluna de entrada usa o cartão normal (bom pra lead de anúncio ou planilha)."}
+                                        </span>
+                                    </span>
+                                </label>
+                            );
+                        })()}
                     </div>
 
                     {selectedPipelineId && (

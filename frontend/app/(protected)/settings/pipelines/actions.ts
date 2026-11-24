@@ -409,3 +409,37 @@ export async function updateStagesOrder(items: { id: string; position: number; p
         return { success: false, error: error.message };
     }
 }
+
+/**
+ * Liga/desliga a "Entrada do WhatsApp" de um funil de vendas.
+ * Ligada: conversas novas do WhatsApp chegam na coluna de entrada (cartao de conversa).
+ * Desligada: o funil nao recebe conversa do WhatsApp e a entrada vira coluna comum
+ * (ex.: funil de cliente que recebe lead so do Meta Ads).
+ * O roteamento do webhook respeita isso na funcao get_inbox_stage_for_instance.
+ */
+export async function setPipelineWhatsappInbox(
+    pipelineId: string,
+    enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data, error } = await supabase
+            .from("pipelines")
+            .update({ whatsapp_inbox: enabled })
+            .eq("id", pipelineId)
+            .eq("tenant_id", tenantId)
+            .eq("kind", "deals")
+            .select("id");
+        if (error) throw error;
+        if (!data || data.length === 0) return { success: false, error: "Funil não encontrado." };
+        revalidatePath("/settings/pipelines");
+        revalidatePath("/leads");
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
