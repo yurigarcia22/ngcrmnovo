@@ -207,9 +207,10 @@ async function DashboardContent({
     const showTopSellers = userId === "all" && topSellersData.length > 0;
     const showSellersTable = userId === "all" && sellers.length > 1;
 
-    // Metas: admin sempre ve a geral; vendedor ve a sua (se tiver). Canais sempre aparece.
+    // Metas: admin sempre ve (com convite pra cadastrar se nao tiver); vendedor ve se
+    // tiver meta. Canais sempre aparece.
     const goalsProg = goalsRes?.success ? goalsRes : null;
-    const showGoals = !!goalsProg && (goalsProg.isAdmin || !!goalsProg.me);
+    const showGoals = !!goalsProg && (goalsProg.isAdmin || !!goalsProg.targets);
 
     return (
         <div className="space-y-6">
@@ -309,17 +310,11 @@ async function DashboardContent({
                 )}
             </div>
 
-            {/* === Metas + Aquisição por canal === */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                {showGoals && (
-                    <div className="lg:col-span-6">
-                        <GoalsCard progress={goalsProg} />
-                    </div>
-                )}
-                <div className={showGoals ? "lg:col-span-6" : "lg:col-span-12"}>
-                    <AcquisitionChannelsCard data={data.byChannel} />
-                </div>
-            </div>
+            {/* === Metas (largura toda: hoje, semana e marcos) === */}
+            {showGoals && <GoalsCard progress={goalsProg} />}
+
+            {/* === Aquisição por canal === */}
+            <AcquisitionChannelsCard data={data.byChannel} />
 
             {/* === Cold Call (so se modulo ativo) === */}
             {showColdCall && (

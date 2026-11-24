@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@supabase/supabase-js";
-import { getTenantId } from "@/app/actions";
+import { getTenantId, getCurrentProfile } from "@/app/actions";
 import { isModuleEnabled } from "@/lib/modules";
 import { normalizeToCanonical, isPlausibleBRPhone } from "@/lib/phone";
 import { revalidatePath } from "next/cache";
@@ -357,13 +357,19 @@ export async function setRecipientMeeting(recipientId: string, meetingLocal: str
         const tenantId = await assertDisparos();
         const supabase = svc();
         const { data: rec } = await supabase
-            .from("dispatch_recipients").select("id, meeting_marked_at")
+            .from("dispatch_recipients").select("id, meeting_marked_at, meeting_marked_by")
             .eq("id", recipientId).eq("tenant_id", tenantId).maybeSingle();
         if (!rec) throw new Error("Contato não encontrado.");
 
+        // Quem marcou conta a reuniao na meta dele (Configuracoes > Metas).
+        const me = rec.meeting_marked_at ? null : await getCurrentProfile();
         const patch = clear
-            ? { meeting_marked_at: null, meeting_at: null, meeting_outcome: null }
-            : { meeting_marked_at: rec.meeting_marked_at ?? new Date().toISOString(), meeting_at: brLocalToISO(meetingLocal) };
+            ? { meeting_marked_at: null, meeting_at: null, meeting_outcome: null, meeting_marked_by: null }
+            : {
+                meeting_marked_at: rec.meeting_marked_at ?? new Date().toISOString(),
+                meeting_at: brLocalToISO(meetingLocal),
+                meeting_marked_by: rec.meeting_marked_by ?? me?.userId ?? null,
+            };
         const { data, error } = await supabase
             .from("dispatch_recipients").update(patch)
             .eq("id", recipientId).eq("tenant_id", tenantId)

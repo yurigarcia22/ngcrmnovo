@@ -283,7 +283,7 @@ export async function deleteStage(stageId: string) {
  */
 export async function setStageFlag(
     stageId: string,
-    flag: "is_inbox" | "is_won" | "is_lost" | "is_quick_action",
+    flag: "is_inbox" | "is_won" | "is_lost" | "is_quick_action" | "is_proposal",
     value: boolean
 ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -303,7 +303,8 @@ export async function setStageFlag(
 
         if (!stage) return { success: false, error: "Stage nao encontrada." };
 
-        const isExclusive = flag !== "is_quick_action";
+        // Acao rapida e Proposta podem estar em mais de uma etapa do funil.
+        const isExclusive = flag !== "is_quick_action" && flag !== "is_proposal";
 
         if (value && isExclusive) {
             // Flags exclusivas: desmarca todas as outras do mesmo pipeline
@@ -325,6 +326,7 @@ export async function setStageFlag(
         revalidatePath("/settings/pipelines");
         revalidatePath("/leads");
         revalidatePath("/cold-call");
+        if (flag === "is_proposal") revalidatePath("/dashboard");
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -438,6 +440,37 @@ export async function setPipelineWhatsappInbox(
         if (!data || data.length === 0) return { success: false, error: "Funil não encontrado." };
         revalidatePath("/settings/pipelines");
         revalidatePath("/leads");
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Liga/desliga se um funil de vendas conta nas metas (contratos, valor vendido e
+ * propostas). Desligar serve pra funil de cliente que mora dentro da conta.
+ */
+export async function setPipelineInGoals(
+    pipelineId: string,
+    enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tenantId = await getTenantId();
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data, error } = await supabase
+            .from("pipelines")
+            .update({ in_goals: enabled })
+            .eq("id", pipelineId)
+            .eq("tenant_id", tenantId)
+            .eq("kind", "deals")
+            .select("id");
+        if (error) throw error;
+        if (!data || data.length === 0) return { success: false, error: "Funil não encontrado." };
+        revalidatePath("/settings/pipelines");
+        revalidatePath("/dashboard");
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };

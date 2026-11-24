@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import {
     getPipelines, createPipeline, deletePipeline,
     getStages, createStage, updateStage, deleteStage, updateStagesOrder,
-    setStageFlag, setPipelineDefault, setPipelineWhatsappInbox
+    setStageFlag, setPipelineDefault, setPipelineWhatsappInbox, setPipelineInGoals
 } from "./actions";
-import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star, Zap, MessageCircle } from "lucide-react";
+import { Plus, Trash2, GripVertical, Edit2, Check, X, LayoutTemplate, ArrowRight, Inbox, Trophy, Frown, Star, Zap, MessageCircle, Target, FileText } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button, Input } from "@/components/ui/simple-ui";
 import { cn } from "@/lib/utils";
@@ -363,41 +363,45 @@ export default function PipelinesPage() {
                         {selectedPipelineId && activeKind === "deals" && (() => {
                             const pipe = pipelines.find((p) => String(p.id) === String(selectedPipelineId));
                             if (!pipe) return null;
-                            const on = pipe.whatsapp_inbox !== false;
+                            const waOn = pipe.whatsapp_inbox !== false;
+                            const goalsOn = pipe.in_goals !== false;
                             return (
-                                <label className="mt-3 flex items-start gap-3 cursor-pointer select-none max-w-xl">
-                                    <button
-                                        type="button"
-                                        role="switch"
-                                        aria-checked={on}
-                                        onClick={async () => {
-                                            setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, whatsapp_inbox: !on } : p)));
-                                            const res = await setPipelineWhatsappInbox(pipe.id, !on);
+                                <div className="mt-3 space-y-3 max-w-xl">
+                                    <PipelineSwitch
+                                        on={waOn}
+                                        icon={<MessageCircle className="w-3.5 h-3.5 text-emerald-600" />}
+                                        title="Entrada do WhatsApp"
+                                        onText="Ligada: conversas novas do WhatsApp chegam na coluna de entrada deste funil, com o cartão de conversa."
+                                        offText="Desligada: este funil não recebe conversa do WhatsApp e a coluna de entrada usa o cartão normal (bom pra lead de anúncio ou planilha)."
+                                        onToggle={async () => {
+                                            setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, whatsapp_inbox: !waOn } : p)));
+                                            const res = await setPipelineWhatsappInbox(pipe.id, !waOn);
                                             if (res.success) {
-                                                toast.success(!on ? "Entrada do WhatsApp ligada neste funil" : "Entrada do WhatsApp desligada neste funil");
+                                                toast.success(!waOn ? "Entrada do WhatsApp ligada neste funil" : "Entrada do WhatsApp desligada neste funil");
                                             } else {
-                                                setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, whatsapp_inbox: on } : p)));
+                                                setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, whatsapp_inbox: waOn } : p)));
                                                 toast.error(res.error ?? "Erro ao salvar");
                                             }
                                         }}
-                                        className={cn(
-                                            "mt-0.5 relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
-                                            on ? "bg-emerald-500" : "bg-slate-300"
-                                        )}
-                                    >
-                                        <span className={cn("inline-block h-4 w-4 rounded-full bg-white shadow transition-transform", on ? "translate-x-4" : "translate-x-0.5")} />
-                                    </button>
-                                    <span className="text-sm">
-                                        <span className="font-medium text-slate-700 flex items-center gap-1.5">
-                                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" /> Entrada do WhatsApp
-                                        </span>
-                                        <span className="block text-xs text-slate-500 mt-0.5">
-                                            {on
-                                                ? "Ligada: conversas novas do WhatsApp chegam na coluna de entrada deste funil, com o cartão de conversa."
-                                                : "Desligada: este funil não recebe conversa do WhatsApp e a coluna de entrada usa o cartão normal (bom pra lead de anúncio ou planilha)."}
-                                        </span>
-                                    </span>
-                                </label>
+                                    />
+                                    <PipelineSwitch
+                                        on={goalsOn}
+                                        icon={<Target className="w-3.5 h-3.5 text-indigo-600" />}
+                                        title="Conta nas metas"
+                                        onText="Ligada: contratos, valor vendido e propostas deste funil entram nas metas do Dashboard."
+                                        offText="Desligada: o que acontece neste funil não entra nas metas (bom pra funil de cliente que mora na sua conta)."
+                                        onToggle={async () => {
+                                            setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, in_goals: !goalsOn } : p)));
+                                            const res = await setPipelineInGoals(pipe.id, !goalsOn);
+                                            if (res.success) {
+                                                toast.success(!goalsOn ? "Funil passa a contar nas metas" : "Funil fora das metas");
+                                            } else {
+                                                setPipelines((ps) => ps.map((p) => (p.id === pipe.id ? { ...p, in_goals: goalsOn } : p)));
+                                                toast.error(res.error ?? "Erro ao salvar");
+                                            }
+                                        }}
+                                    />
+                                </div>
                             );
                         })()}
                     </div>
@@ -525,7 +529,7 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
         setIsEditing(false);
     }
 
-    async function toggleFlag(flag: "is_inbox" | "is_won" | "is_lost" | "is_quick_action") {
+    async function toggleFlag(flag: "is_inbox" | "is_won" | "is_lost" | "is_quick_action" | "is_proposal") {
         const next = !stage[flag];
         const res = await setStageFlag(String(stage.id), flag, next);
         if (res.success) {
@@ -533,6 +537,7 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
                 flag === "is_inbox" ? "Entrada"
                 : flag === "is_won" ? "Ganho"
                 : flag === "is_lost" ? "Perda"
+                : flag === "is_proposal" ? "Proposta"
                 : "Ação rápida";
             toast.success(`${stage.name}: ${label} ${next ? "ativado" : "desativado"}`);
             onReload();
@@ -612,6 +617,15 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
                     activeClass="bg-rose-100 text-rose-700 border-rose-300"
                     onClick={() => toggleFlag("is_lost")}
                 />
+                {kind !== "cold_call" && (
+                    <FlagPill
+                        label="Proposta"
+                        icon={<FileText className="w-3 h-3" />}
+                        active={!!stage.is_proposal}
+                        activeClass="bg-sky-100 text-sky-700 border-sky-300"
+                        onClick={() => toggleFlag("is_proposal")}
+                    />
+                )}
                 {kind === "cold_call" && (
                     <FlagPill
                         label="Ação Rápida"
@@ -653,6 +667,32 @@ function StageItem({ stage, kind, onUpdate, onDelete, onReload, dragHandleProps,
             </div>
         </div>
     )
+}
+
+// Chave liga/desliga de configuracao do funil (Entrada do WhatsApp, Conta nas metas).
+function PipelineSwitch({ on, icon, title, onText, offText, onToggle }: {
+    on: boolean; icon: React.ReactNode; title: string; onText: string; offText: string; onToggle: () => void;
+}) {
+    return (
+        <label className="flex items-start gap-3 cursor-pointer select-none">
+            <button
+                type="button"
+                role="switch"
+                aria-checked={on}
+                onClick={onToggle}
+                className={cn(
+                    "mt-0.5 relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
+                    on ? "bg-emerald-500" : "bg-slate-300"
+                )}
+            >
+                <span className={cn("inline-block h-4 w-4 rounded-full bg-white shadow transition-transform", on ? "translate-x-4" : "translate-x-0.5")} />
+            </button>
+            <span className="text-sm">
+                <span className="font-medium text-slate-700 flex items-center gap-1.5">{icon} {title}</span>
+                <span className="block text-xs text-slate-500 mt-0.5">{on ? onText : offText}</span>
+            </span>
+        </label>
+    );
 }
 
 function FlagPill({
