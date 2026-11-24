@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import {
     Send, Plus, Play, Pause, Trash2, Users, Upload, Clock, ArrowLeft,
-    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X, Search, MessageCircleReply, Trophy,
+    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X, Search, MessageCircleReply, Trophy, CalendarCheck, CalendarPlus, CalendarX, UserX,
 } from "lucide-react";
-import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign, getCampaignRecipients, getMessageStats, type MessageStat } from "./actions";
+import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign, getCampaignRecipients, getMessageStats, setRecipientMeeting, setRecipientMeetingOutcome, type MessageStat } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -16,7 +16,7 @@ interface Campaign {
     total: number; sent: number; failed: number; pending: number;
     instanceConnected?: boolean; last_sent_at?: string | null;
     messages?: string[]; business_hours_only?: boolean; pause_reason?: string | null;
-    send_hour_start?: number; send_hour_end?: number;
+    send_hour_start?: number; send_hour_end?: number; meetings?: number; meetingsDone?: number; meetingsNoShow?: number;
     instanceLabel?: string;
 }
 
@@ -216,6 +216,14 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                                             <Clock size={14} /> <span className="tabular-nums"><CountUp value={c.pending} /></span> pendentes
                                         </span>
                                         <span className="text-slate-400">de <span className="tabular-nums">{c.total.toLocaleString("pt-BR")}</span></span>
+                                        {(c.meetings ?? 0) > 0 && (
+                                            <span className="flex items-center gap-1.5 font-semibold text-violet-700">
+                                                <CalendarCheck size={14} /> {c.meetings} {c.meetings === 1 ? "reunião" : "reuniões"}
+                                                {((c.meetingsDone ?? 0) > 0 || (c.meetingsNoShow ?? 0) > 0) && (
+                                                    <span className="font-normal text-slate-500">({c.meetingsDone ?? 0} {c.meetingsDone === 1 ? "aconteceu" : "aconteceram"} · {c.meetingsNoShow ?? 0} no-show)</span>
+                                                )}
+                                            </span>
+                                        )}
                                         {running && c.pending > 0 && <span className="ml-auto text-slate-400">{etaLabel(c)}</span>}
                                     </div>
                                 </div>
@@ -263,6 +271,16 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [repliedCount, setRepliedCount] = useState<number | null>(null);
+    const [meetingCount, setMeetingCount] = useState<number | null>(null);
+    const [statsKey, setStatsKey] = useState(0);
+
+    function onMeetingChange(id: string, patch: { meeting_marked_at: string | null; meeting_at: string | null; meeting_outcome?: string | null }) {
+        const before = recipients.find((r) => r.id === id);
+        const had = !!before?.meeting_marked_at, has = !!patch.meeting_marked_at;
+        setRecipients((rs) => (filter === "meeting" && !has ? rs.filter((r) => r.id !== id) : rs.map((r) => (r.id === id ? { ...r, ...patch } : r))));
+        if (had !== has) setMeetingCount((n) => Math.max(0, (n ?? 0) + (has ? 1 : -1)));
+        setStatsKey((k) => k + 1);
+    }
     const [section, setSection] = useState<"msgs" | "contacts">("msgs");
 
     useEffect(() => {
@@ -279,6 +297,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
             setRecipients(res.recipients ?? []);
             setTotal(res.total ?? 0);
             if (typeof (res as any).repliedCount === "number") setRepliedCount((res as any).repliedCount);
+            if (typeof (res as any).meetingCount === "number") setMeetingCount((res as any).meetingCount);
             setLoading(false);
         });
         return () => { active = false; };
@@ -296,6 +315,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
         { k: "failed", label: `Falhas (${campaign.failed})` },
         { k: "pending", label: `Pendentes (${campaign.pending})` },
         { k: "replied", label: `Responderam${repliedCount !== null ? ` (${repliedCount})` : ""}` },
+        { k: "meeting", label: `Reuniões${meetingCount !== null ? ` (${meetingCount})` : ""}` },
     ];
 
     return (
@@ -326,6 +346,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                         <span className="font-semibold text-emerald-700 flex items-center gap-1"><CheckCircle2 size={14} /> {campaign.sent} enviados {successRate !== null && <span className="font-normal text-slate-400">({successRate}%)</span>}</span>
                         {campaign.failed > 0 && <span className="font-semibold text-rose-600 flex items-center gap-1"><XCircle size={14} /> {campaign.failed} falhas</span>}
                         <span className="text-slate-500 flex items-center gap-1"><Clock size={14} /> {campaign.pending} pendentes</span>
+                        {(meetingCount ?? campaign.meetings ?? 0) > 0 && <span className="font-semibold text-violet-700 flex items-center gap-1"><CalendarCheck size={14} /> {meetingCount ?? campaign.meetings} {(meetingCount ?? campaign.meetings) === 1 ? "reunião" : "reuniões"}</span>}
                     </div>
                 </div>
 
@@ -344,7 +365,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
 
                 {section === "msgs" ? (
                     <div className="flex-1 overflow-y-auto px-5 py-4">
-                        <MessageStatsTable campaignIds={[campaign.id]} order={campaign.messages ?? []} full />
+                        <MessageStatsTable campaignIds={[campaign.id]} order={campaign.messages ?? []} full refreshKey={statsKey} />
                     </div>
                 ) : (
                 <>
@@ -377,7 +398,8 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                             {shown.map((r) => {
                                 const ds = DET_STATUS[r.status] ?? DET_STATUS.pending;
                                 return (
-                                    <li key={r.id} className="flex items-center gap-3 py-2">
+                                    <li key={r.id} className="py-2">
+                                    <div className="flex items-center gap-3">
                                         <span className={`h-2 w-2 shrink-0 rounded-full ${ds.dot}`} />
                                         <div className="min-w-0 flex-1">
                                             <div className="text-sm font-medium text-slate-800 truncate">{r.name || "—"}</div>
@@ -398,6 +420,8 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                                             </span>
                                         )}
                                         <span className={`text-[11px] font-semibold shrink-0 ${ds.text}`}>{ds.t}</span>
+                                        {r.status === "sent" && <MeetingButton recipient={r} onChange={onMeetingChange} />}
+                                    </div>
                                     </li>
                                 );
                             })}
@@ -661,7 +685,7 @@ function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campa
 
     // Mensagens da campanha que ainda nao sairam aparecem zeradas.
     const rows: MessageStat[] = [...stats];
-    for (const m of order ?? []) if (!rows.some((r) => r.template === m)) rows.push({ template: m, sent: 0, replied: 0, auto: 0, campaigns: [] });
+    for (const m of order ?? []) if (!rows.some((r) => r.template === m)) rows.push({ template: m, sent: 0, replied: 0, auto: 0, meetings: 0, meetingsDone: 0, meetingsNoShow: 0, meetingsCanceled: 0, campaigns: [] });
 
     if (rows.length === 0) {
         return <p className="text-sm text-slate-400 py-2">Nenhuma mensagem enviada ainda.{untracked > 0 ? ` (${untracked} envios antigos sem registro de qual mensagem saiu.)` : ""}</p>;
@@ -701,6 +725,10 @@ function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campa
                                     <div className="text-lg font-bold text-slate-800 leading-tight">{r.sent ? `${pct.toLocaleString("pt-BR")}%` : "-"}</div>
                                     <div className="text-[11px] text-slate-500">{r.replied} de {r.sent} responderam</div>
                                     {r.auto > 0 && <div className="text-[11px] text-slate-400">{r.auto} só automática</div>}
+                                    {r.meetings > 0 && <div className="text-[11px] font-semibold text-violet-700">{r.meetings} {r.meetings === 1 ? "reunião" : "reuniões"}</div>}
+                                    {(r.meetingsDone > 0 || r.meetingsNoShow > 0) && (
+                                        <div className="text-[11px] text-slate-500">{r.meetingsDone} {r.meetingsDone === 1 ? "aconteceu" : "aconteceram"} · {r.meetingsNoShow} no-show</div>
+                                    )}
                                 </div>
                             </div>
                             <div className="mt-1.5 h-1.5 rounded-full bg-slate-200 overflow-hidden">
@@ -712,6 +740,114 @@ function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campa
                 })}
             </ul>
             {untracked > 0 && !full && <p className="mt-2 text-[11px] text-slate-400">{untracked} envios de campanhas antigas ficaram de fora (foram antes do registro de qual mensagem saiu).</p>}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Botao "Reuniao" do contato: marca/edita/desmarca a reuniao (data opcional).
+// ---------------------------------------------------------------------------
+function isoToBRLocal(iso?: string | null): string {
+    if (!iso) return "";
+    const d = new Date(new Date(iso).getTime() - 3 * 3600_000); // Brasil = UTC-3
+    return d.toISOString().slice(0, 16);
+}
+
+const MEETING_OUTCOMES = [
+    { key: "aconteceu", label: "Aconteceu", icon: Check, active: "bg-emerald-600 text-white border-emerald-600", idle: "text-emerald-700 border-emerald-200 hover:bg-emerald-50" },
+    { key: "no_show", label: "No-show", icon: UserX, active: "bg-amber-500 text-white border-amber-500", idle: "text-amber-700 border-amber-200 hover:bg-amber-50" },
+    { key: "cancelada", label: "Cancelada", icon: CalendarX, active: "bg-slate-600 text-white border-slate-600", idle: "text-slate-600 border-slate-200 hover:bg-slate-50" },
+] as const;
+
+const MEETING_BADGE: Record<string, { t: string; cls: string }> = {
+    agendada: { t: "Reunião", cls: "bg-violet-100 text-violet-700 hover:bg-violet-200" },
+    aconteceu: { t: "Reunião feita", cls: "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" },
+    no_show: { t: "No-show", cls: "bg-amber-100 text-amber-700 hover:bg-amber-200" },
+    cancelada: { t: "Reunião cancelada", cls: "bg-slate-200 text-slate-600 hover:bg-slate-300" },
+};
+
+function MeetingButton({ recipient, onChange }: { recipient: any; onChange: (id: string, patch: { meeting_marked_at: string | null; meeting_at: string | null; meeting_outcome?: string | null }) => void }) {
+    const [open, setOpen] = useState(false);
+    const [when, setWhen] = useState(isoToBRLocal(recipient.meeting_at));
+    const [saving, setSaving] = useState(false);
+    const marked = !!recipient.meeting_marked_at;
+
+    async function save(clear = false) {
+        setSaving(true);
+        const res = await setRecipientMeeting(recipient.id, clear ? null : when || null, clear);
+        setSaving(false);
+        if (!res.success) { toast.error(res.error ?? "Erro ao salvar a reunião"); return; }
+        onChange(recipient.id, { meeting_marked_at: res.recipient?.meeting_marked_at ?? null, meeting_at: res.recipient?.meeting_at ?? null, meeting_outcome: res.recipient?.meeting_outcome ?? null });
+        toast.success(clear ? "Reunião removida" : "Reunião marcada");
+        setOpen(false);
+    }
+
+    async function setOutcome(key: "aconteceu" | "no_show" | "cancelada") {
+        const next = recipient.meeting_outcome === key ? null : key; // clicar de novo volta pra "agendada"
+        setSaving(true);
+        const res = await setRecipientMeetingOutcome(recipient.id, next);
+        setSaving(false);
+        if (!res.success) { toast.error(res.error ?? "Erro ao salvar o resultado"); return; }
+        onChange(recipient.id, { meeting_marked_at: res.recipient?.meeting_marked_at ?? null, meeting_at: res.recipient?.meeting_at ?? null, meeting_outcome: res.recipient?.meeting_outcome ?? null });
+        setOpen(false);
+    }
+
+    const badge = MEETING_BADGE[recipient.meeting_outcome ?? "agendada"] ?? MEETING_BADGE.agendada;
+
+    const label = recipient.meeting_at
+        ? new Date(recipient.meeting_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+        : null;
+
+    return (
+        <div className="relative shrink-0">
+            {marked ? (
+                <button type="button" onClick={() => setOpen((o) => !o)} title="Editar reunião ou dar o resultado"
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.cls}`}>
+                    <CalendarCheck size={12} /> {badge.t}{label ? ` ${label}` : ""}
+                </button>
+            ) : (
+                <button type="button" onClick={() => setOpen((o) => !o)} title="Marcar reunião com este contato"
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-500 hover:border-violet-300 hover:text-violet-700">
+                    <CalendarPlus size={12} /> Reunião
+                </button>
+            )}
+            {open && (
+                <div className="absolute right-0 top-full z-10 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                    {marked && (
+                        <div className="mb-3">
+                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Resultado da reunião</p>
+                            <div className="flex gap-1.5">
+                                {MEETING_OUTCOMES.map((o) => {
+                                    const Icon = o.icon;
+                                    const active = recipient.meeting_outcome === o.key;
+                                    return (
+                                        <button key={o.key} type="button" disabled={saving} onClick={() => setOutcome(o.key)}
+                                            className={`flex-1 inline-flex items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-50 ${active ? o.active : o.idle}`}>
+                                            <Icon size={12} /> {o.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1 text-[10px] text-slate-400">Sem resultado = ainda agendada. Clique de novo pra desfazer.</p>
+                        </div>
+                    )}
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Data e hora da reunião (opcional)</label>
+                    <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                    <div className="mt-2.5 flex items-center justify-between gap-2">
+                        {marked ? (
+                            <button type="button" disabled={saving} onClick={() => save(true)} className="text-[12px] font-semibold text-rose-600 hover:underline disabled:opacity-50">Remover</button>
+                        ) : <span />}
+                        <div className="flex items-center gap-1.5">
+                            <button type="button" onClick={() => setOpen(false)} className="rounded-lg px-2.5 py-1 text-[12px] font-semibold text-slate-500 hover:bg-slate-100">Cancelar</button>
+                            <button type="button" disabled={saving} onClick={() => save(false)}
+                                className="rounded-lg bg-violet-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-violet-700 disabled:opacity-50 inline-flex items-center gap-1">
+                                {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Salvar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
