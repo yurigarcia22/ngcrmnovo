@@ -387,6 +387,11 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                                             const n = (campaign.messages ?? []).indexOf(r.message_template);
                                             return <span title={r.message_template} className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{n >= 0 ? `Msg ${n + 1}` : "Msg antiga"}</span>;
                                         })()}
+                                        {!r.replied_at && r.auto_at && (
+                                            <span title={`Resposta automática do robô ${new Date(r.auto_at).toLocaleString("pt-BR")}`} className="shrink-0 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                                                Automática
+                                            </span>
+                                        )}
                                         {r.replied_at && (
                                             <span title={`Respondeu ${new Date(r.replied_at).toLocaleString("pt-BR")}`} className="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
                                                 <MessageCircleReply size={12} /> Respondeu
@@ -656,7 +661,7 @@ function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campa
 
     // Mensagens da campanha que ainda nao sairam aparecem zeradas.
     const rows: MessageStat[] = [...stats];
-    for (const m of order ?? []) if (!rows.some((r) => r.template === m)) rows.push({ template: m, sent: 0, replied: 0, campaigns: [] });
+    for (const m of order ?? []) if (!rows.some((r) => r.template === m)) rows.push({ template: m, sent: 0, replied: 0, auto: 0, campaigns: [] });
 
     if (rows.length === 0) {
         return <p className="text-sm text-slate-400 py-2">Nenhuma mensagem enviada ainda.{untracked > 0 ? ` (${untracked} envios antigos sem registro de qual mensagem saiu.)` : ""}</p>;
@@ -668,7 +673,7 @@ function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campa
 
     return (
         <div>
-            <p className="text-[12px] text-slate-500 mb-3">Resposta = o contato mandou mensagem no mesmo número depois do disparo. A taxa só fica confiável a partir de {AMOSTRA_MINIMA} envios por mensagem.</p>
+            <p className="text-[12px] text-slate-500 mb-3">Só conta resposta de gente. Robô do escritório (boas-vindas, menu, "em breve será atendido", ou qualquer mensagem que chega em menos de 1 minuto) aparece à parte como automática. A taxa fica confiável a partir de {AMOSTRA_MINIMA} envios por mensagem.</p>
             <ul className={full ? "space-y-3" : "space-y-2"}>
                 {rows.map((r, i) => {
                     const pct = Math.round(rate(r) * 1000) / 10;
@@ -695,6 +700,7 @@ function MessageStatsTable({ campaignIds, order, full, refreshKey = 0 }: { campa
                                 <div className="shrink-0 text-right tabular-nums">
                                     <div className="text-lg font-bold text-slate-800 leading-tight">{r.sent ? `${pct.toLocaleString("pt-BR")}%` : "-"}</div>
                                     <div className="text-[11px] text-slate-500">{r.replied} de {r.sent} responderam</div>
+                                    {r.auto > 0 && <div className="text-[11px] text-slate-400">{r.auto} só automática</div>}
                                 </div>
                             </div>
                             <div className="mt-1.5 h-1.5 rounded-full bg-slate-200 overflow-hidden">

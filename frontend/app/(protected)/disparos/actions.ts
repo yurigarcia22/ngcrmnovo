@@ -236,10 +236,15 @@ export async function getCampaignRecipients(campaignId: string, status?: string,
 
         const { data: replies, error: rErr } = await supabase.rpc("dispatch_recipient_replies", { p_tenant: tenantId, p_campaign_ids: [campaignId] });
         if (rErr) throw rErr;
+        // replied_at = resposta de gente; auto_at = resposta automatica (boas-vindas/menu do robo).
         const repliedAt = new Map<string, string>();
-        for (const r of (replies ?? []) as any[]) if (r.replied_at) repliedAt.set(r.recipient_id, r.replied_at);
+        const autoAt = new Map<string, string>();
+        for (const r of (replies ?? []) as any[]) {
+            if (r.replied_at) repliedAt.set(r.recipient_id, r.replied_at);
+            if (r.auto_at) autoAt.set(r.recipient_id, r.auto_at);
+        }
 
-        let recipients = (data ?? []).map((r: any) => ({ ...r, replied_at: repliedAt.get(r.id) ?? null }));
+        let recipients = (data ?? []).map((r: any) => ({ ...r, replied_at: repliedAt.get(r.id) ?? null, auto_at: autoAt.get(r.id) ?? null }));
         if (onlyReplied) recipients = recipients.filter((r: any) => r.replied_at);
         return { success: true, recipients, total: onlyReplied ? recipients.length : (count ?? 0), repliedCount: repliedAt.size };
     } catch (e: any) {
@@ -280,7 +285,8 @@ export async function deleteCampaign(id: string) {
 export interface MessageStat {
     template: string;          // texto da variacao
     sent: number;              // contatos que receberam essa variacao
-    replied: number;           // desses, quantos responderam depois
+    replied: number;           // desses, quantos responderam (gente, nao robo)
+    auto: number;              // quantos so tiveram resposta automatica (boas-vindas/menu)
     campaigns: string[];       // nomes das campanhas onde ela saiu
 }
 
@@ -297,18 +303,19 @@ export async function getMessageStats(campaignIds?: string[] | null) {
         const { data: camps } = await supabase.from("dispatch_campaigns").select("id, name").eq("tenant_id", tenantId);
         const campName = new Map((camps ?? []).map((c: any) => [c.id, c.name]));
 
-        const byTpl = new Map<string, { sent: number; replied: number; campaigns: Set<string> }>();
+        const byTpl = new Map<string, { sent: number; replied: number; auto: number; campaigns: Set<string> }>();
         let untracked = 0;
         for (const r of (data ?? []) as any[]) {
             if (!r.message_template) { untracked++; continue; } // enviados antes do registro por mensagem
-            const g = byTpl.get(r.message_template) ?? { sent: 0, replied: 0, campaigns: new Set<string>() };
+            const g = byTpl.get(r.message_template) ?? { sent: 0, replied: 0, auto: 0, campaigns: new Set<string>() };
             g.sent++;
             if (r.replied_at) g.replied++;
+            else if (r.auto_at) g.auto++;
             g.campaigns.add(campName.get(r.campaign_id) ?? "");
             byTpl.set(r.message_template, g);
         }
         const stats: MessageStat[] = [...byTpl.entries()]
-            .map(([template, g]) => ({ template, sent: g.sent, replied: g.replied, campaigns: [...g.campaigns].filter(Boolean) }))
+            .map(([template, g]) => ({ template, sent: g.sent, replied: g.replied, auto: g.auto, campaigns: [...g.campaigns].filter(Boolean) }))
             .sort((a, b) => (b.sent ? b.replied / b.sent : 0) - (a.sent ? a.replied / a.sent : 0) || b.sent - a.sent);
         return { success: true, stats, untracked };
     } catch (e: any) {
