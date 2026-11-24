@@ -18,8 +18,6 @@ function hourInSaoPaulo(): number {
     return Number(s);
 }
 
-function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
-
 // Verifica no Evolution se a instancia esta conectada (state 'open'). Cache por run.
 async function isInstanceConnected(url: string, token: string, instance: string, cache: Record<string, boolean>): Promise<boolean> {
     if (instance in cache) return cache[instance];
@@ -91,8 +89,11 @@ async function run(req: NextRequest) {
     }
 
     for (const c of campaigns) {
-        // Horario comercial (8h-20h America/Sao_Paulo)
-        if (c.business_hours_only && (hour < 8 || hour >= 20)) {
+        // Janela de envio da campanha (America/Sao_Paulo). Padrao 8h-20h; a campanha
+        // pode ter a propria (ex: 12h-18h quando a mensagem abre com "Boa tarde").
+        const hStart = Number.isFinite(c.send_hour_start) ? c.send_hour_start : 8;
+        const hEnd = Number.isFinite(c.send_hour_end) ? c.send_hour_end : 20;
+        if (c.business_hours_only && (hour < hStart || hour >= hEnd)) {
             results.push({ campaign: c.id, skipped: "fora do horario" });
             continue;
         }
@@ -170,7 +171,20 @@ async function run(req: NextRequest) {
             continue;
         }
 
-        const text = renderMessage(pick(c.messages as string[]), rec.name);
+        // Rodizio equilibrado entre as variacoes: sai a que tem menos envios na campanha
+        // (empate -> sorteio). Assim o painel "qual mensagem responde mais" compara
+        // variacoes com amostras do mesmo tamanho. Grava qual saiu pra cada contato.
+        const msgs = c.messages as string[];
+        const { data: usedRows } = await supabase
+            .from("dispatch_recipients").select("message_template")
+            .eq("campaign_id", c.id).in("status", ["sent", "sending"]).not("message_template", "is", null);
+        const used = new Map<string, number>();
+        for (const u of usedRows ?? []) used.set(u.message_template, (used.get(u.message_template) ?? 0) + 1);
+        const minUse = Math.min(...msgs.map((m) => used.get(m) ?? 0));
+        const candidates = msgs.map((m, i) => i).filter((i) => (used.get(msgs[i]) ?? 0) === minUse);
+        const msgIndex = candidates[Math.floor(Math.random() * candidates.length)];
+        const template = msgs[msgIndex];
+        const text = renderMessage(template, rec.name);
         try {
             const resp = await fetch(`${evolutionUrl}/message/sendText/${encodeURIComponent(c.instance_name)}`, {
                 method: "POST",
@@ -179,7 +193,7 @@ async function run(req: NextRequest) {
                 signal: AbortSignal.timeout(30000),
             });
             if (resp.ok) {
-                await supabase.from("dispatch_recipients").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", rec.id);
+                await supabase.from("dispatch_recipients").update({ status: "sent", sent_at: new Date().toISOString(), message_index: msgIndex, message_template: template }).eq("id", rec.id);
                 await supabase.from("dispatch_campaigns").update({ last_sent_at: new Date().toISOString() }).eq("id", c.id);
                 results.push({ campaign: c.id, sent: rec.phone });
             } else {

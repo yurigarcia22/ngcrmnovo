@@ -222,15 +222,26 @@ export async function getCampaignRecipients(campaignId: string, status?: string,
         const supabase = svc();
         let q = supabase
             .from("dispatch_recipients")
-            .select("id, name, phone, status, sent_at, error", { count: "exact" })
+            .select("id, name, phone, status, sent_at, error, message_index, message_template", { count: "exact" })
             .eq("campaign_id", campaignId)
             .eq("tenant_id", tenantId)
             .order("created_at", { ascending: true })
             .range(offset, offset + limit - 1);
-        if (status && status !== "all") q = q.eq("status", status);
+        // "replied" e calculado (nao e status gravado): filtra depois de cruzar com as respostas.
+        const onlyReplied = status === "replied";
+        if (onlyReplied) q = q.eq("status", "sent");
+        else if (status && status !== "all") q = q.eq("status", status);
         const { data, count, error } = await q;
         if (error) throw error;
-        return { success: true, recipients: data ?? [], total: count ?? 0 };
+
+        const { data: replies, error: rErr } = await supabase.rpc("dispatch_recipient_replies", { p_tenant: tenantId, p_campaign_ids: [campaignId] });
+        if (rErr) throw rErr;
+        const repliedAt = new Map<string, string>();
+        for (const r of (replies ?? []) as any[]) if (r.replied_at) repliedAt.set(r.recipient_id, r.replied_at);
+
+        let recipients = (data ?? []).map((r: any) => ({ ...r, replied_at: repliedAt.get(r.id) ?? null }));
+        if (onlyReplied) recipients = recipients.filter((r: any) => r.replied_at);
+        return { success: true, recipients, total: onlyReplied ? recipients.length : (count ?? 0), repliedCount: repliedAt.size };
     } catch (e: any) {
         return { success: false, recipients: [], total: 0, error: e.message };
     }
@@ -263,5 +274,44 @@ export async function deleteCampaign(id: string) {
         return { success: true };
     } catch (e: any) {
         return { success: false, error: e.message };
+    }
+}
+
+export interface MessageStat {
+    template: string;          // texto da variacao
+    sent: number;              // contatos que receberam essa variacao
+    replied: number;           // desses, quantos responderam depois
+    campaigns: string[];       // nomes das campanhas onde ela saiu
+}
+
+// Desempenho por mensagem: junta as campanhas escolhidas (ou todas) e agrupa pelo
+// texto da variacao. Mesma mensagem em campanhas diferentes soma no mesmo grupo.
+export async function getMessageStats(campaignIds?: string[] | null) {
+    try {
+        const tenantId = await assertDisparos();
+        const supabase = svc();
+        const ids = campaignIds && campaignIds.length ? campaignIds : null;
+        const { data, error } = await supabase.rpc("dispatch_recipient_replies", { p_tenant: tenantId, p_campaign_ids: ids });
+        if (error) throw error;
+
+        const { data: camps } = await supabase.from("dispatch_campaigns").select("id, name").eq("tenant_id", tenantId);
+        const campName = new Map((camps ?? []).map((c: any) => [c.id, c.name]));
+
+        const byTpl = new Map<string, { sent: number; replied: number; campaigns: Set<string> }>();
+        let untracked = 0;
+        for (const r of (data ?? []) as any[]) {
+            if (!r.message_template) { untracked++; continue; } // enviados antes do registro por mensagem
+            const g = byTpl.get(r.message_template) ?? { sent: 0, replied: 0, campaigns: new Set<string>() };
+            g.sent++;
+            if (r.replied_at) g.replied++;
+            g.campaigns.add(campName.get(r.campaign_id) ?? "");
+            byTpl.set(r.message_template, g);
+        }
+        const stats: MessageStat[] = [...byTpl.entries()]
+            .map(([template, g]) => ({ template, sent: g.sent, replied: g.replied, campaigns: [...g.campaigns].filter(Boolean) }))
+            .sort((a, b) => (b.sent ? b.replied / b.sent : 0) - (a.sent ? a.replied / a.sent : 0) || b.sent - a.sent);
+        return { success: true, stats, untracked };
+    } catch (e: any) {
+        return { success: false, stats: [] as MessageStat[], untracked: 0, error: e.message };
     }
 }

@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import {
     Send, Plus, Play, Pause, Trash2, Users, Upload, Clock, ArrowLeft,
-    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X, Search,
+    Loader2, Check, Megaphone, AlertTriangle, Smartphone, CheckCircle2, XCircle, WifiOff, Pencil, X, Search, MessageCircleReply, Trophy,
 } from "lucide-react";
-import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign, getCampaignRecipients } from "./actions";
+import { createCampaign, setCampaignStatus, deleteCampaign, getDispatchLive, updateCampaign, getCampaignRecipients, getMessageStats, type MessageStat } from "./actions";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -16,6 +16,7 @@ interface Campaign {
     total: number; sent: number; failed: number; pending: number;
     instanceConnected?: boolean; last_sent_at?: string | null;
     messages?: string[]; business_hours_only?: boolean; pause_reason?: string | null;
+    send_hour_start?: number; send_hour_end?: number;
     instanceLabel?: string;
 }
 
@@ -143,6 +144,8 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                     <button onClick={() => setView("new")} className="mt-3 text-indigo-600 font-semibold hover:underline">Criar a primeira</button>
                 </div>
             ) : (
+                <>
+                <MessagePerformance campaigns={campaigns} refreshKey={campaigns.reduce((n, c) => n + c.sent, 0)} />
                 <div className="space-y-3">
                     {campaigns.map((c) => {
                         const st = STATUS[c.status] ?? STATUS.draft;
@@ -220,6 +223,7 @@ export default function DisparosClient({ initialCampaigns, instances }: { initia
                         );
                     })}
                 </div>
+                </>
             )}
 
             {editing && (
@@ -258,6 +262,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+    const [repliedCount, setRepliedCount] = useState<number | null>(null);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -272,6 +277,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
             if (!active) return;
             setRecipients(res.recipients ?? []);
             setTotal(res.total ?? 0);
+            if (typeof (res as any).repliedCount === "number") setRepliedCount((res as any).repliedCount);
             setLoading(false);
         });
         return () => { active = false; };
@@ -288,6 +294,7 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
         { k: "sent", label: `Enviados (${campaign.sent})` },
         { k: "failed", label: `Falhas (${campaign.failed})` },
         { k: "pending", label: `Pendentes (${campaign.pending})` },
+        { k: "replied", label: `Responderam${repliedCount !== null ? ` (${repliedCount})` : ""}` },
     ];
 
     return (
@@ -321,15 +328,10 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                     </div>
                 </div>
 
-                {/* Mensagens usadas */}
+                {/* Desempenho de cada mensagem nesta campanha */}
                 {campaign.messages && campaign.messages.length > 0 && (
-                    <div className="px-5 pt-4">
-                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Mensagens ({campaign.messages.length} {campaign.messages.length === 1 ? "variação" : "variações"})</p>
-                        <div className="space-y-1.5 max-h-28 overflow-y-auto">
-                            {campaign.messages.map((m, i) => (
-                                <div key={i} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 text-[12px] text-slate-600 whitespace-pre-wrap line-clamp-3">{m}</div>
-                            ))}
-                        </div>
+                    <div className="px-5 pt-4 max-h-64 overflow-y-auto">
+                        <MessageStatsTable campaignIds={[campaign.id]} order={campaign.messages} compact />
                     </div>
                 )}
 
@@ -368,6 +370,15 @@ function CampaignDetailModal({ campaign, onClose, onEdit }: { campaign: Campaign
                                             <div className="text-sm font-medium text-slate-800 truncate">{r.name || "—"}</div>
                                             <div className="text-[12px] text-slate-500 font-mono">{r.phone}{r.error ? <span className="ml-2 font-sans text-rose-500">· {String(r.error).slice(0, 60)}</span> : ""}</div>
                                         </div>
+                                        {r.message_template && (() => {
+                                            const n = (campaign.messages ?? []).indexOf(r.message_template);
+                                            return <span title={r.message_template} className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{n >= 0 ? `Msg ${n + 1}` : "Msg antiga"}</span>;
+                                        })()}
+                                        {r.replied_at && (
+                                            <span title={`Respondeu ${new Date(r.replied_at).toLocaleString("pt-BR")}`} className="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                                <MessageCircleReply size={12} /> Respondeu
+                                            </span>
+                                        )}
                                         <span className={`text-[11px] font-semibold shrink-0 ${ds.text}`}>{ds.t}</span>
                                     </li>
                                 );
@@ -458,7 +469,7 @@ function EditCampaignModal({ campaign, instances, onClose, onSaved }: { campaign
                     <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Intervalo mín (s)</label><input type="number" value={intervalMin} onChange={(e) => setIntervalMin(Number(e.target.value))} className="ed-inp" /></div>
                     <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Intervalo máx (s)</label><input type="number" value={intervalMax} onChange={(e) => setIntervalMax(Number(e.target.value))} className="ed-inp" /></div>
                     <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Cap diário</label><input type="number" value={dailyCap} onChange={(e) => setDailyCap(Number(e.target.value))} className="ed-inp" /></div>
-                    <label className="flex items-end gap-2 text-sm text-slate-600 pb-2"><input type="checkbox" checked={businessHours} onChange={(e) => setBusinessHours(e.target.checked)} /> Só 8h-20h</label>
+                    <label className="flex items-end gap-2 text-sm text-slate-600 pb-2"><input type="checkbox" checked={businessHours} onChange={(e) => setBusinessHours(e.target.checked)} /> Só {campaign.send_hour_start ?? 8}h-{campaign.send_hour_end ?? 20}h</label>
                 </div>
 
                 <div className="flex gap-2">
@@ -579,6 +590,104 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>
             {children}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Desempenho das mensagens: quantas vezes cada variacao saiu e quantos responderam.
+// ---------------------------------------------------------------------------
+const AMOSTRA_MINIMA = 20; // abaixo disso a taxa ainda oscila muito
+
+function MessagePerformance({ campaigns, refreshKey }: { campaigns: Campaign[]; refreshKey: number }) {
+    const [selected, setSelected] = useState<string>("all");
+    const ids = selected === "all" ? null : [selected];
+    const order = selected === "all" ? undefined : campaigns.find((c) => c.id === selected)?.messages;
+    return (
+        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <div className="flex items-center gap-2">
+                    <Trophy size={17} className="text-amber-500" />
+                    <h2 className="font-semibold text-slate-800">Qual mensagem responde mais</h2>
+                </div>
+                <select value={selected} onChange={(e) => setSelected(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200 max-w-full">
+                    <option value="all">Todas as campanhas</option>
+                    {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+            </div>
+            <MessageStatsTable campaignIds={ids} order={order} refreshKey={refreshKey} />
+        </div>
+    );
+}
+
+function MessageStatsTable({ campaignIds, order, compact, refreshKey = 0 }: { campaignIds: string[] | null; order?: string[]; compact?: boolean; refreshKey?: number }) {
+    const [stats, setStats] = useState<MessageStat[] | null>(null);
+    const [untracked, setUntracked] = useState(0);
+    const [open, setOpen] = useState<string | null>(null);
+    const key = (campaignIds ?? []).join(",");
+
+    useEffect(() => {
+        let active = true;
+        getMessageStats(campaignIds).then((res) => {
+            if (!active) return;
+            setStats(res.stats ?? []);
+            setUntracked(res.untracked ?? 0);
+        });
+        return () => { active = false; };
+    }, [key, refreshKey]);
+
+    if (stats === null) return <div className="flex justify-center py-4"><Loader2 className="animate-spin text-slate-300" size={18} /></div>;
+
+    // Mensagens da campanha que ainda nao sairam aparecem zeradas.
+    const rows: MessageStat[] = [...stats];
+    for (const m of order ?? []) if (!rows.some((r) => r.template === m)) rows.push({ template: m, sent: 0, replied: 0, campaigns: [] });
+
+    if (rows.length === 0) {
+        return <p className="text-sm text-slate-400 py-2">Nenhuma mensagem enviada ainda.{untracked > 0 ? ` (${untracked} envios antigos sem registro de qual mensagem saiu.)` : ""}</p>;
+    }
+
+    const rate = (r: MessageStat) => (r.sent ? r.replied / r.sent : 0);
+    const best = Math.max(...rows.map(rate));
+    const label = (t: string) => { const n = (order ?? []).indexOf(t); return n >= 0 ? `Msg ${n + 1}` : null; };
+
+    return (
+        <div>
+            {!compact && <p className="text-[12px] text-slate-500 mb-2">Resposta = o contato mandou mensagem no mesmo número depois do disparo. A taxa só fica confiável a partir de {AMOSTRA_MINIMA} envios por mensagem.</p>}
+            {compact && <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Mensagens ({rows.length}) · envios e respostas</p>}
+            <ul className="space-y-2">
+                {rows.map((r, i) => {
+                    const pct = Math.round(rate(r) * 1000) / 10;
+                    const leader = r.sent >= AMOSTRA_MINIMA && rate(r) === best && best > 0;
+                    const isOpen = open === r.template;
+                    return (
+                        <li key={i} className={`rounded-lg border px-3 py-2 ${leader ? "border-amber-300 bg-amber-50/50" : "border-slate-100 bg-slate-50"}`}>
+                            <div className="flex items-start gap-3">
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                        {label(r.template) && <span className="rounded bg-white border border-slate-200 px-1.5 text-[10px] font-bold text-slate-500">{label(r.template)}</span>}
+                                        {leader && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"><Trophy size={12} /> melhor taxa</span>}
+                                    </div>
+                                    <button type="button" onClick={() => setOpen(isOpen ? null : r.template)}
+                                        className={`text-left text-[12px] text-slate-600 whitespace-pre-wrap ${isOpen ? "" : "line-clamp-2"}`}>
+                                        {r.template}
+                                    </button>
+                                    {!compact && r.campaigns.length > 0 && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{r.campaigns.join(" · ")}</p>}
+                                </div>
+                                <div className="shrink-0 text-right tabular-nums">
+                                    <div className="text-lg font-bold text-slate-800 leading-tight">{r.sent ? `${pct.toLocaleString("pt-BR")}%` : "-"}</div>
+                                    <div className="text-[11px] text-slate-500">{r.replied} de {r.sent} responderam</div>
+                                </div>
+                            </div>
+                            <div className="mt-1.5 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                                <div className={`h-full ${leader ? "bg-amber-400" : "bg-indigo-400"} transition-[width] duration-700`} style={{ width: `${best ? (rate(r) / best) * 100 : 0}%` }} />
+                            </div>
+                            {r.sent > 0 && r.sent < AMOSTRA_MINIMA && <p className="mt-1 text-[10px] text-slate-400">amostra pequena ({r.sent} envios)</p>}
+                        </li>
+                    );
+                })}
+            </ul>
+            {untracked > 0 && !compact && <p className="mt-2 text-[11px] text-slate-400">{untracked} envios de campanhas antigas ficaram de fora (foram antes do registro de qual mensagem saiu).</p>}
         </div>
     );
 }
