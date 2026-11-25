@@ -143,9 +143,33 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
 
     const notesEndRef = useRef<HTMLDivElement>(null);
 
+    // Observacao digitada e nao enviada nunca se perde: ao fechar o lead ou trocar
+    // pro proximo, o que ficou na caixa e salvo sozinho no historico do lead certo.
+    const draftRef = useRef<{ leadId: string; text: string }>({ leadId: lead.id, text: "" });
+    useEffect(() => { draftRef.current.text = currentNote; }, [currentNote]);
+    useEffect(() => {
+        if (!isOpen) return;
+        const leadId = lead.id;
+        draftRef.current = { leadId, text: "" };
+        return () => {
+            const text = draftRef.current.leadId === leadId ? draftRef.current.text.trim() : "";
+            draftRef.current = { leadId: "", text: "" };
+            if (!text) return;
+            addColdLeadNote(leadId, text).then((r) => {
+                if (r.success) toast.success("Observação que estava na caixa foi salva no lead");
+                else toast.error("Não consegui salvar a observação que estava na caixa", { description: r.error });
+            });
+        };
+    }, [isOpen, lead.id]);
+
+    // A caixa so limpa quando abre o modal ou troca de lead. Antes limpava tambem
+    // quando o lead era atualizado (ex.: clicar numa Acao Rapida) e o texto sumia.
+    useEffect(() => {
+        if (isOpen) setCurrentNote("");
+    }, [isOpen, lead.id]);
+
     useEffect(() => {
         if (isOpen) {
-            setCurrentNote("");
             setIsMeetingMode(false);
             setMeetingDate("");
             setIsEditing(false);
@@ -188,12 +212,22 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
     const handleStageAction = async (stage: any) => {
         setLoading(true);
         try {
+            // Se tem observacao digitada, salva antes da acao (fica no historico
+            // logo acima do chip da interacao).
+            const note = currentNote.trim();
+            if (note) {
+                const nr = await addColdLeadNote(lead.id, note);
+                if (!nr.success) throw new Error(`Não salvei a observação: ${nr.error}`);
+                draftRef.current.text = "";
+                setCurrentNote("");
+            }
             const res: any = await registerColdLeadStage(lead.id, stage.id);
             if (!res.success) throw new Error(res.error || "Falha ao registrar");
             // moved=false: a etapa-alvo estava atras da atual, entao so registrou a
             // interacao (nao regride o lead). Feedback coerente com o que aconteceu.
             toast.success(res.moved === false ? `Interação registrada · ${stage.name}` : `Movido para ${stage.name}`);
             for (const w of res.warnings ?? []) toast.warning(w);
+            fetchNotes();
             if (res.data) (onLeadUpdate ?? onActionComplete)(res.data as ColdLead);
 
             // Discagem automatica ligada: ao registrar a acao, ja pula pro proximo
@@ -290,7 +324,10 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             toast.success(updatedLead?.moved === false ? "Interação registrada (o lead continua na etapa atual)" : "Resultado registrado!");
             for (const w of updatedLead?.warnings ?? []) toast.warning(w);
             setIsMeetingMode(false);
-            if (currentNote.trim()) setCurrentNote("");
+            if (currentNote.trim()) {
+                draftRef.current.text = ""; // ja foi junto (notas) pro historico
+                setCurrentNote("");
+            }
             fetchNotes();
 
             // Atualiza o lead em tela e MANTEM o modal no lead atual.
@@ -369,6 +406,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
             toast.success(upd?.converted_deal_id ? "Reunião agendada e lead convertido em venda!" : "Reunião agendada!");
             for (const w of upd?.warnings ?? []) toast.warning(w);
             setIsMeetingMode(false);
+            draftRef.current.text = ""; // ja foi junto (notas) pro historico
             setCurrentNote("");
             (onLeadUpdate ?? onActionComplete)(upd);
             setTimeout(() => onClose(), 500);
@@ -450,6 +488,7 @@ function ColdLeadModalComponent({ lead, isOpen, onClose, teamMembers, pipelines,
     const handleSendNote = async () => {
         if (!currentNote.trim()) return;
         const noteToSend = currentNote;
+        draftRef.current.text = "";
         setCurrentNote(""); // Optimistic clear
 
         // Add to list optimistically? Or wait? Wait is safer for ID. 
