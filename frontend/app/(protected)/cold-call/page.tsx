@@ -25,6 +25,7 @@ import { dial } from '@/lib/dialer';
 import { useAutoDial } from '@/hooks/useAutoDial';
 import { FollowUpMetrics } from '@/components/cold-call/FollowUpMetrics';
 import { FollowUpBoard } from '@/components/cold-call/FollowUpBoard';
+import { FollowUpCalendar, type AgendaView } from '@/components/cold-call/FollowUpCalendar';
 import { getColdCallFollowups, updateColdCallFollowup } from '@/app/actions';
 
 export default function ColdCallPage() {
@@ -32,6 +33,18 @@ export default function ColdCallPage() {
     const queryClient = useQueryClient();
     // Top-level Navigation State
     const [activeTab, setActiveTab] = useState<'cold-call' | 'follow-ups'>('cold-call');
+    // Visao dos follow-ups: quadro de hoje ou agenda (dia, semana, mes). Lembra a ultima escolha.
+    const [followupView, setFollowupViewState] = useState<'hoje' | AgendaView>('hoje');
+    useEffect(() => {
+        try {
+            const v = window.localStorage.getItem('coldcall.followupView');
+            if (v === 'hoje' || v === 'dia' || v === 'semana' || v === 'mes') setFollowupViewState(v);
+        } catch { /* sem localStorage: fica no padrao */ }
+    }, []);
+    const setFollowupView = useCallback((v: 'hoje' | AgendaView) => {
+        setFollowupViewState(v);
+        try { window.localStorage.setItem('coldcall.followupView', v); } catch { /* ignora */ }
+    }, []);
     const [filters, setFilters] = useState({
         search: '',
         nicho: 'all',
@@ -549,8 +562,10 @@ export default function ColdCallPage() {
                     onClick={() => setActiveTab('follow-ups')}
                     className={`px-6 py-2 rounded-md font-semibold text-sm transition-all flex items-center gap-2 ${activeTab === 'follow-ups' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                    Follow-ups do Dia
-                    <span className="bg-red-500 text-white text-[10px] uppercase px-2 py-0.5 rounded-full font-bold">Hoje</span>
+                    Follow-ups
+                    {followups.length > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold" title="Pra hoje e atrasados">{followups.length}</span>
+                    )}
                 </button>
             </div>
 
@@ -707,6 +722,24 @@ export default function ColdCallPage() {
 
             {activeTab === 'follow-ups' && (
                 <div className="animate-in fade-in zoom-in-95 duration-200">
+                    <div className="flex bg-slate-100 p-1 rounded-lg w-fit mb-4 ml-2">
+                        {([['hoje', 'Hoje'], ['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês']] as const).map(([v, label]) => (
+                            <button
+                                key={v}
+                                onClick={() => setFollowupView(v)}
+                                className={`px-4 py-1.5 rounded-md font-semibold text-sm transition-all ${followupView === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {followupView !== 'hoje' ? (
+                        <FollowUpCalendar
+                            view={followupView}
+                            onViewChange={setFollowupView}
+                            onOpenLead={openLeadById}
+                        />
+                    ) : (
                     <FollowUpBoard
                         followups={followups}
                         onRowClick={(followup) => {
@@ -748,6 +781,7 @@ export default function ColdCallPage() {
                             }
                         }}
                     />
+                    )}
                 </div>
             )}
 

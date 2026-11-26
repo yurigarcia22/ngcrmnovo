@@ -3741,7 +3741,7 @@ export async function createColdCallFollowup(data: Omit<any, 'id' | 'created_at'
     }
 }
 
-export async function getColdCallFollowups(filters?: { status?: string, periodo?: string, date?: string, leadId?: string }) {
+export async function getColdCallFollowups(filters?: { status?: string, periodo?: string, date?: string, leadId?: string, dateFrom?: string, dateTo?: string }) {
     try {
         const tenantId = await getTenantId();
         const supabase = createClient(
@@ -3761,6 +3761,9 @@ export async function getColdCallFollowups(filters?: { status?: string, periodo?
         if (filters?.periodo) query = query.eq('periodo', filters.periodo);
         if (filters?.date) query = query.eq('data_agendada', filters.date);
         if (filters?.leadId) query = query.eq('cold_lead_id', filters.leadId);
+        // Intervalo de datas (agenda Dia/Semana/Mes), YYYY-MM-DD inclusivo.
+        if (filters?.dateFrom) query = query.gte('data_agendada', filters.dateFrom);
+        if (filters?.dateTo) query = query.lte('data_agendada', filters.dateTo);
 
         query = query.order("data_agendada", { ascending: true });
 
