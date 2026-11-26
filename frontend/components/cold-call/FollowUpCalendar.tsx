@@ -143,10 +143,12 @@ function DropZone({ id, active, onDragOverZone, onDropZone, className, children 
     );
 }
 
-export function FollowUpCalendar({ view, onViewChange, onOpenLead }: {
+export function FollowUpCalendar({ view, onViewChange, onOpenLead, typeFilter }: {
     view: AgendaView;
     onViewChange: (v: AgendaView) => void;
     onOpenLead: (leadId: string) => void;
+    /** Tipos de acao a mostrar (ligacao, whatsapp, email...). Vazio = todos. */
+    typeFilter?: string[];
 }) {
     const queryClient = useQueryClient();
     const today = todayBR();
@@ -171,7 +173,11 @@ export function FollowUpCalendar({ view, onViewChange, onOpenLead }: {
         },
         staleTime: 30_000,
     });
-    const items: any[] = agendaQuery.data ?? [];
+    const allItems: any[] = agendaQuery.data ?? [];
+    const items: any[] = useMemo(
+        () => (typeFilter && typeFilter.length ? allItems.filter((f) => typeFilter.includes(f.tipo_acao)) : allItems),
+        [allItems, typeFilter],
+    );
 
     const byDay = useMemo(() => {
         const map = new Map<string, any[]>();

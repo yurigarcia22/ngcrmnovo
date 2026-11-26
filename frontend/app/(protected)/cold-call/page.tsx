@@ -24,7 +24,7 @@ import { DialerSettingsButton } from '@/components/cold-call/DialerSettings';
 import { dial } from '@/lib/dialer';
 import { useAutoDial } from '@/hooks/useAutoDial';
 import { FollowUpMetrics } from '@/components/cold-call/FollowUpMetrics';
-import { FollowUpBoard } from '@/components/cold-call/FollowUpBoard';
+import { FollowUpBoard, ACTION_META } from '@/components/cold-call/FollowUpBoard';
 import { FollowUpCalendar, type AgendaView } from '@/components/cold-call/FollowUpCalendar';
 import { getColdCallFollowups, updateColdCallFollowup } from '@/app/actions';
 
@@ -44,6 +44,19 @@ export default function ColdCallPage() {
     const setFollowupView = useCallback((v: 'hoje' | AgendaView) => {
         setFollowupViewState(v);
         try { window.localStorage.setItem('coldcall.followupView', v); } catch { /* ignora */ }
+    }, []);
+    // Filtro por tipo de acao (ligacao, whatsapp, e-mail...). Vazio = todos. Lembra a escolha.
+    const [followupTypes, setFollowupTypesState] = useState<string[]>([]);
+    useEffect(() => {
+        try {
+            const raw = window.localStorage.getItem('coldcall.followupTypes');
+            const v = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(v)) setFollowupTypesState(v.filter((x) => typeof x === 'string' && x in ACTION_META));
+        } catch { /* ignora */ }
+    }, []);
+    const setFollowupTypes = useCallback((next: string[]) => {
+        setFollowupTypesState(next);
+        try { window.localStorage.setItem('coldcall.followupTypes', JSON.stringify(next)); } catch { /* ignora */ }
     }, []);
     const [filters, setFilters] = useState({
         search: '',
@@ -87,6 +100,10 @@ export default function ColdCallPage() {
         staleTime: 30_000,
     });
     const followups: any[] = followupsQuery.data ?? [];
+    // O que aparece no quadro de hoje depois do filtro por tipo (as metricas do topo seguem com tudo).
+    const followupsShown: any[] = followupTypes.length
+        ? followups.filter((f) => followupTypes.includes(f.tipo_acao))
+        : followups;
 
     // Concluidos de HOJE em query separada: a lista principal so busca
     // pendente/atrasado (senao o board mostraria concluidos), entao a metrica
@@ -722,7 +739,8 @@ export default function ColdCallPage() {
 
             {activeTab === 'follow-ups' && (
                 <div className="animate-in fade-in zoom-in-95 duration-200">
-                    <div className="flex bg-slate-100 p-1 rounded-lg w-fit mb-4 ml-2">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 ml-2">
+                    <div className="flex bg-slate-100 p-1 rounded-lg w-fit">
                         {([['hoje', 'Hoje'], ['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês']] as const).map(([v, label]) => (
                             <button
                                 key={v}
@@ -733,15 +751,44 @@ export default function ColdCallPage() {
                             </button>
                         ))}
                     </div>
+                    {/* Filtro por tipo: clicar liga/desliga; nenhum marcado = todos */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-500 mr-0.5">Tipo:</span>
+                        <button
+                            onClick={() => setFollowupTypes([])}
+                            className={`px-2.5 py-1 rounded-md border text-xs font-semibold transition ${followupTypes.length === 0 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        >
+                            Todos{followupView === 'hoje' ? ` (${followups.length})` : ''}
+                        </button>
+                        {Object.entries(ACTION_META).map(([key, meta]) => {
+                            const on = followupTypes.includes(key);
+                            const Icon = meta.Icon;
+                            const count = followups.filter((f) => f.tipo_acao === key).length;
+                            return (
+                                <button
+                                    key={key}
+                                    onClick={() => setFollowupTypes(on ? followupTypes.filter((t) => t !== key) : [...followupTypes, key])}
+                                    aria-pressed={on}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs font-semibold transition ${on ? meta.chip + ' ring-1 ring-current' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                                >
+                                    <Icon className="w-3 h-3" />
+                                    {meta.label}
+                                    {followupView === 'hoje' && count > 0 && <span className="opacity-70">({count})</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    </div>
                     {followupView !== 'hoje' ? (
                         <FollowUpCalendar
                             view={followupView}
                             onViewChange={setFollowupView}
                             onOpenLead={openLeadById}
+                            typeFilter={followupTypes}
                         />
                     ) : (
                     <FollowUpBoard
-                        followups={followups}
+                        followups={followupsShown}
                         onRowClick={(followup) => {
                             openLeadById(followup.cold_lead_id);
                         }}
@@ -752,8 +799,8 @@ export default function ColdCallPage() {
                                 if (res.success) {
                                     toast.success('Follow-up concluído!');
                                     // Find the current followup index and advance to next
-                                    const currentIndex = followups.findIndex(f => f.id === id);
-                                    const nextFollowup = followups[currentIndex + 1];
+                                    const currentIndex = followupsShown.findIndex(f => f.id === id);
+                                    const nextFollowup = followupsShown[currentIndex + 1];
                                     if (nextFollowup) {
                                         openLeadById(nextFollowup.cold_lead_id);
                                     }
